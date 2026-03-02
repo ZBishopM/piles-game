@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # ── Backend + Frontend ──────────────────────────────────────────────────────
+  app:
+    build: .
+    container_name: piles-app
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── PostgreSQL (descomenta cuando implementes la BD) ────────────────────────
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: piles-postgres
+  #   environment:
+  #     POSTGRES_USER: piles_user
+  #     POSTGRES_PASSWORD: piles_password
+  #     POSTGRES_DB: piles_db
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #     - ./server/migrations:/docker-entrypoint-initdb.d
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U piles_user -d piles_db"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# volumes:
+#   postgres_data:
+#     driver: local

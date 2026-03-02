@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piles! - Juego de Cartas</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 Piles!</h1>
+            <p class="subtitle">Juego de Cartas Multijugador</p>
+        </header>
+
+        <main>
+            <section class="test-section">
+                <h2>Prueba de Conexión con el Servidor</h2>
+
+                <div class="test-box">
+                    <h3>Estado del Servidor</h3>
+                    <button id="testConnection" class="btn btn-primary">Probar Conexión</button>
+                    <div id="serverStatus" class="status-message"></div>
+                </div>
+
+                <div class="test-box">
+                    <h3>Health Check</h3>
+                    <button id="testHealth" class="btn btn-secondary">Verificar Health</button>
+                    <div id="healthStatus" class="status-message"></div>
+                </div>
+            </section>
+
+            <section class="info-section">
+                <h2>Información del Juego</h2>
+                <ul>
+                    <li>Multijugador: 2-8 jugadores</li>
+                    <li>Objetivo: Completar 6 sets de 4 prendas idénticas</li>
+                    <li>Quick Time Events (QTE) para resolver conflictos</li>
+                    <li>Sistema de puntuación persistente</li>
+                </ul>
+            </section>
+        </main>
+
+        <footer>
+            <p>Fase 1: Servidor Básico ✅</p>
+        </footer>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

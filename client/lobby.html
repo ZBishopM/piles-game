@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Piles! - Lobby</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        :root {
+            --accent: #667eea;
+            --success: #28a745;
+            --danger: #dc3545;
+            --warning: #ffc107;
+        }
+
+        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
+
+        .screen { display: none; }
+        .screen.active { display: block; }
+
+        /* ── HOME ── */
+        #homeScreen {
+            max-width: 480px;
+            margin: 60px auto;
+            padding: 20px;
+            background: #16213e;
+            border-radius: 16px;
+        }
+        #homeScreen h1 { text-align: center; font-size: 2.5rem; color: var(--accent); margin-bottom: 4px; }
+        #homeScreen .subtitle { text-align: center; color: #999; margin-bottom: 28px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; color: #ccc; font-size: 0.9rem; }
+        .form-group input {
+            width: 100%; padding: 10px 14px; border: 2px solid #2a2a5a;
+            border-radius: 8px; background: #0f3460; color: #eee; font-size: 1rem; box-sizing: border-box;
+        }
+        .form-group input:focus { outline: none; border-color: var(--accent); }
+        .divider { text-align: center; color: #555; margin: 20px 0; font-size: 0.9rem; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-top: 8px; }
+        .btn-primary { background: var(--accent); color: white; }
+        .btn-secondary { background: #2a2a5a; color: #ccc; }
+        .btn:hover { opacity: 0.88; }
+        #connStatus { text-align: center; margin-top: 16px; font-size: 0.85rem; }
+
+        /* ── LOBBY ── */
+        #lobbyScreen {
+            max-width: 560px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        .lobby-code-box {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .lobby-code-box small { color: #888; font-size: 0.8rem; }
+        .lobby-code {
+            font-size: 2.6rem;
+            font-weight: bold;
+            color: var(--accent);
+            letter-spacing: 0.3em;
+        }
+        .player-list { list-style: none; padding: 0; margin: 0; }
+        .player-item {
+            background: #16213e;
+            padding: 14px 18px;
+            margin: 8px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-left: 4px solid #2a2a5a;
+        }
+        .player-item.ready { border-left-color: var(--success); }
+        .ready-status { font-size: 0.85rem; }
+        #readyBtn {
+            width: 100%; padding: 14px; margin-top: 16px;
+            border: none; border-radius: 10px; font-size: 1.1rem; cursor: pointer;
+            background: var(--accent); color: white;
+        }
+        #readyBtn.active { background: #e74c3c; }
+        #readyCount { text-align: center; color: #888; margin-top: 10px; font-size: 0.9rem; }
+
+        /* ── GAME ── */
+        #gameScreen {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 12px;
+            display: none;
+        }
+        #gameScreen.active { display: block; }
+
+        .game-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #16213e;
+            border-radius: 10px;
+            padding: 10px 16px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+        .game-header strong { color: #eee; }
+
+        /* Instrucción de swap */
+        #swapHint {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 8px 14px;
+            text-align: center;
+            font-size: 0.85rem;
+            color: #aaa;
+            margin-bottom: 10px;
+        }
+        #swapHint.selected { background: #1a4a7a; color: #fff; }
+
+        /* Cartas del centro */
+        .section-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #888;
+            margin-bottom: 6px;
+        }
+        .card-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        .card {
+            aspect-ratio: 2/3;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 0.78rem;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s, outline 0.1s;
+            word-wrap: break-word;
+            line-height: 1.2;
+            color: rgba(0,0,0,0.7);
+            position: relative;
+        }
+        .card:hover { transform: translateY(-3px); box-shadow: 0 5px 12px rgba(0,0,0,0.5); }
+        .card.selected {
+            outline: 3px solid #fff;
+            box-shadow: 0 0 0 5px rgba(255,255,255,0.25);
+            transform: translateY(-4px) scale(1.04);
+        }
+        /* Botones de sets */
+        .set-nav {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .set-btn {
+            flex: 1;
+            min-width: 48px;
+            padding: 8px 4px;
+            border: 2px solid #2a2a5a;
+            border-radius: 8px;
+            background: #16213e;
+            color: #888;
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-align: center;
+        }
+        .set-btn:hover { border-color: var(--accent); color: #ccc; }
+        .set-btn.active { border-color: var(--accent); background: #0f3460; color: #fff; }
+        .set-btn.flipped { border-style: dashed; }
+        .set-btn .set-eye { display: block; font-size: 0.55rem; color: #aaa; }
+
+        /* Jugadores progreso */
+        .players-progress {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 12px;
+        }
+        .player-progress-chip {
+            background: #16213e;
+            border-radius: 20px;
+            padding: 4px 12px;
+            font-size: 0.8rem;
+            color: #aaa;
+        }
+        .player-progress-chip.finished { color: var(--success); }
+
+        /* Botón voltear set */
+        #flipBtn {
+            padding: 8px 16px;
+            border: 1px solid #4a5a9a;
+            border-radius: 8px;
+            background: transparent;
+            color: #aaa;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 8px;
+        }
+        #flipBtn:hover { background: rgba(74,90,154,0.2); color: #eee; }
+        #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: rgba(102,126,234,0.1); }
+
+        /* Panel de oponentes */
+        #opponentPanel {
+            margin-top: 14px;
+            display: none;
+        }
+        #opponentPanel.has-data { display: block; }
+        .opponent-entry {
+            background: #16213e;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+        }
+        .opponent-name {
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 6px;
+        }
+        .opponent-sets {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .opponent-set-slot {
+            width: 48px;
+            height: 64px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.6rem;
+            font-weight: bold;
+            text-align: center;
+            padding: 4px;
+            box-sizing: border-box;
+            color: rgba(0,0,0,0.65);
+            line-height: 1.2;
+        }
+        .opponent-set-slot.hidden {
+            background: #2a2a5a;
+            color: #555;
+        }
+
+        /* Botón verificar — fijo en esquina inferior derecha */
+        #verifyBtn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 22px;
+            border: 2px solid var(--warning);
+            border-radius: 10px;
+            background: #1a1a2e;
+            color: var(--warning);
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            z-index: 40;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        #verifyBtn:hover:not(:disabled) { background: rgba(255,193,7,0.15); }
+        #verifyBtn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* Overlay de verificación */
+        #verifyOverlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+        #verifyOverlay.active { display: flex; }
+        .verify-box {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 32px;
+            min-width: 340px;
+            max-width: 500px;
+            width: 90%;
+        }
+        .verify-box h2 { text-align: center; margin: 0 0 20px; font-size: 1.1rem; color: #ccc; }
+        .verify-set-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 0;
+            border-bottom: 1px solid #1e2a4a;
+            font-size: 0.9rem;
+        }
+        .verify-set-row:last-of-type { border-bottom: none; }
+        .verify-set-label { width: 52px; color: #888; flex-shrink: 0; }
+        .verify-cards { display: flex; gap: 4px; flex: 1; }
+        .verify-card-mini {
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 0.7rem;
+            font-weight: bold;
+            color: rgba(0,0,0,0.7);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 70px;
+        }
+        .verify-icon { width: 28px; text-align: center; font-size: 1.1rem; flex-shrink: 0; }
+        .verify-footer { text-align: center; margin-top: 20px; font-size: 1rem; min-height: 28px; }
+        .verify-footer.success { color: var(--success); }
+        .verify-footer.failure { color: var(--danger); }
+        #verifyCloseBtn {
+            width: 100%; padding: 10px; margin-top: 16px;
+            border: none; border-radius: 8px; background: #2a2a5a;
+            color: #ccc; cursor: pointer; font-size: 0.9rem; display: none;
+        }
+
+        /* Notificaciones de otros jugadores verificando */
+        .verify-notif {
+            background: rgba(15, 25, 55, 0.96);
+            border: 1px solid #2a3a6a;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 0.78rem;
+            animation: slideIn 0.3s ease;
+        }
+        @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+        .vnotif-header { color: #ccc; margin-bottom: 5px; font-weight: bold; }
+        .vnotif-sets { display: flex; gap: 3px; }
+        .verify-notif.success { border-color: var(--success); }
+        .verify-notif.failure { border-color: var(--danger); }
+
+        /* ── QTE ── */
+        #qteOverlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.92);
+            z-index: 150;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        #qteOverlay.active { display: flex; }
+        .qte-box {
+            background: #16213e;
+            border-radius: 20px;
+            padding: 36px 40px;
+            text-align: center;
+            min-width: 320px;
+            max-width: 480px;
+            width: 90%;
+            border: 2px solid #e74c3c;
+        }
+        .qte-box h2 { font-size: 2rem; margin: 0 0 6px; color: #e74c3c; }
+        .qte-desc { color: #aaa; font-size: 0.85rem; margin-bottom: 20px; }
+        .qte-scores {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            margin-bottom: 20px;
+        }
+        .qte-player-score {
+            background: #0f3460;
+            border-radius: 12px;
+            padding: 12px 20px;
+            min-width: 100px;
+        }
+        .qte-player-score .qte-name { font-size: 0.8rem; color: #aaa; margin-bottom: 4px; }
+        .qte-player-score .qte-count { font-size: 2rem; font-weight: bold; color: #fff; }
+        .qte-player-score.is-me { border: 2px solid var(--accent); }
+        .qte-timer-bar {
+            height: 8px;
+            background: #2a2a5a;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        #qteTimerFill {
+            height: 100%;
+            width: 100%;
+            background: #e74c3c;
+            transition: width 0.05s linear;
+        }
+        #qteClickBtn {
+            width: 100%;
+            padding: 20px;
+            font-size: 1.4rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 12px;
+            background: #e74c3c;
+            color: white;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 0.05s, background 0.1s;
+        }
+        #qteClickBtn:active { transform: scale(0.96); background: #c0392b; }
+        #qteConcedeBtn {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            border: 1px solid #555;
+            border-radius: 8px;
+            background: transparent;
+            color: #888;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #qteConcedeBtn:hover { border-color: #e74c3c; color: #e74c3c; background: rgba(231,76,60,0.08); }
+        .qte-spectator { color: #888; font-size: 0.9rem; margin-top: 8px; }
+
+        /* Notificación QTE para espectadores */
+        .qte-battle-notif {
+            background: rgba(20, 12, 30, 0.97);
+            border: 2px solid #e74c3c;
+            border-radius: 12px;
+            padding: 10px 14px;
+            font-size: 0.82rem;
+            animation: slideIn 0.3s ease;
+            pointer-events: none;
+        }
+        .qte-battle-notif .qbn-title {
+            color: #e74c3c;
+            font-weight: bold;
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+        .qbn-versus {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            justify-content: center;
+            margin: 4px 0;
+            font-size: 0.78rem;
+        }
+        .qbn-player { color: #eee; font-weight: bold; }
+        .qbn-vs { color: #e74c3c; font-size: 1rem; }
+        .qbn-scores {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #aaa;
+            margin-top: 4px;
+        }
+        .qbn-bar {
+            height: 4px;
+            background: #2a2a5a;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+        .qbn-bar-fill {
+            height: 100%;
+            background: #e74c3c;
+            transition: width 0.05s linear;
+        }
+
+        /* Modal Game Over */
+        #gameOverOverlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 200;
+            align-items: center;
+            justify-content: center;
+        }
+        #gameOverOverlay.active { display: flex; }
+        .gameover-box {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            min-width: 300px;
+        }
+        .gameover-box h2 { font-size: 2rem; margin-bottom: 24px; }
+        .ranking-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            margin: 8px 0;
+            background: #0f3460;
+            border-radius: 8px;
+            font-size: 0.95rem;
+        }
+        .rank-pos { font-size: 1.4rem; width: 36px; }
+        .rank-name { flex: 1; text-align: left; padding-left: 10px; }
+        .rank-points { color: var(--warning); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<!-- ════ HOME ════ -->
+<div id="homeScreen" class="screen active">
+    <h1>🎮 Piles!</h1>
+    <p class="subtitle">Juego de Cartas Multijugador</p>
+
+    <div class="form-group">
+        <label for="nickname">Tu Nickname</label>
+        <input type="text" id="nickname" placeholder="Ej: Jugador1" maxlength="20">
+    </div>
+
+    <div class="form-group">
+        <label for="maxPlayers">Máximo de jugadores</label>
+        <input type="number" id="maxPlayers" min="2" max="8" value="4">
+    </div>
+    <button class="btn btn-primary" onclick="createLobby()">Crear Lobby</button>
+
+    <div class="divider">— o únete a uno existente —</div>
+
+    <div class="form-group">
+        <label for="lobbyCode">Código del Lobby</label>
+        <input type="text" id="lobbyCode" placeholder="ABC123" maxlength="6" style="text-transform:uppercase">
+    </div>
+    <button class="btn btn-secondary" onclick="joinLobby()">Unirse al Lobby</button>
+
+    <p id="connStatus">⏳ Conectando...</p>
+</div>
+
+<!-- ════ LOBBY ════ -->
+<div id="lobbyScreen" class="screen">
+    <div class="lobby-code-box">
+        <small>Código del lobby</small>
+        <div class="lobby-code" id="lobbyCodeDisplay">------</div>
+        <small>Comparte este código con otros jugadores</small>
+    </div>
+
+    <h3 style="margin:0 0 8px">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
+    <ul class="player-list" id="playerList"></ul>
+
+    <button id="readyBtn" onclick="toggleReady()">Marcar como Listo ✓</button>
+    <p id="readyCount"></p>
+    <button class="btn btn-secondary" onclick="leaveLobby()" style="margin-top:10px">← Salir</button>
+</div>
+
+<!-- ════ GAME ════ -->
+<div id="gameScreen" class="screen">
+
+    <!-- Header de estado -->
+    <div class="game-header">
+        <div class="players-progress" id="playersProgress"></div>
+        <div id="setLabel" style="color:#aaa;font-size:0.85rem">Set 1 / 6</div>
+    </div>
+
+    <!-- Hint de intercambio -->
+    <div id="swapHint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
+
+    <!-- Centro -->
+    <p class="section-label">Cartas del Centro</p>
+    <div class="card-row" id="centerCards"></div>
+
+    <!-- Navegación de sets -->
+    <p class="section-label">Tus Sets</p>
+    <div class="set-nav" id="setNav"></div>
+
+    <!-- Cards del set actual -->
+    <div class="card-row" id="yourCards"></div>
+
+    <!-- Botón de voltear set actual -->
+    <button id="flipBtn" onclick="flipCurrentSet()">👁 Revelar este set a otros</button>
+
+    <!-- Panel de oponentes (sets volteados) -->
+    <div id="opponentPanel"></div>
+
+    <!-- Botón de verificación -->
+    <button id="verifyBtn" onclick="requestVerification()">🔍 Solicitar Verificación</button>
+
+</div>
+
+<!-- Notificaciones de verificación de otros jugadores -->
+<div id="verifyNotifications" style="position:fixed;top:12px;right:12px;z-index:50;width:200px;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
+
+<!-- ════ OVERLAY VERIFICACIÓN ════ -->
+<div id="verifyOverlay">
+    <div class="verify-box">
+        <h2 id="verifyTitle">Verificando...</h2>
+        <div id="verifySets"></div>
+        <div class="verify-footer" id="verifyFooter"></div>
+        <button id="verifyCloseBtn" onclick="closeVerifyOverlay()">Cerrar</button>
+    </div>
+</div>
+
+<!-- ════ OVERLAY QTE ════ -->
+<div id="qteOverlay">
+    <div class="qte-box">
+        <h2>⚡ ¡QTE!</h2>
+        <p class="qte-desc" id="qteDesc">Dos jugadores quieren la misma carta</p>
+        <div class="qte-scores" id="qteScores"></div>
+        <div class="qte-timer-bar"><div id="qteTimerFill"></div></div>
+        <button id="qteClickBtn" onclick="sendQteClick()" style="display:none">¡ C L I C K !</button>
+        <button id="qteConcedeBtn" onclick="sendQteConcede()" style="display:none">🏳️ Ceder la carta</button>
+        <p class="qte-spectator" id="qteSpectator" style="display:none">Observando el QTE...</p>
+    </div>
+</div>
+
+<!-- ════ OVERLAY GAME OVER ════ -->
+<div id="gameOverOverlay">
+    <div class="gameover-box">
+        <h2>🏆 Fin del Juego</h2>
+        <div id="rankingList"></div>
+        <button class="btn btn-primary" style="margin-top:24px" onclick="location.reload()">Jugar de Nuevo</button>
+    </div>
+</div>
+
+<script>
+// ─── Estado ───────────────────────────────────────────────────────────────
+let ws = null;
+let currentPlayerId = '';
+let currentLobbyId = '';
+let currentNickname = '';
+let isReady = false;
+
+let allSets = [];          // Vec<Vec<CardInfo>> - todos los sets del jugador
+let centerCards = [];      // Vec<CardInfo>
+let currentSetIndex = 0;
+
+// Estado de sets volteados
+let myFlippedSets = Array(6).fill(false);
+// Map<playerName, Map<setIndex, CardInfo|null>>
+const opponentFlippedSets = new Map();
+// Lista de nombres de jugadores (para el panel de oponentes)
+let opponentNames = [];
+
+// Selección para intercambio
+let selection = null;      // { source: 'player'|'center', index: 0-3 }
+
+// Verificaciones en curso de otros jugadores: Map<playerName, HTMLElement>
+const otherVerifications = new Map();
+
+// Estado QTE
+let qteActive = false;
+let qteTimerInterval = null;
+
+// ─── WebSocket ────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
+    const st = document.getElementById('connStatus');
+
+    ws.onopen = () => { st.textContent = '✅ Conectado al servidor'; };
+    ws.onerror = () => { st.textContent = '❌ Error de conexión. ¿Está el servidor corriendo?'; };
+    ws.onclose = () => { st.textContent = '🔌 Desconectado. Recarga para reconectar.'; };
+    ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        console.log('📨', msg.type, msg);
+        handleMsg(msg);
+    };
+});
+
+function send(obj) { ws.send(JSON.stringify(obj)); }
+
+// ─── Mensajes del servidor ────────────────────────────────────────────────
+function handleMsg(msg) {
+    switch (msg.type) {
+        case 'lobby_list':   break; // ignorado por ahora
+
+        case 'lobby_created':
+            currentLobbyId = msg.lobby_id;
+            currentPlayerId = msg.player_id;
+            document.getElementById('lobbyCodeDisplay').textContent = msg.lobby_id;
+            break;
+
+        case 'joined_lobby':
+            currentLobbyId = msg.lobby_id;
+            currentPlayerId = msg.player_id;
+            document.getElementById('lobbyCodeDisplay').textContent = msg.lobby_id;
+            showScreen('lobbyScreen');
+            break;
+
+        case 'lobby_update':
+            onLobbyUpdate(msg);
+            break;
+
+        case 'game_start':
+            onGameStart(msg);
+            break;
+
+        case 'set_switched':
+            // El servidor confirma el cambio; actualizar la vista del set
+            allSets[currentSetIndex] = msg.cards;
+            renderYourCards();
+            break;
+
+        case 'swap_success':
+            if (msg.your_new_set) allSets[msg.set_index] = msg.your_new_set;
+            centerCards = msg.center_cards;
+            clearSelection();
+            renderYourCards();
+            renderCenterCards();
+            updateSetNav();
+            break;
+
+        case 'swap_failed':
+            // Perdiste el QTE — el overlay se cierra con qte_resolved
+            break;
+
+        case 'swap_conflict':
+            onSwapConflict(msg.players, msg.center_card_index, msg.qte_duration);
+            break;
+
+        case 'qte_update':
+            onQteUpdate(msg.clicks);
+            break;
+
+        case 'qte_resolved':
+            closeQteOverlay(msg.winner);
+            break;
+
+        case 'game_update':
+            // Otro jugador hizo un swap: actualizar centro y progreso
+            centerCards = msg.center_cards;
+            renderCenterCards();
+            renderPlayersProgress(msg.players_progress);
+            break;
+
+        case 'set_flipped':
+            onSetFlipped(msg.player, msg.set_index, msg.cards);
+            break;
+
+        case 'verification_started':
+            openVerifyOverlay(msg.player);
+            break;
+
+        case 'set_verification_result':
+            revealVerifySet(msg.player, msg.set_index, msg.is_valid, msg.cards);
+            break;
+
+        case 'verification_success':
+            onVerificationSuccess(msg.player, msg.position);
+            break;
+
+        case 'verification_failed':
+            onVerificationFailed(msg.player, msg.failed_sets);
+            break;
+
+        case 'game_over':
+            onGameOver(msg.rankings);
+            break;
+
+        case 'error':
+            console.warn('Error del servidor:', msg.message);
+            alert('⚠️ ' + msg.message);
+            clearSelection();
+            break;
+    }
+}
+
+// ─── Lobby ────────────────────────────────────────────────────────────────
+function createLobby() {
+    const nickname = document.getElementById('nickname').value.trim();
+    const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
+    if (!nickname) { alert('Ingresa un nickname'); return; }
+    currentNickname = nickname;
+    send({ type: 'create_lobby', nickname, max_players: maxPlayers });
+}
+
+function joinLobby() {
+    const nickname = document.getElementById('nickname').value.trim();
+    const code = document.getElementById('lobbyCode').value.trim().toUpperCase();
+    if (!nickname || !code) { alert('Ingresa nickname y código'); return; }
+    currentNickname = nickname;
+    send({ type: 'join_lobby', lobby_id: code, nickname });
+}
+
+function toggleReady() {
+    isReady = !isReady;
+    send({ type: 'set_ready', ready: isReady });
+    const btn = document.getElementById('readyBtn');
+    btn.textContent = isReady ? 'Cancelar ✗' : 'Marcar como Listo ✓';
+    btn.classList.toggle('active', isReady);
+}
+
+function leaveLobby() {
+    showScreen('homeScreen');
+    currentLobbyId = '';
+    isReady = false;
+}
+
+function onLobbyUpdate(msg) {
+    document.getElementById('playerCount').textContent = msg.players.length;
+    document.getElementById('maxPlayersDisplay').textContent = msg.max_players;
+    document.getElementById('readyCount').textContent =
+        `${msg.ready_count} de ${msg.players.length} listos`;
+
+    const list = document.getElementById('playerList');
+    list.innerHTML = '';
+    msg.players.forEach(p => {
+        const li = document.createElement('li');
+        li.className = 'player-item' + (p.is_ready ? ' ready' : '');
+        const you = p.id === currentPlayerId ? ' <em>(Tú)</em>' : '';
+        li.innerHTML = `<span>${p.nickname}${you}</span><span class="ready-status">${p.is_ready ? '✅ Listo' : '⏳'}</span>`;
+        list.appendChild(li);
+    });
+
+    if (!document.getElementById('lobbyScreen').classList.contains('active')) {
+        showScreen('lobbyScreen');
+    }
+}
+
+// ─── Inicio de juego ──────────────────────────────────────────────────────
+function onGameStart(msg) {
+    allSets = msg.your_sets;       // 6 sets
+    centerCards = msg.center_cards;
+    currentSetIndex = 0;
+    selection = null;
+    myFlippedSets = Array(6).fill(false);
+    opponentFlippedSets.clear();
+    verificationSent = false;
+
+    // Registrar oponentes
+    opponentNames = msg.players.filter(n => n !== currentNickname);
+    opponentNames.forEach(name => opponentFlippedSets.set(name, new Map()));
+
+    buildSetNav();
+    renderCenterCards();
+    renderYourCards();
+    updateFlipBtn();
+    renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false })));
+    renderOpponentPanel();
+
+    showScreen('gameScreen');
+}
+
+// ─── Renderizado ──────────────────────────────────────────────────────────
+function buildSetNav() {
+    const nav = document.getElementById('setNav');
+    nav.innerHTML = '';
+    for (let i = 0; i < 6; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'set-btn' + (i === 0 ? ' active' : '');
+        btn.dataset.idx = i;
+        btn.innerHTML = `Set ${i + 1}<span class="set-eye"></span>`;
+        btn.onclick = () => switchSet(i);
+        nav.appendChild(btn);
+    }
+}
+
+function updateSetNav() {
+    document.querySelectorAll('.set-btn').forEach((btn, i) => {
+        const flipped = myFlippedSets[i];
+        btn.className = 'set-btn'
+            + (i === currentSetIndex ? ' active' : '')
+            + (flipped ? ' flipped' : '');
+        btn.querySelector('.set-eye').textContent = flipped ? '👁' : '';
+    });
+    document.getElementById('setLabel').textContent = `Set ${currentSetIndex + 1} / 6`;
+    updateFlipBtn();
+    checkAutoVerify();
+}
+
+function renderCenterCards() {
+    const div = document.getElementById('centerCards');
+    div.innerHTML = '';
+    centerCards.forEach((card, i) => {
+        const el = buildCard(card);
+        if (selection && selection.source === 'center' && selection.index === i) {
+            el.classList.add('selected');
+        }
+        el.onclick = () => onCenterCardClick(i);
+        div.appendChild(el);
+    });
+}
+
+function renderYourCards() {
+    const div = document.getElementById('yourCards');
+    div.innerHTML = '';
+    const set = allSets[currentSetIndex] || [];
+    set.forEach((card, i) => {
+        const el = buildCard(card);
+        if (selection && selection.source === 'player' && selection.index === i) {
+            el.classList.add('selected');
+        }
+        el.onclick = () => onPlayerCardClick(i);
+        div.appendChild(el);
+    });
+    updateSetNav();
+}
+
+function renderPlayersProgress(progress) {
+    const div = document.getElementById('playersProgress');
+    div.innerHTML = '';
+    progress.forEach(p => {
+        const chip = document.createElement('div');
+        chip.className = 'player-progress-chip' + (p.finished ? ' finished' : '');
+        chip.textContent = `${p.nickname}: ${p.completed_sets}/6`;
+        div.appendChild(chip);
+    });
+}
+
+function buildCard(card) {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.style.backgroundColor = cardColor(card.name);
+    el.textContent = card.name;
+    el.title = card.name;
+    return el;
+}
+
+// ─── Intercambio de cartas ────────────────────────────────────────────────
+function onPlayerCardClick(index) {
+    if (selection && selection.source === 'center') {
+        // Ya hay una carta del centro seleccionada → hacer swap
+        doSwap(index, selection.index);
+    } else {
+        // Seleccionar (o cambiar selección) dentro del mismo set
+        selection = { source: 'player', index };
+        updateSwapHint(`Carta del set seleccionada. Ahora haz click en una carta del <strong>centro</strong>.`);
+        renderYourCards();
+        renderCenterCards();
+    }
+}
+
+function onCenterCardClick(index) {
+    if (selection && selection.source === 'player') {
+        // Ya hay una carta del jugador seleccionada → hacer swap
+        doSwap(selection.index, index);
+    } else {
+        // Seleccionar (o cambiar selección) del centro
+        selection = { source: 'center', index };
+        updateSwapHint(`Carta del centro seleccionada. Ahora haz click en una carta de <strong>tu set</strong>.`);
+        renderCenterCards();
+        renderYourCards();
+    }
+}
+
+function doSwap(myCardIndex, centerCardIndex) {
+    send({ type: 'swap_card', my_card_index: myCardIndex, center_card_index: centerCardIndex });
+    // La UI se actualizará cuando llegue el swap_success del servidor
+}
+
+function clearSelection() {
+    selection = null;
+    updateSwapHint(`Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar`);
+}
+
+function updateSwapHint(html) {
+    const el = document.getElementById('swapHint');
+    el.innerHTML = html;
+    el.classList.toggle('selected', selection !== null);
+}
+
+// ─── Cambio de set ────────────────────────────────────────────────────────
+function switchSet(index) {
+    if (index === currentSetIndex) return;
+    currentSetIndex = index;
+    clearSelection();
+    send({ type: 'switch_set', set_index: index });
+    renderYourCards();
+}
+
+// ─── Voltear sets ─────────────────────────────────────────────────────────
+function flipCurrentSet() {
+    send({ type: 'flip_set', set_index: currentSetIndex });
+}
+
+function updateFlipBtn() {
+    const btn = document.getElementById('flipBtn');
+    if (!btn) return;
+    const flipped = myFlippedSets[currentSetIndex];
+    btn.textContent = flipped ? '🙈 Ocultar este set' : '👁 Revelar este set a otros';
+    btn.classList.toggle('is-flipped', flipped);
+}
+
+function onSetFlipped(playerName, setIndex, cards) {
+    const isFlipped = cards.length > 0;
+
+    if (playerName === currentNickname) {
+        myFlippedSets[setIndex] = isFlipped;
+        updateSetNav();
+    } else {
+        if (!opponentFlippedSets.has(playerName)) {
+            opponentFlippedSets.set(playerName, new Map());
+        }
+        const playerMap = opponentFlippedSets.get(playerName);
+        if (isFlipped) {
+            playerMap.set(setIndex, cards[0]);
+        } else {
+            playerMap.delete(setIndex);
+        }
+        renderOpponentPanel();
+    }
+}
+
+function renderOpponentPanel() {
+    const panel = document.getElementById('opponentPanel');
+    panel.innerHTML = '';
+
+    let hasAny = false;
+    opponentNames.forEach(name => {
+        const flippedMap = opponentFlippedSets.get(name);
+        if (!flippedMap || flippedMap.size === 0) return;
+        hasAny = true;
+
+        const entry = document.createElement('div');
+        entry.className = 'opponent-entry';
+
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'opponent-name';
+        nameDiv.textContent = `👤 ${name} — sets revelados:`;
+        entry.appendChild(nameDiv);
+
+        const setsDiv = document.createElement('div');
+        setsDiv.className = 'opponent-sets';
+
+        for (let i = 0; i < 6; i++) {
+            const slot = document.createElement('div');
+            if (flippedMap.has(i)) {
+                const card = flippedMap.get(i);
+                slot.className = 'opponent-set-slot';
+                slot.style.backgroundColor = cardColor(card.name);
+                slot.textContent = card.name;
+                slot.title = `Set ${i + 1}: ${card.name}`;
+            } else {
+                slot.className = 'opponent-set-slot hidden';
+                slot.textContent = `S${i + 1}`;
+                slot.title = `Set ${i + 1}: oculto`;
+            }
+            setsDiv.appendChild(slot);
+        }
+
+        entry.appendChild(setsDiv);
+        panel.appendChild(entry);
+    });
+
+    panel.classList.toggle('has-data', hasAny);
+}
+
+// ─── QTE ─────────────────────────────────────────────────────────────────
+let qteBattleNotif = null;  // Notificación para espectadores
+let qtePlayers = [];        // Jugadores en el QTE actual
+
+function onSwapConflict(players, centerCardIndex, durationMs) {
+    qtePlayers = players;
+    const isParticipant = players.includes(currentNickname);
+
+    if (isParticipant) {
+        // ── Overlay completo para participantes ──
+        qteActive = true;
+        clearSelection();
+
+        document.getElementById('qteDesc').textContent =
+            `¡Conflicto por la carta del centro ${centerCardIndex + 1}!`;
+
+        const scoresDiv = document.getElementById('qteScores');
+        scoresDiv.innerHTML = '';
+        players.forEach(name => {
+            const div = document.createElement('div');
+            div.className = 'qte-player-score' + (name === currentNickname ? ' is-me' : '');
+            div.id = `qte-score-${name}`;
+            div.innerHTML = `<div class="qte-name">${name === currentNickname ? '⭐ ' + name + ' (Tú)' : name}</div><div class="qte-count" id="qte-n-${name}">0</div>`;
+            scoresDiv.appendChild(div);
+        });
+
+        document.getElementById('qteClickBtn').style.display = 'block';
+        document.getElementById('qteConcedeBtn').style.display = 'block';
+        document.getElementById('qteSpectator').style.display = 'none';
+
+        const fill = document.getElementById('qteTimerFill');
+        fill.style.width = '100%';
+        const start = Date.now();
+        if (qteTimerInterval) clearInterval(qteTimerInterval);
+        qteTimerInterval = setInterval(() => {
+            const pct = Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100);
+            fill.style.width = pct + '%';
+            if (pct <= 0) clearInterval(qteTimerInterval);
+        }, 50);
+
+        document.getElementById('qteOverlay').classList.add('active');
+
+    } else {
+        // ── Notificación pequeña para espectadores ──
+        const area = document.getElementById('verifyNotifications');
+        const notif = document.createElement('div');
+        notif.className = 'qte-battle-notif';
+        const funEmojis = ['⚔️', '🥊', '💥', '🔥', '⚡'];
+        const emoji = funEmojis[Math.floor(Math.random() * funEmojis.length)];
+        notif.innerHTML = `
+            <div class="qbn-title">${emoji} ¡PELEA QTE!</div>
+            <div class="qbn-versus">
+                <span class="qbn-player">${players[0]}</span>
+                <span class="qbn-vs">⚔️</span>
+                <span class="qbn-player">${players[1]}</span>
+            </div>
+            <div style="color:#888;font-size:0.72rem;text-align:center">carta centro ${centerCardIndex + 1}</div>
+            <div class="qbn-scores">
+                <span id="qbn-n-${players[0]}">0 clicks</span>
+                <span id="qbn-n-${players[1]}">0 clicks</span>
+            </div>
+            <div class="qbn-bar"><div class="qbn-bar-fill" id="qbnFill"></div></div>
+        `;
+        area.appendChild(notif);
+        qteBattleNotif = notif;
+
+        // Barra de tiempo
+        const fill = notif.querySelector('#qbnFill');
+        fill.style.width = '100%';
+        const start = Date.now();
+        if (qteTimerInterval) clearInterval(qteTimerInterval);
+        qteTimerInterval = setInterval(() => {
+            const pct = Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100);
+            fill.style.width = pct + '%';
+            if (pct <= 0) clearInterval(qteTimerInterval);
+        }, 50);
+    }
+}
+
+function onQteUpdate(clicks) {
+    // Participantes: actualizar overlay
+    Object.entries(clicks).forEach(([name, count]) => {
+        const overlayEl = document.getElementById(`qte-n-${name}`);
+        if (overlayEl) overlayEl.textContent = count;
+        // Espectadores: actualizar notificación
+        const notifEl = document.getElementById(`qbn-n-${name}`);
+        if (notifEl) notifEl.textContent = `${count} clicks`;
+    });
+}
+
+function closeQteOverlay(winnerName) {
+    qteActive = false;
+    if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
+
+    // Cerrar overlay de participante
+    document.getElementById('qteOverlay').classList.remove('active');
+    document.getElementById('qteClickBtn').disabled = false;
+    document.getElementById('qteConcedeBtn').disabled = false;
+    document.getElementById('qteConcedeBtn').style.display = 'none';
+
+    // Cerrar notificación de espectador
+    if (qteBattleNotif) {
+        qteBattleNotif.remove();
+        qteBattleNotif = null;
+    }
+
+    if (winnerName) {
+        const hint = document.getElementById('swapHint');
+        hint.innerHTML = `⚡ <strong>${winnerName}</strong> ganó el QTE`;
+        hint.classList.add('selected');
+        setTimeout(() => clearSelection(), 2500);
+    }
+
+    qtePlayers = [];
+}
+
+function sendQteClick() {
+    if (qteActive) send({ type: 'qte_click' });
+}
+
+function sendQteConcede() {
+    if (qteActive) {
+        qteActive = false; // Prevenir más clicks locales
+        document.getElementById('qteClickBtn').disabled = true;
+        document.getElementById('qteConcedeBtn').disabled = true;
+        send({ type: 'qte_concede' });
+    }
+}
+
+// Spacebar como atajo durante QTE
+document.addEventListener('keydown', (e) => {
+    if (qteActive && (e.code === 'Space' || e.code === 'Enter') && e.target.tagName !== 'INPUT') {
+        e.preventDefault();
+        sendQteClick();
+    }
+});
+
+// ─── Verificación ────────────────────────────────────────────────────────
+let verificationSent = false;
+
+function checkAutoVerify() {
+    const btn = document.getElementById('verifyBtn');
+    if (!btn || verificationSent) return;
+    const allFlipped = myFlippedSets.length === 6 && myFlippedSets.every(f => f);
+    if (allFlipped) {
+        btn.disabled = false;
+        // Auto-disparar verificación cuando todos los sets están volteados
+        requestVerification();
+    } else {
+        btn.disabled = true;
+    }
+}
+
+function requestVerification() {
+    if (verificationSent) return;
+    verificationSent = true;
+    document.getElementById('verifyBtn').disabled = true;
+    send({ type: 'request_verification' });
+}
+
+function openVerifyOverlay(playerName) {
+    if (playerName === currentNickname) {
+        // Mi verificación → overlay completo
+        const overlay = document.getElementById('verifyOverlay');
+        document.getElementById('verifyTitle').textContent = `🔍 Verificando tus sets...`;
+        document.getElementById('verifyFooter').textContent = '';
+        document.getElementById('verifyFooter').className = 'verify-footer';
+        document.getElementById('verifyCloseBtn').style.display = 'none';
+
+        const setsDiv = document.getElementById('verifySets');
+        setsDiv.innerHTML = '';
+        for (let i = 0; i < 6; i++) {
+            const row = document.createElement('div');
+            row.className = 'verify-set-row';
+            row.innerHTML = `
+                <span class="verify-set-label">Set ${i + 1}</span>
+                <div class="verify-cards" id="vcards-${i}"></div>
+                <span class="verify-icon" id="vicon-${i}">⏳</span>
+            `;
+            setsDiv.appendChild(row);
+        }
+        overlay.classList.add('active');
+    } else {
+        // Verificación ajena → notificación pequeña en segundo plano
+        const area = document.getElementById('verifyNotifications');
+        const notif = document.createElement('div');
+        notif.className = 'verify-notif';
+        notif.dataset.player = playerName;
+        notif.innerHTML = `
+            <div class="vnotif-header">🔍 ${playerName} verificando...</div>
+            <div class="vnotif-sets" id="vnotif-${playerName}">
+                ${Array.from({length:6}, (_, i) => `<span id="vnotif-${playerName}-${i}" title="Set ${i+1}">⏳</span>`).join('')}
+            </div>
+        `;
+        area.appendChild(notif);
+        otherVerifications.set(playerName, notif);
+    }
+}
+
+function revealVerifySet(playerName, setIndex, isValid, cards) {
+    const symbol = isValid ? '✅' : '❌';
+
+    if (playerName === currentNickname) {
+        // Actualizar mi overlay
+        const cardsDiv = document.getElementById(`vcards-${setIndex}`);
+        const icon = document.getElementById(`vicon-${setIndex}`);
+        if (cardsDiv) {
+            cardsDiv.innerHTML = '';
+            cards.forEach(card => {
+                const mini = document.createElement('span');
+                mini.className = 'verify-card-mini';
+                mini.style.backgroundColor = cardColor(card.name);
+                mini.textContent = card.name;
+                mini.title = card.name;
+                cardsDiv.appendChild(mini);
+            });
+        }
+        if (icon) icon.textContent = symbol;
+    } else {
+        // Actualizar notificación ajena
+        const icon = document.getElementById(`vnotif-${playerName}-${setIndex}`);
+        if (icon) icon.textContent = symbol;
+    }
+}
+
+function onVerificationSuccess(playerName, position) {
+    const medals = ['🥇', '🥈', '🥉'];
+    const medal = medals[position - 1] || `${position}°`;
+
+    if (playerName === currentNickname) {
+        const footer = document.getElementById('verifyFooter');
+        footer.textContent = `${medal} ¡Terminaste en el puesto ${position}!`;
+        footer.className = 'verify-footer success';
+        document.getElementById('verifyCloseBtn').style.display = 'block';
+        document.getElementById('verifyBtn').disabled = false;
+    } else {
+        const notif = otherVerifications.get(playerName);
+        if (notif) {
+            notif.classList.add('success');
+            notif.querySelector('.vnotif-header').textContent = `${medal} ${playerName}: Puesto ${position}`;
+            setTimeout(() => { notif.remove(); otherVerifications.delete(playerName); }, 5000);
+        }
+    }
+}
+
+function onVerificationFailed(playerName, failedSets) {
+    const failedNames = failedSets.map(i => `Set ${i + 1}`).join(', ');
+
+    if (playerName === currentNickname) {
+        verificationSent = false;  // Permitir un nuevo intento cuando los sets estén completos
+        const footer = document.getElementById('verifyFooter');
+        footer.textContent = `❌ Fallaste: ${failedNames}`;
+        footer.className = 'verify-footer failure';
+        document.getElementById('verifyCloseBtn').style.display = 'block';
+        document.getElementById('verifyBtn').disabled = true;
+    } else {
+        const notif = otherVerifications.get(playerName);
+        if (notif) {
+            notif.classList.add('failure');
+            notif.querySelector('.vnotif-header').textContent = `❌ ${playerName} falló: ${failedNames}`;
+            setTimeout(() => { notif.remove(); otherVerifications.delete(playerName); }, 4000);
+        }
+    }
+}
+
+function closeVerifyOverlay() {
+    document.getElementById('verifyOverlay').classList.remove('active');
+}
+
+function onGameOver(rankings) {
+    closeVerifyOverlay();
+    const list = document.getElementById('rankingList');
+    list.innerHTML = '';
+    const medals = ['🥇', '🥈', '🥉'];
+    rankings.forEach(entry => {
+        const div = document.createElement('div');
+        div.className = 'ranking-entry';
+        div.innerHTML = `
+            <span class="rank-pos">${medals[entry.position - 1] || entry.position}</span>
+            <span class="rank-name">${entry.nickname}</span>
+            <span class="rank-points">${entry.points} pts</span>
+        `;
+        list.appendChild(div);
+    });
+    document.getElementById('gameOverOverlay').classList.add('active');
+}
+
+// ─── Utilidades ───────────────────────────────────────────────────────────
+function isSetComplete(set) {
+    if (!set || set.length !== 4) return false;
+    return set.every(c => c.clothing_type === set[0].clothing_type);
+}
+
+function cardColor(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
+    return `hsl(${Math.abs(h % 360)}, ${60 + Math.abs(h >> 8) % 20}%, ${50 + Math.abs(h >> 16) % 20}%)`;
+}
+
+function showScreen(id) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+}
+</script>
+</body>
+</html>
