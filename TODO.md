@@ -62,6 +62,9 @@
 - [ ] `ListLobbies` — implementar en frontend (pantalla de lobbies disponibles)
 - [ ] Anti-cheat QTE: limitar a 20 CPS máximo (actualmente no hay límite)
 - [ ] Reconexión automática de WebSocket en cliente si se cae la conexión
+- [ ] **Heartbeat / ping-pong**: la conexión se cae silenciosamente tras inactividad; implementar ping cada ~25s desde el cliente (o keep-alive desde el servidor) para mantener la conexión viva y detectar cortes rápido
+- [ ] Añade el nick en el local storage
+- [ ] Cuando se termine una partida que se mantenga la sala con todos los participantes listo para la siguiente ronda.
 
 ---
 

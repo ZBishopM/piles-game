@@ -130,10 +130,13 @@
             grid-template-columns: repeat(4, 1fr);
             gap: 8px;
             margin-bottom: 14px;
+            min-width: 33.333vw;
         }
 
         .card {
             aspect-ratio: 2/3;
+            min-height: 0;        /* permite que el grid controle la altura */
+            overflow: hidden;     /* el texto no puede empujar el tamaño de la carta */
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -145,7 +148,7 @@
             box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             cursor: pointer;
             transition: transform 0.15s, box-shadow 0.15s, outline 0.1s;
-            word-wrap: break-word;
+            word-break: break-word;
             line-height: 1.2;
             color: rgba(0,0,0,0.7);
             position: relative;
@@ -647,6 +650,15 @@ let qteTimerInterval = null;
 
 // ─── WebSocket ────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+    // Restaurar nickname guardado y guardarlo automáticamente al editar
+    const nickInput = document.getElementById('nickname');
+    const savedNick = localStorage.getItem('piles_nickname');
+    if (savedNick) nickInput.value = savedNick;
+    nickInput.addEventListener('blur', () => {
+        const v = nickInput.value.trim();
+        if (v) localStorage.setItem('piles_nickname', v);
+    });
+
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
     const st = document.getElementById('connStatus');
@@ -764,6 +776,7 @@ function createLobby() {
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
     if (!nickname) { alert('Ingresa un nickname'); return; }
     currentNickname = nickname;
+    localStorage.setItem('piles_nickname', nickname);
     send({ type: 'create_lobby', nickname, max_players: maxPlayers });
 }
 
@@ -772,6 +785,7 @@ function joinLobby() {
     const code = document.getElementById('lobbyCode').value.trim().toUpperCase();
     if (!nickname || !code) { alert('Ingresa nickname y código'); return; }
     currentNickname = nickname;
+    localStorage.setItem('piles_nickname', nickname);
     send({ type: 'join_lobby', lobby_id: code, nickname });
 }
 
