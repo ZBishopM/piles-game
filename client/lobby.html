@@ -690,9 +690,8 @@ function handleMsg(msg) {
             break;
 
         case 'set_switched':
-            // El servidor confirma el cambio; actualizar la vista del set
-            allSets[currentSetIndex] = msg.cards;
-            renderYourCards();
+            // Solo sincronizar datos; la vista ya se actualizó optimistamente en switchSet()
+            allSets[msg.set_index] = msg.cards;
             break;
 
         case 'swap_success':
