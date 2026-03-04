@@ -619,6 +619,17 @@
     </div>
 </div>
 
+<!-- ════ OVERLAY RECONEXIÓN ════ -->
+<div id="reconnectOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
+    <div style="background:#16213e;border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;">
+        <div style="font-size:2.5rem;margin-bottom:12px;">🔌</div>
+        <h2 style="margin:0 0 8px;color:#eee">Conexión perdida</h2>
+        <p style="color:#888;font-size:0.9rem;margin-bottom:24px" id="reconnectMsg">La conexión con el servidor se interrumpió.</p>
+        <button class="btn btn-primary" onclick="reconnect()">Reconectar</button>
+        <button class="btn btn-secondary" style="margin-top:8px" onclick="location.reload()">Recargar página</button>
+    </div>
+</div>
+
 <script>
 // ─── Estado ───────────────────────────────────────────────────────────────
 let ws = null;
@@ -649,6 +660,10 @@ const otherVerifications = new Map();
 let qteActive = false;
 let qteTimerInterval = null;
 
+// Keep-alive
+let pingInterval = null;
+let closedIntentionally = false;
+
 // ─── WebSocket ────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
     // Restaurar nickname guardado y guardarlo automáticamente al editar
@@ -660,19 +675,53 @@ window.addEventListener('DOMContentLoaded', () => {
         if (v) localStorage.setItem('piles_nickname', v);
     });
 
+    connectWs();
+});
+
+function connectWs() {
+    closedIntentionally = false;
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
     const st = document.getElementById('connStatus');
 
-    ws.onopen = () => { st.textContent = '✅ Conectado al servidor'; };
+    ws.onopen = () => {
+        st.textContent = '✅ Conectado al servidor';
+        document.getElementById('reconnectOverlay').style.display = 'none';
+        // Ping cada 25s para mantener la conexión viva
+        clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 25000);
+    };
+
     ws.onerror = () => { st.textContent = '❌ Error de conexión. ¿Está el servidor corriendo?'; };
-    ws.onclose = () => { st.textContent = '🔌 Desconectado. Recarga para reconectar.'; };
+
+    ws.onclose = () => {
+        clearInterval(pingInterval);
+        st.textContent = '🔌 Desconectado.';
+        if (!closedIntentionally) {
+            // Mostrar overlay de reconexión
+            const overlay = document.getElementById('reconnectOverlay');
+            overlay.style.display = 'flex';
+            document.getElementById('reconnectMsg').textContent =
+                currentLobbyId
+                    ? 'La conexión con el servidor se interrumpió. Reconecta para volver a la sala.'
+                    : 'La conexión con el servidor se interrumpió.';
+        }
+    };
+
     ws.onmessage = e => {
         const msg = JSON.parse(e.data);
         console.log('📨', msg.type, msg);
         handleMsg(msg);
     };
-});
+}
+
+function reconnect() {
+    connectWs();
+}
 
 function send(obj) { ws.send(JSON.stringify(obj)); }
 
@@ -761,6 +810,14 @@ function handleMsg(msg) {
 
         case 'game_over':
             onGameOver(msg.rankings);
+            break;
+
+        case 'game_cancelled':
+            onGameCancelled(msg.reason);
+            break;
+
+        case 'pong':
+            // Keep-alive confirmado, no hacer nada
             break;
 
         case 'error':
@@ -1340,6 +1397,18 @@ function onGameOver(rankings) {
         list.appendChild(div);
     });
     document.getElementById('gameOverOverlay').classList.add('active');
+}
+
+function onGameCancelled(reason) {
+    // Cerrar overlays activos del juego
+    closeVerifyOverlay();
+    closeQteOverlay('');
+    // Mostrar notificación breve y volver al lobby
+    const notif = document.createElement('div');
+    notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#16213e;border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:#eee;';
+    notif.innerHTML = `<div style="font-size:1.8rem;margin-bottom:8px">😔</div><strong>Partida cancelada</strong><p style="color:#aaa;font-size:0.9rem;margin:8px 0 0">${reason}</p>`;
+    document.body.appendChild(notif);
+    setTimeout(() => { notif.remove(); returnToLobby(); }, 3000);
 }
 
 function returnToLobby() {

@@ -153,25 +153,89 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 }
             }
             Ok(Message::Close(_)) => {
-                println!("❌ Cliente desconectado: {}", player_id);
+                tracing::info!("Cliente cerró conexión limpiamente: {}", player_id);
                 break;
             }
             Err(e) => {
-                eprintln!("Error en WebSocket: {}", e);
+                // "connection reset without closing handshake" es normal cuando el navegador
+                // cierra la pestaña abruptamente — no es un error del servidor
+                tracing::debug!("Conexión WebSocket cerrada abruptamente ({}): {}", player_id, e);
                 break;
             }
             _ => {}
         }
     }
 
-    // Cleanup: remover conexión y abortar tarea de envío
+    // Cleanup: remover del mapa de conexiones primero
     {
         let mut connections = state.connections.write().await;
         connections.remove(&player_id);
     }
     send_task.abort();
 
-    println!("🔌 Conexión WebSocket cerrada: {}", player_id);
+    // Si estaba en un lobby, eliminarlo y notificar a los demás
+    if let Some(lobby_id) = &current_lobby {
+        if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+            let was_playing = lobby.status == LobbyStatus::Playing;
+
+            if let Some(nickname) = lobby.remove_player(&player_id) {
+                tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
+
+                if lobby.players.is_empty() {
+                    // Lobby vacío: guardarlo como Finished y limpiar intents
+                    state.lobby_manager.update_lobby(lobby).await;
+                    state.swap_intents.write().await.remove(lobby_id);
+                } else if was_playing {
+                    // Partida en curso cancelada: resetear lobby y notificar
+                    lobby.game_state = None;
+                    lobby.status = LobbyStatus::Waiting;
+                    for p in lobby.players.iter_mut() {
+                        p.is_ready = false;
+                    }
+                    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+                        id: p.id.to_string(),
+                        nickname: p.nickname.clone(),
+                        is_ready: false,
+                    }).collect();
+                    let max_players = lobby.max_players;
+                    state.lobby_manager.update_lobby(lobby).await;
+                    state.swap_intents.write().await.remove(lobby_id);
+
+                    // Avisar a los demás que la partida fue cancelada
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
+                        reason: format!("{} se desconectó", nickname),
+                    }).await;
+                    // Regresar al lobby
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
+                        players: player_infos,
+                        ready_count: 0,
+                        max_players,
+                        status: "waiting".to_string(),
+                    }).await;
+                } else {
+                    // En lobby normal: notificar actualización
+                    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+                        id: p.id.to_string(),
+                        nickname: p.nickname.clone(),
+                        is_ready: p.is_ready,
+                    }).collect();
+                    let ready_count = lobby.ready_count();
+                    let max_players = lobby.max_players;
+                    let status = format!("{:?}", lobby.status).to_lowercase();
+                    state.lobby_manager.update_lobby(lobby).await;
+
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
+                        players: player_infos,
+                        ready_count,
+                        max_players,
+                        status,
+                    }).await;
+                }
+            }
+        }
+    }
+
+    tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
 }
 
 /// Maneja un mensaje del cliente y envía respuestas vía broadcast
@@ -765,6 +829,11 @@ async fn handle_client_message(
                     }).await;
                 }
             }
+        }
+
+        ClientMessage::Ping => {
+            // Responder con Pong para mantener la conexión viva
+            state.send_to_player(&player_id, ServerMessage::Pong).await;
         }
     }
 }

@@ -87,6 +87,28 @@ impl Lobby {
         Ok(())
     }
 
+    /// Elimina un jugador del lobby (por desconexión o salida)
+    /// Devuelve el nickname del jugador eliminado, si existía
+    pub fn remove_player(&mut self, player_id: &Uuid) -> Option<String> {
+        let pos = self.players.iter().position(|p| p.id == *player_id)?;
+        let nickname = self.players.remove(pos).nickname;
+
+        // Eliminar del game_state si había partida en curso
+        if let Some(game) = &mut self.game_state {
+            game.players.retain(|p| p.id != *player_id);
+        }
+
+        // Si el lobby quedó vacío, marcarlo como terminado
+        if self.players.is_empty() {
+            self.status = LobbyStatus::Finished;
+        } else if self.status == LobbyStatus::Ready {
+            // Revalidar: si alguien se fue, volver a Waiting
+            self.status = LobbyStatus::Waiting;
+        }
+
+        Some(nickname)
+    }
+
     /// Inicia el juego y genera el estado inicial
     pub fn start_game(&mut self) -> Result<(), String> {
         if self.status != LobbyStatus::Ready {
@@ -122,6 +144,11 @@ impl Lobby {
         ));
 
         self.status = LobbyStatus::Playing;
+
+        // Resetear is_ready para que la siguiente ronda no arranque prematuramente
+        for player in self.players.iter_mut() {
+            player.is_ready = false;
+        }
 
         Ok(())
     }

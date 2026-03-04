@@ -41,6 +41,8 @@ pub enum ClientMessage {
     QteClick,
     /// Ceder la carta al oponente en un QTE
     QteConcede,
+    /// Ping para mantener la conexión viva
+    Ping,
 }
 
 /// Mensajes que el servidor envía al cliente
@@ -148,6 +150,12 @@ pub enum ServerMessage {
         rankings: Vec<RankingEntry>,
         your_total_points: Option<u32>,
     },
+    /// Partida cancelada (un jugador se desconectó)
+    GameCancelled {
+        reason: String,
+    },
+    /// Respuesta a Ping del cliente
+    Pong,
     /// Error
     Error {
         message: String,
