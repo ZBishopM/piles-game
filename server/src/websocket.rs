@@ -839,6 +839,30 @@ async fn run_verification(
                         rankings,
                         your_total_points: None,
                     }).await;
+
+                    // Resetear lobby para siguiente ronda
+                    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                        lobby.game_state = None;
+                        lobby.status = LobbyStatus::Waiting;
+                        for player in lobby.players.iter_mut() {
+                            player.is_ready = false;
+                        }
+                        let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+                            id: p.id.to_string(),
+                            nickname: p.nickname.clone(),
+                            is_ready: false,
+                        }).collect();
+                        let max_players = lobby.max_players;
+                        state.lobby_manager.update_lobby(lobby).await;
+                        // Limpiar intents de swap del lobby terminado
+                        state.swap_intents.write().await.remove(&lobby_id);
+                        state.broadcast_to_lobby(&lobby_id, ServerMessage::LobbyUpdate {
+                            players: player_infos,
+                            ready_count: 0,
+                            max_players,
+                            status: "waiting".to_string(),
+                        }).await;
+                    }
                 }
             }
         }

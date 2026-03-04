@@ -615,7 +615,7 @@
     <div class="gameover-box">
         <h2>🏆 Fin del Juego</h2>
         <div id="rankingList"></div>
-        <button class="btn btn-primary" style="margin-top:24px" onclick="location.reload()">Jugar de Nuevo</button>
+        <button class="btn btn-primary" style="margin-top:24px" onclick="returnToLobby()">Volver al Lobby</button>
     </div>
 </div>
 
@@ -626,6 +626,7 @@ let currentPlayerId = '';
 let currentLobbyId = '';
 let currentNickname = '';
 let isReady = false;
+let gameOver = false;
 
 let allSets = [];          // Vec<Vec<CardInfo>> - todos los sets del jugador
 let centerCards = [];      // Vec<CardInfo>
@@ -819,7 +820,8 @@ function onLobbyUpdate(msg) {
         list.appendChild(li);
     });
 
-    if (!document.getElementById('lobbyScreen').classList.contains('active')) {
+    // No redirigir automáticamente si estamos viendo resultados de la partida terminada
+    if (!gameOver && !document.getElementById('lobbyScreen').classList.contains('active')) {
         showScreen('lobbyScreen');
     }
 }
@@ -1322,6 +1324,7 @@ function closeVerifyOverlay() {
 }
 
 function onGameOver(rankings) {
+    gameOver = true;
     closeVerifyOverlay();
     const list = document.getElementById('rankingList');
     list.innerHTML = '';
@@ -1337,6 +1340,24 @@ function onGameOver(rankings) {
         list.appendChild(div);
     });
     document.getElementById('gameOverOverlay').classList.add('active');
+}
+
+function returnToLobby() {
+    gameOver = false;
+    isReady = false;
+    document.getElementById('gameOverOverlay').classList.remove('active');
+    // Resetear estado de juego
+    allSets = [];
+    centerCards = [];
+    selection = null;
+    verificationSent = false;
+    myFlippedSets = Array(6).fill(false);
+    opponentFlippedSets.clear();
+    // Resetear botón de listo
+    const btn = document.getElementById('readyBtn');
+    btn.textContent = 'Marcar como Listo ✓';
+    btn.classList.remove('active');
+    showScreen('lobbyScreen');
 }
 
 // ─── Utilidades ───────────────────────────────────────────────────────────
