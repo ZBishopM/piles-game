@@ -1,5 +1,5 @@
 // Configuración del servidor
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = window.location.origin;
 
 // Elementos del DOM
 const testConnectionBtn = document.getElementById('testConnection');
