@@ -139,8 +139,10 @@
             overflow: hidden;     /* el texto no puede empujar el tamaño de la carta */
             border-radius: 8px;
             display: flex;
+            flex-direction: column;
             align-items: center;
             justify-content: center;
+            gap: 4px;
             padding: 8px;
             text-align: center;
             font-weight: bold;
@@ -152,6 +154,13 @@
             line-height: 1.2;
             color: rgba(0,0,0,0.7);
             position: relative;
+        }
+        .card-icon {
+            font-size: 2rem;
+            line-height: 1;
+        }
+        .card-label {
+            font-size: 0.68rem;
         }
         .card:hover { transform: translateY(-3px); box-shadow: 0 5px 12px rgba(0,0,0,0.5); }
         .card.selected {
@@ -973,11 +982,38 @@ function renderPlayersProgress(progress) {
     });
 }
 
+const CLOTHING_EMOJI = {
+    "Camiseta manga corta": "👕", "Camiseta manga larga": "👕", "Polo": "👕", "Camisa formal": "👔", "Blusa": "👚",
+    "Sudadera con capucha": "🧥", "Sudadera sin capucha": "🧥", "Chaqueta": "🧥", "Abrigo": "🧥", "Blazer": "🧥",
+    "Jeans": "👖", "Pantalones de vestir": "👖", "Shorts": "🩳", "Bermudas": "🩳", "Falda": "👗",
+    "Vestido casual": "👗", "Vestido formal": "👗", "Jumpsuit": "🥻", "Overol": "🥻", "Leggings": "🩱",
+    "Zapatos deportivos": "👟", "Zapatos formales": "👞", "Botas": "🥾", "Sandalias": "👡", "Tacones": "👠",
+    "Gorra": "🧢", "Sombrero": "👒", "Beanie": "🧶", "Bufanda": "🧣", "Guantes": "🧤",
+    "Calcetines": "🧦", "Medias": "🧦", "Cinturón": "👖", "Corbata": "👔", "Moño": "🎀",
+    "Mochila": "🎒", "Bolso": "👜", "Cartera": "👛", "Lentes de sol": "🕶️", "Reloj": "⌚",
+    "Bikini": "👙", "Traje de baño": "🩱", "Pijama": "🥱", "Bata": "🥋", "Ropa interior": "🩲",
+    "Suéter": "🧶", "Chaleco": "🦺", "Poncho": "🧣", "Kimono": "👘"
+};
+
+function clothingEmoji(name) {
+    return CLOTHING_EMOJI[name] || '👕';
+}
+
 function buildCard(card) {
     const el = document.createElement('div');
     el.className = 'card';
     el.style.backgroundColor = cardColor(card.name);
-    el.textContent = card.name;
+
+    const icon = document.createElement('div');
+    icon.className = 'card-icon';
+    icon.textContent = clothingEmoji(card.name);
+
+    const label = document.createElement('div');
+    label.className = 'card-label';
+    label.textContent = card.name;
+
+    el.appendChild(icon);
+    el.appendChild(label);
     el.title = card.name;
     return el;
 }
