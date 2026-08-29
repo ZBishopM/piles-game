@@ -1,12 +1,13 @@
 # Guía de Deployment — Piles!
 
-Tres opciones según tu situación. Elige la que más te convenga:
+Dos opciones según tu situación:
 
 | Opción | Ideal para | Pros | Contras |
 |---|---|---|---|
 | **A. Arch Linux** | Probar con un amigo rápido | Sin costo, rápido, sin cuenta | Tu laptop debe estar encendida |
 | **B. VPS** | MVP estable y accesible | Siempre disponible, HTTPS gratis | Costo (~$4-6/mes en DigitalOcean/Hetzner) |
-| **C. Fly.io** | Hosting gratuito en nube | Gratis, HTTPS automático | Más pasos iniciales |
+
+**Actualmente en producción**: Opción B, en el VPS compartido con artchat y gamesessions (agapornis), vía Docker + nginx (no Caddy como se describe abajo — nginx ya está configurado para los otros proyectos del mismo VPS).
 
 ---
 
@@ -204,82 +205,6 @@ docker compose up -d --build      # reconstruye y reinicia
 
 ---
 
-## Opción C — Fly.io (hosting gratuito en nube)
-
-Fly.io tiene un free tier que incluye una máquina pequeña (256MB RAM). Suficiente para el MVP.
-
-### 1. Crear cuenta en fly.io
-
-Ve a [fly.io](https://fly.io) y crea una cuenta (requiere tarjeta de crédito para verificación, pero no cobra por el free tier).
-
-### 2. Instalar flyctl
-
-```bash
-# Linux/Arch
-curl -L https://fly.io/install.sh | sh
-# Agregar al PATH:
-export PATH="$HOME/.fly/bin:$PATH"
-echo 'export PATH="$HOME/.fly/bin:$PATH"' >> ~/.bashrc
-```
-
-```bash
-fly auth login
-```
-
-### 3. Crear el archivo fly.toml en la raíz del proyecto
-
-Crea `piles-game/fly.toml`:
-
-```toml
-app = "piles-game"          # cámbialo si ese nombre ya existe
-primary_region = "mia"      # Miami (más cercano a Latinoamérica)
-
-[build]
-  dockerfile = "Dockerfile"
-
-[http_service]
-  internal_port = 3000
-  force_https = true
-  auto_stop_machines = true    # apaga cuando no hay tráfico (ahorra free tier)
-  auto_start_machines = true
-  min_machines_running = 0
-
-[[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
-  cpus = 1
-```
-
-### 4. Desplegar
-
-```bash
-cd D:\2026-projects\piles-game   # o donde tengas el proyecto
-fly launch --no-deploy           # configura la app sin hacer deploy aún
-fly deploy                       # construye y despliega
-```
-
-La primera vez construye la imagen Docker en sus servidores (~5 minutos).
-
-### 5. Ver la app
-
-```bash
-fly status          # ver estado
-fly logs            # ver logs en vivo
-fly open            # abrir en el navegador
-```
-
-La URL será `https://piles-game.fly.dev/lobby.html`.
-
-### 6. Actualizar cuando hagas cambios
-
-```bash
-fly deploy   # rebuilds y redeploy automático
-```
-
-> **Limitación del free tier**: Las máquinas se apagan tras inactividad y tardan ~1-2 segundos en despertar. Para el MVP está bien; si molesta, usa `min_machines_running = 1` (puede salir del free tier).
-
----
-
 ## Verificar que todo funciona
 
 Independientemente de la opción elegida, prueba esto en el navegador:
@@ -322,9 +247,6 @@ docker stats piles-app
   proxy_set_header Upgrade $http_upgrade;
   proxy_set_header Connection "upgrade";
   ```
-
-**El servidor se apaga en Fly.io entre pruebas**
-- Normal con `auto_stop_machines = true`. El primer jugador que entra tarda 1-2 segundos en despertar la máquina. Para la sesión de pruebas puedes poner `min_machines_running = 1` temporalmente.
 
 **Error al compilar en el VPS (poca RAM)**
 - Rust puede consumir hasta 1.5GB compilando. Si el VPS tiene solo 1GB, añade swap:

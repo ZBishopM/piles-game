@@ -51,7 +51,7 @@ piles-game/
 │   ├── lobby.html        # La UI real del juego (lobby + partida)
 │   ├── index.html        # Landing
 │   ├── css/, js/, assets/
-├── Dockerfile            # Build para deploy (Fly.io, ver fly.toml)
+├── Dockerfile            # Build para deploy (VPS + Docker, ver DEPLOY.md)
 ├── docker-compose.yml    # Solo el contenedor de la app; el bloque Postgres está comentado
 ├── .env.example
 └── TODO.md               # Backlog real y priorizado — léelo antes que este README
@@ -81,7 +81,7 @@ Ver `TODO.md` — tiene el estado real del proyecto (QTE implementado pendiente 
 
 ## 🚢 Deploy
 
-Fly.io — `fly.toml` apunta a la app `piles-game`, región `mia`, build vía `Dockerfile`. `fly deploy` desde la raíz del repo.
+VPS compartido con artchat y gamesessions (agapornis), vía Docker + nginx. Ver `DEPLOY.md` para el procedimiento completo.
 
 ## 👥 Autores
 
