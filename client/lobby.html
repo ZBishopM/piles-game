@@ -528,8 +528,11 @@
 
     <div class="form-group">
         <label for="smCode">Código de Session Manager (opcional)</label>
-        <input type="text" id="smCode" placeholder="Ej: A1B2C3" maxlength="12" style="text-transform:uppercase">
-        <small>Generado en tu perfil de Session Manager — súmate el resultado de esta partida a tu cuenta.</small>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" id="smCode" placeholder="Ej: A1B2C3" maxlength="12" style="text-transform:uppercase;flex:1;">
+            <button type="button" id="smCodeUnlink" class="btn btn-secondary" style="padding:8px 12px;">✕</button>
+        </div>
+        <small>Generado en tu perfil de Session Manager. Queda vinculado y suma el resultado de cada partida a tu cuenta hasta que lo cambies o lo borres con ✕.</small>
     </div>
 
     <div class="form-group">
@@ -689,6 +692,21 @@ window.addEventListener('DOMContentLoaded', () => {
     nickInput.addEventListener('blur', () => {
         const v = nickInput.value.trim();
         if (v) localStorage.setItem('piles_nickname', v);
+    });
+
+    // Restaurar código de Session Manager guardado — queda vinculado y se
+    // reutiliza en cada partida hasta que lo cambies o lo borres aquí.
+    const smCodeInput = document.getElementById('smCode');
+    const savedSmCode = localStorage.getItem('piles_sm_code');
+    if (savedSmCode) smCodeInput.value = savedSmCode;
+    smCodeInput.addEventListener('blur', () => {
+        const v = smCodeInput.value.trim();
+        if (v) localStorage.setItem('piles_sm_code', v);
+        else localStorage.removeItem('piles_sm_code');
+    });
+    document.getElementById('smCodeUnlink').addEventListener('click', () => {
+        smCodeInput.value = '';
+        localStorage.removeItem('piles_sm_code');
     });
 
     connectWs();
