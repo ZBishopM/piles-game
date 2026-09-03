@@ -527,6 +527,12 @@
     </div>
 
     <div class="form-group">
+        <label for="smCode">Código de Session Manager (opcional)</label>
+        <input type="text" id="smCode" placeholder="Ej: A1B2C3" maxlength="12" style="text-transform:uppercase">
+        <small>Generado en tu perfil de Session Manager — súmate el resultado de esta partida a tu cuenta.</small>
+    </div>
+
+    <div class="form-group">
         <label for="maxPlayers">Máximo de jugadores</label>
         <input type="number" id="maxPlayers" min="2" max="8" value="4">
     </div>
@@ -624,6 +630,7 @@
     <div class="gameover-box">
         <h2>🏆 Fin del Juego</h2>
         <div id="rankingList"></div>
+        <p id="smClaimStatus" style="font-size:0.85rem;opacity:0.85;margin-top:10px;"></p>
         <button class="btn btn-primary" style="margin-top:24px" onclick="returnToLobby()">Volver al Lobby</button>
     </div>
 </div>
@@ -1433,6 +1440,40 @@ function onGameOver(rankings) {
         list.appendChild(div);
     });
     document.getElementById('gameOverOverlay').classList.add('active');
+    claimSessionManagerResult(rankings);
+}
+
+// Optional, purely additive: if the player entered a Session Manager code
+// before the round started, send their own real result (position/points,
+// already computed here) so it counts toward their session-manager
+// profile. No effect on anonymous play — nothing is sent without a code.
+// See pb_hooks/piles_claim.pb.js in the session-manager repo.
+function claimSessionManagerResult(rankings) {
+    const codeInput = document.getElementById('smCode');
+    const code = codeInput ? codeInput.value.trim() : '';
+    if (!code) return;
+
+    const myNickname = localStorage.getItem('piles_nickname');
+    const mine = rankings.find(r => r.nickname === myNickname);
+    if (!mine) return;
+
+    fetch('https://gamesessions.danassistantassistant.website/api/piles/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, placement: mine.position, points: mine.points }),
+    })
+        .then(res => res.json().then(body => ({ ok: res.ok, body })))
+        .then(({ ok, body }) => {
+            const footer = document.getElementById('smClaimStatus');
+            if (!footer) return;
+            footer.textContent = ok
+                ? '✅ Resultado sumado a tu perfil de Session Manager'
+                : `⚠️ No se pudo vincular: ${body.error || 'error desconocido'}`;
+        })
+        .catch(() => {
+            const footer = document.getElementById('smClaimStatus');
+            if (footer) footer.textContent = '⚠️ No se pudo conectar con Session Manager';
+        });
 }
 
 function onGameCancelled(reason) {
