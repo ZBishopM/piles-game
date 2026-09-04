@@ -529,10 +529,14 @@
     <div class="form-group">
         <label for="smCode">Código de Session Manager (opcional)</label>
         <div style="display:flex;gap:8px;align-items:center;">
-            <input type="text" id="smCode" placeholder="Ej: A1B2C3" maxlength="12" style="text-transform:uppercase;flex:1;">
-            <button type="button" id="smCodeUnlink" class="btn btn-secondary" style="padding:8px 12px;">✕</button>
+            <input type="text" id="smCode" placeholder="Pega aquí tu código" maxlength="12"
+                   style="text-transform:uppercase;flex:1;width:auto;min-width:0;">
+            <button type="button" id="smCodeUnlink" title="Borrar código"
+                    style="display:none;flex-shrink:0;width:38px;height:38px;padding:0;
+                           border:2px solid #2a2a5a;border-radius:8px;background:#0f3460;
+                           color:#eee;font-size:1rem;line-height:1;cursor:pointer;">✕</button>
         </div>
-        <small>Generado en tu perfil de Session Manager. Queda vinculado y suma el resultado de cada partida a tu cuenta hasta que lo cambies o lo borres con ✕.</small>
+        <small id="smCodeHint">Genera un código en tu perfil de Session Manager y pégalo aquí.</small>
     </div>
 
     <div class="form-group">
@@ -697,16 +701,28 @@ window.addEventListener('DOMContentLoaded', () => {
     // Restaurar código de Session Manager guardado — queda vinculado y se
     // reutiliza en cada partida hasta que lo cambies o lo borres aquí.
     const smCodeInput = document.getElementById('smCode');
+    const smCodeUnlinkBtn = document.getElementById('smCodeUnlink');
+    const smCodeHint = document.getElementById('smCodeHint');
+    function refreshSmCodeUi() {
+        const linked = smCodeInput.value.trim().length > 0;
+        smCodeUnlinkBtn.style.display = linked ? '' : 'none';
+        smCodeHint.textContent = linked
+            ? '✅ Vinculado — se suma el resultado de cada partida a tu perfil.'
+            : 'Genera un código en tu perfil de Session Manager y pégalo aquí.';
+    }
     const savedSmCode = localStorage.getItem('piles_sm_code');
     if (savedSmCode) smCodeInput.value = savedSmCode;
+    refreshSmCodeUi();
+    smCodeInput.addEventListener('input', refreshSmCodeUi);
     smCodeInput.addEventListener('blur', () => {
         const v = smCodeInput.value.trim();
         if (v) localStorage.setItem('piles_sm_code', v);
         else localStorage.removeItem('piles_sm_code');
     });
-    document.getElementById('smCodeUnlink').addEventListener('click', () => {
+    smCodeUnlinkBtn.addEventListener('click', () => {
         smCodeInput.value = '';
         localStorage.removeItem('piles_sm_code');
+        refreshSmCodeUi();
     });
 
     connectWs();
