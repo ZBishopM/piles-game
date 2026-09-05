@@ -168,6 +168,24 @@
             box-shadow: 0 0 0 5px rgba(255,255,255,0.25);
             transform: translateY(-4px) scale(1.04);
         }
+        /* Carta en disputa (QTE activo en ella) — todos los clientes la ven así */
+        .card.qte-locked {
+            outline: 3px solid var(--danger);
+            box-shadow: 0 0 0 5px rgba(220,53,69,0.35);
+            animation: qtePulse 0.6s ease-in-out infinite alternate;
+        }
+        @keyframes qtePulse {
+            from { box-shadow: 0 0 0 4px rgba(220,53,69,0.3); }
+            to   { box-shadow: 0 0 0 9px rgba(220,53,69,0.12); }
+        }
+        /* Las otras 3 cartas del centro mientras dura el QTE — el servidor
+           bloquea todo intercambio hasta que se resuelve. */
+        .card.qte-waiting {
+            opacity: 0.45;
+            filter: grayscale(50%);
+            cursor: not-allowed;
+        }
+        .card.qte-waiting:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
         /* Botones de sets */
         .set-nav {
             display: flex;
@@ -682,6 +700,11 @@ const otherVerifications = new Map();
 // Estado QTE
 let qteActive = false;
 let qteTimerInterval = null;
+// Índice (0-3) de la carta del centro en disputa, para todos los clientes
+// (participantes y espectadores) — pinta esa carta en rojo y las demás
+// como "esperando", ya que el servidor bloquea todo intercambio mientras
+// dura el QTE.
+let qteBlockedCenterIndex = null;
 
 // Keep-alive
 let pingInterval = null;
@@ -816,7 +839,17 @@ function handleMsg(msg) {
             break;
 
         case 'swap_failed':
-            // Perdiste el QTE — el overlay se cierra con qte_resolved
+            // Perder un QTE ya se avisa con el banner de qte_resolved; esto
+            // solo agrega texto para el otro caso: tu intercambio sin
+            // conflicto quedó cancelado porque una carta entró en disputa
+            // justo antes de ejecutarse.
+            if (msg.reason && msg.reason !== 'Perdiste el QTE') {
+                selection = null;
+                renderYourCards();
+                renderCenterCards();
+                updateSwapHint(`⚠️ ${msg.reason}`);
+                setTimeout(clearSelection, 2500);
+            }
             break;
 
         case 'swap_conflict':
@@ -992,6 +1025,9 @@ function renderCenterCards() {
         if (selection && selection.source === 'center' && selection.index === i) {
             el.classList.add('selected');
         }
+        if (qteBlockedCenterIndex !== null) {
+            el.classList.add(i === qteBlockedCenterIndex ? 'qte-locked' : 'qte-waiting');
+        }
         el.onclick = () => onCenterCardClick(i);
         div.appendChild(el);
     });
@@ -1074,6 +1110,10 @@ function onPlayerCardClick(index) {
 }
 
 function onCenterCardClick(index) {
+    if (qteBlockedCenterIndex !== null) {
+        updateSwapHint(`⚔️ Hay un QTE en curso — espera a que termine para intercambiar`);
+        return;
+    }
     if (selection && selection.source === 'player') {
         // Ya hay una carta del jugador seleccionada → hacer swap
         doSwap(selection.index, index);
@@ -1087,6 +1127,13 @@ function onCenterCardClick(index) {
 }
 
 function doSwap(myCardIndex, centerCardIndex) {
+    if (qteBlockedCenterIndex !== null) {
+        // La selección se hizo antes de que empezara un QTE en otra carta —
+        // el servidor bloquea todo intercambio mientras dura, así que ni
+        // siquiera lo intentamos: evita el alert() de error.
+        updateSwapHint(`⚔️ Hay un QTE en curso — espera a que termine para intercambiar`);
+        return;
+    }
     send({ type: 'swap_card', my_card_index: myCardIndex, center_card_index: centerCardIndex });
     // La UI se actualizará cuando llegue el swap_success del servidor
 }
@@ -1194,6 +1241,8 @@ let qtePlayers = [];        // Jugadores en el QTE actual
 
 function onSwapConflict(players, centerCardIndex, durationMs) {
     qtePlayers = players;
+    qteBlockedCenterIndex = centerCardIndex;
+    renderCenterCards();
     const isParticipant = players.includes(currentNickname);
 
     if (isParticipant) {
@@ -1280,6 +1329,8 @@ function onQteUpdate(clicks) {
 
 function closeQteOverlay(winnerName) {
     qteActive = false;
+    qteBlockedCenterIndex = null;
+    renderCenterCards();
     if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
 
     // Cerrar overlay de participante

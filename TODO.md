@@ -70,6 +70,10 @@
 
 ## ✨ Polish / Mejoras Futuras
 
+- [ ] **Tutorial corto** (onboarding, 3 pasos con imagen por paso):
+  1. "¡Intercambia cartas hasta que todas tus PILAS tengan la misma prenda!" — imagen de las 6 pilas alineadas, cada una con 4 copias iguales.
+  2. "Muestra una pila cuando creas que está completa. Recuerda: todos ven cuándo se muestra una pila y qué prenda tiene." — imagen del botón "👁 Revelar" (`flipCurrentSet`).
+  3. "Al terminar verificamos que todas tus pilas sean correctas — si te equivocaste, revisa tus pilas, los demás pueden seguir jugando." — imagen de un error de verificación mientras un QTE sigue en curso (deja claro que un fallo tuyo no congela a los demás).
 - [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación correcta/incorrecta
 - [ ] Animación de carta al hacer swap (slide desde set al centro y viceversa)
 - [ ] Drag & drop en lugar de click-click para intercambiar cartas

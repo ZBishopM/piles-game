@@ -1000,33 +1000,44 @@ async fn execute_delayed_swap(
                 None => return,
             };
             if game_state.active_qte.is_some() {
-                return; // QTE se inició mientras esperábamos
+                None // Una carta entró en disputa (QTE) mientras esperábamos
+            } else {
+                let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
+                    Some(idx) => idx,
+                    None => return,
+                };
+
+                let my_card = game_state.players[player_idx].sets[player_set_index][my_card_index];
+                let center_card = game_state.center_cards[center_card_index];
+                game_state.players[player_idx].sets[player_set_index][my_card_index] = center_card;
+                game_state.center_cards[center_card_index] = my_card;
+
+                let new_set: Vec<CardInfo> = game_state.players[player_idx].sets[player_set_index].iter()
+                    .map(|&c| CardInfo::from(c)).collect();
+                let new_center: Vec<CardInfo> = game_state.center_cards.iter()
+                    .map(|&c| CardInfo::from(c)).collect();
+                let players_progress: Vec<PlayerProgress> = game_state.players.iter()
+                    .map(|p| PlayerProgress {
+                        nickname: p.nickname.clone(),
+                        completed_sets: p.count_completed_sets(),
+                        finished: p.finished_position.is_some(),
+                    }).collect();
+
+                Some((new_set, new_center, players_progress))
             }
-            let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
-                Some(idx) => idx,
-                None => return,
-            };
-
-            let my_card = game_state.players[player_idx].sets[player_set_index][my_card_index];
-            let center_card = game_state.center_cards[center_card_index];
-            game_state.players[player_idx].sets[player_set_index][my_card_index] = center_card;
-            game_state.center_cards[center_card_index] = my_card;
-
-            let new_set: Vec<CardInfo> = game_state.players[player_idx].sets[player_set_index].iter()
-                .map(|&c| CardInfo::from(c)).collect();
-            let new_center: Vec<CardInfo> = game_state.center_cards.iter()
-                .map(|&c| CardInfo::from(c)).collect();
-            let players_progress: Vec<PlayerProgress> = game_state.players.iter()
-                .map(|p| PlayerProgress {
-                    nickname: p.nickname.clone(),
-                    completed_sets: p.count_completed_sets(),
-                    finished: p.finished_position.is_some(),
-                }).collect();
-
-            (new_set, new_center, players_progress)
         };
 
-        let (new_set, new_center, players_progress) = result;
+        // Antes esto se descartaba en silencio: el jugador clickeaba, esperaba
+        // los 300ms, y su carta simplemente no se movía sin ningún aviso — eso
+        // es lo que se reportó como latencia "inconsistente". Ahora siempre
+        // se avisa por qué no se completó.
+        let Some((new_set, new_center, players_progress)) = result else {
+            state.lobby_manager.update_lobby(lobby).await;
+            state.send_to_player(&player_id, ServerMessage::SwapFailed {
+                reason: "Esa carta entró en disputa justo antes de tu intercambio, intenta de nuevo".to_string(),
+            }).await;
+            return;
+        };
         state.lobby_manager.update_lobby(lobby).await;
 
         state.send_to_player(&player_id, ServerMessage::SwapSuccess {
