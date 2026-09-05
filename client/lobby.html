@@ -947,6 +947,15 @@ window.addEventListener('DOMContentLoaded', () => {
     // Guardar en cada pulsación, no solo al salir del campo: ahora el input
     // vive en su propia pantalla y se puede salir de ella sin disparar blur.
     smCodeInput.addEventListener('input', () => {
+        // El campo se ve en mayúsculas por CSS, pero text-transform no toca
+        // el value: sin esto se guardaba en minúsculas lo que se veía en
+        // mayúsculas, y el código no coincidía con ninguno al terminar.
+        const upper = smCodeInput.value.toUpperCase();
+        if (smCodeInput.value !== upper) {
+            const at = smCodeInput.selectionStart;
+            smCodeInput.value = upper;
+            smCodeInput.setSelectionRange(at, at);
+        }
         refreshSmCodeUi();
         const v = smCodeInput.value.trim();
         if (v) localStorage.setItem('piles_sm_code', v);
@@ -2055,7 +2064,7 @@ function onGameOver(rankings) {
 function claimSessionManagerResult(rankings) {
     // Desde localStorage, no del input: el campo vive en la pantalla de
     // perfil y aquí solo importa el valor guardado.
-    const code = (localStorage.getItem('piles_sm_code') || '').trim();
+    const code = (localStorage.getItem('piles_sm_code') || '').trim().toUpperCase();
     if (!code) return;
 
     const myNickname = localStorage.getItem('piles_nickname');
@@ -2071,9 +2080,23 @@ function claimSessionManagerResult(rankings) {
         .then(({ ok, body }) => {
             const footer = document.getElementById('smClaimStatus');
             if (!footer) return;
-            footer.textContent = ok
-                ? '✅ Resultado sumado a tu perfil de Session Manager'
-                : `⚠️ No se pudo vincular: ${body.error || 'error desconocido'}`;
+            if (ok) {
+                footer.textContent = '✅ Resultado sumado a tu perfil de Session Manager';
+                return;
+            }
+            if (body.error === 'unknown code') {
+                // El código guardado ya no existe — pasa al generar uno nuevo
+                // en el perfil, que borra el anterior. Se descarta aquí; si no,
+                // cada partida volvería a fallar igual y sin explicar nada.
+                localStorage.removeItem('piles_sm_code');
+                const input = document.getElementById('smCode');
+                if (input) { input.value = ''; }
+                footer.textContent = '⚠️ Tu código de Session Manager ya no es válido '
+                    + '(se reemplaza al generar uno nuevo). Copia el actual desde tu perfil '
+                    + 'y pégalo otra vez en 👤 Perfil.';
+                return;
+            }
+            footer.textContent = `⚠️ No se pudo vincular: ${body.error || 'error desconocido'}`;
         })
         .catch(() => {
             const footer = document.getElementById('smClaimStatus');
