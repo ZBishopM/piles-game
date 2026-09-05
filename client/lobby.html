@@ -848,7 +848,7 @@ function handleMsg(msg) {
                 renderYourCards();
                 renderCenterCards();
                 updateSwapHint(`⚠️ ${msg.reason}`);
-                setTimeout(clearSelection, 2500);
+                resetSwapHintLater(2500);
             }
             break;
 
@@ -1138,9 +1138,30 @@ function doSwap(myCardIndex, centerCardIndex) {
     // La UI se actualizará cuando llegue el swap_success del servidor
 }
 
+const DEFAULT_SWAP_HINT = `Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar`;
+
 function clearSelection() {
     selection = null;
-    updateSwapHint(`Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar`);
+    updateSwapHint(DEFAULT_SWAP_HINT);
+}
+
+let swapHintResetTimer = null;
+
+/** Devuelve el hint a su texto por defecto tras un aviso temporal.
+ *
+ * Antes esto era `setTimeout(clearSelection, 2500)`, que además de
+ * restaurar el texto anulaba `selection`. Si el jugador ya había elegido
+ * una carta dentro de esos 2.5s (justo lo que pasa al salir de un QTE:
+ * quieres seguir jugando de inmediato), su selección se borraba sola y el
+ * siguiente click solo volvía a seleccionar en vez de completar el
+ * intercambio — se siente como lag o como que el juego ignoró el click.
+ */
+function resetSwapHintLater(delayMs) {
+    if (swapHintResetTimer) clearTimeout(swapHintResetTimer);
+    swapHintResetTimer = setTimeout(() => {
+        swapHintResetTimer = null;
+        if (selection === null) updateSwapHint(DEFAULT_SWAP_HINT);
+    }, delayMs);
 }
 
 function updateSwapHint(html) {
@@ -1349,7 +1370,7 @@ function closeQteOverlay(winnerName) {
         const hint = document.getElementById('swapHint');
         hint.innerHTML = `⚡ <strong>${winnerName}</strong> ganó el QTE`;
         hint.classList.add('selected');
-        setTimeout(() => clearSelection(), 2500);
+        resetSwapHintLater(2500);
     }
 
     qtePlayers = [];
