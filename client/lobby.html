@@ -960,6 +960,15 @@ window.addEventListener('DOMContentLoaded', () => {
 
     buildMaxPlayersSelector();
     handleJoinDeepLink();
+
+    // Tras un F5 estando en una sala, volver a ella. Un enlace ?join= manda
+    // sobre esto: es una intención más reciente que la sala anterior.
+    if (!pendingAutoJoin) {
+        let stored = null;
+        try { stored = sessionStorage.getItem('piles_lobby'); } catch { /* modo privado */ }
+        if (stored && localStorage.getItem('piles_nickname')) pendingRejoinCode = stored;
+    }
+
     connectWs();
 });
 
@@ -982,6 +991,36 @@ function handleJoinDeepLink() {
 }
 let pendingAutoJoin = false;
 
+// ─── Volver a la sala tras una desconexión ────────────────────────────────
+// Al reconectar se abre un WebSocket nuevo, y el servidor le asigna otro
+// player_id: para él es un desconocido que no está en ninguna sala. Antes
+// solo se reabría el socket, así que el overlay prometía "reconecta para
+// volver a la sala" y luego no se podía ni marcar Listo. Hay que volver a
+// entrar explícitamente.
+let pendingRejoinCode = null;
+let rejoinInFlight = false;
+
+/** sessionStorage y no localStorage a propósito: sobrevive a un F5 (el otro
+ *  botón del overlay) pero no a cerrar la pestaña. */
+function rememberLobby(lobbyId) {
+    pendingRejoinCode = lobbyId;
+    try { sessionStorage.setItem('piles_lobby', lobbyId); } catch { /* modo privado */ }
+}
+
+function forgetLobby() {
+    pendingRejoinCode = null;
+    currentLobbyId = '';
+    try { sessionStorage.removeItem('piles_lobby'); } catch { /* modo privado */ }
+}
+
+function attemptRejoin() {
+    const nickname = (localStorage.getItem('piles_nickname') || '').trim();
+    if (!pendingRejoinCode || !nickname) { forgetLobby(); return; }
+    currentNickname = nickname;
+    rejoinInFlight = true;
+    send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname });
+}
+
 function connectWs() {
     closedIntentionally = false;
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -999,11 +1038,13 @@ function connectWs() {
             }
         }, 25000);
 
-        // Sala abierta desde un enlace/QR con nombre ya guardado. Solo la
-        // primera conexión: en una reconexión el jugador ya está donde toca.
         if (pendingAutoJoin) {
+            // Sala abierta desde un enlace/QR con nombre ya guardado.
             pendingAutoJoin = false;
             joinLobby();
+        } else if (pendingRejoinCode) {
+            // Reconexión (o F5) estando en una sala: volver a entrar.
+            attemptRejoin();
         }
     };
 
@@ -1142,6 +1183,17 @@ function handleMsg(msg) {
 
         case 'error':
             console.warn('Error del servidor:', msg.message);
+            if (rejoinInFlight) {
+                // La sala ya no existe (o el nombre está ocupado). Sin esto
+                // el jugador se quedaba mirando una sala fantasma.
+                rejoinInFlight = false;
+                forgetLobby();
+                showScreen('homeScreen');
+                const hint = document.getElementById('nameHint');
+                hint.textContent = `No se pudo volver a la sala: ${msg.message}`;
+                hint.hidden = false;
+                break;
+            }
             alert('⚠️ ' + msg.message);
             clearSelection();
             break;
@@ -1191,6 +1243,8 @@ function joinLobby() {
  *  (`lobby_created` / `joined_lobby`); ambos pasan por aquí para que la
  *  pantalla, el QR y el enlace se preparen igual en los dos casos. */
 function onEnteredLobby(lobbyId) {
+    rejoinInFlight = false;
+    rememberLobby(lobbyId);
     document.getElementById('lobbyCodeDisplay').textContent = lobbyId;
 
     const qr = document.getElementById('lobbyQr');
@@ -1384,7 +1438,7 @@ function toggleReady() {
 
 function leaveLobby() {
     showScreen('homeScreen');
-    currentLobbyId = '';
+    forgetLobby();
     isReady = false;
 }
 

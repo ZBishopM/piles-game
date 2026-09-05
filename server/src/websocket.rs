@@ -249,7 +249,9 @@ async fn handle_client_message(
         ClientMessage::CreateLobby { nickname, max_players } => {
             let lobby_id = state.lobby_manager.create_lobby(max_players).await;
 
-            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname).await {
+            // Lobby recién creado: está vacío, no hay ningún sitio que reclamar.
+            let live = std::collections::HashSet::new();
+            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
                 Ok(_lobby) => {
                     *current_lobby = Some(lobby_id.clone());
 
@@ -269,7 +271,9 @@ async fn handle_client_message(
         }
 
         ClientMessage::JoinLobby { lobby_id, nickname } => {
-            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname).await {
+            let live: std::collections::HashSet<Uuid> =
+                state.connections.read().await.keys().copied().collect();
+            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
                 Ok(lobby) => {
                     *current_lobby = Some(lobby_id.clone());
 

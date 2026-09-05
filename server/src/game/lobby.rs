@@ -1,10 +1,14 @@
 use super::models::{Card, PlayerState, GameState};
 use super::deck::{generate_deck, distribute_cards};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
+
+/// Cuánto sobrevive un lobby vacío antes de reciclarse.
+const EMPTY_LOBBY_TTL: Duration = Duration::from_secs(30 * 60);
 
 /// Estado de un lobby
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,6 +36,11 @@ pub struct Lobby {
     pub status: LobbyStatus,
     #[serde(skip)]
     pub game_state: Option<GameState>,
+    /// Desde cuándo el lobby está vacío. Se mantiene reutilizable un rato
+    /// para que quien se desconecta pueda volver a su misma sala; pasado
+    /// `EMPTY_LOBBY_TTL` se recicla.
+    #[serde(skip)]
+    pub empty_since: Option<Instant>,
 }
 
 impl Lobby {
@@ -43,6 +52,7 @@ impl Lobby {
             max_players: max_players.clamp(2, 8),
             status: LobbyStatus::Waiting,
             game_state: None,
+            empty_since: None,
         }
     }
 
@@ -65,6 +75,7 @@ impl Lobby {
             nickname,
             is_ready: false,
         });
+        self.empty_since = None;
 
         Ok(())
     }
@@ -98,9 +109,16 @@ impl Lobby {
             game.players.retain(|p| p.id != *player_id);
         }
 
-        // Si el lobby quedó vacío, marcarlo como terminado
+        // Un lobby vacío NO se da por terminado: quien se desconecta (o
+        // cierra la pestaña sin querer) tiene que poder volver a su misma
+        // sala, y los demás tienen que poder seguir entrando con el mismo
+        // código. Marcarlo Finished aquí lo mataba para siempre —
+        // add_player() rechaza todo lo que no esté en Waiting, así que la
+        // sala quedaba inaccesible incluso para su propio creador.
         if self.players.is_empty() {
-            self.status = LobbyStatus::Finished;
+            self.status = LobbyStatus::Waiting;
+            self.game_state = None;
+            self.empty_since = Some(Instant::now());
         } else if self.status == LobbyStatus::Ready {
             // Revalidar: si alguien se fue, volver a Waiting
             self.status = LobbyStatus::Waiting;
@@ -203,6 +221,7 @@ impl LobbyManager {
 
     /// Crea un nuevo lobby
     pub async fn create_lobby(&self, max_players: u8) -> String {
+        self.reap_stale_lobbies().await;
         let lobby_id = Self::generate_lobby_id();
         let lobby = Lobby::new(lobby_id.clone(), max_players);
 
@@ -225,10 +244,31 @@ impl LobbyManager {
     }
 
     /// Agrega un jugador a un lobby
-    pub async fn join_lobby(&self, lobby_id: &str, player_id: Uuid, nickname: String) -> Result<Lobby, String> {
+    /// `live` son los player_id que todavía tienen socket abierto.
+    ///
+    /// Al recargar la página el socket nuevo puede llegar antes de que el
+    /// servidor termine de limpiar el viejo, y entonces el jugador chocaba
+    /// con su propio nombre ("Nickname ya en uso") y no podía volver a su
+    /// sala. Si el que ocupa el nombre ya no tiene conexión, cede el sitio.
+    /// A un jugador conectado no se le puede echar así.
+    pub async fn join_lobby(
+        &self,
+        lobby_id: &str,
+        player_id: Uuid,
+        nickname: String,
+        live: &HashSet<Uuid>,
+    ) -> Result<Lobby, String> {
         let mut lobbies = self.lobbies.write().await;
         let lobby = lobbies.get_mut(lobby_id)
             .ok_or("Lobby no encontrado")?;
+
+        let abandoned: Vec<Uuid> = lobby.players.iter()
+            .filter(|p| p.nickname == nickname && !live.contains(&p.id))
+            .map(|p| p.id)
+            .collect();
+        for stale_id in abandoned {
+            lobby.remove_player(&stale_id);
+        }
 
         lobby.add_player(player_id, nickname)?;
         Ok(lobby.clone())
@@ -243,10 +283,16 @@ impl LobbyManager {
             .collect()
     }
 
-    /// Elimina lobbies terminados (opcional, para limpieza)
-    pub async fn cleanup_finished_lobbies(&self) {
+    /// Recicla los lobbies que llevan vacíos más de `EMPTY_LOBBY_TTL`.
+    /// Se llama al crear uno nuevo en vez de con una tarea de fondo: los
+    /// lobbies vacíos no molestan a nadie, solo hay que evitar que se
+    /// acumulen indefinidamente.
+    async fn reap_stale_lobbies(&self) {
         let mut lobbies = self.lobbies.write().await;
-        lobbies.retain(|_, lobby| lobby.status != LobbyStatus::Finished);
+        lobbies.retain(|_, lobby| match lobby.empty_since {
+            Some(since) => since.elapsed() < EMPTY_LOBBY_TTL,
+            None => true,
+        });
     }
 }
 
@@ -272,6 +318,52 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(lobby.players.len(), 1);
         assert_eq!(lobby.players[0].nickname, "Player1");
+    }
+
+    // 2026-09-05: al quedarse vacío el lobby se marcaba Finished, y
+    // add_player() rechaza todo lo que no esté en Waiting. Resultado: quien
+    // hospedaba y se desconectaba un momento no podía volver a su sala ni
+    // marcar Listo, y nadie más podía entrar con ese código — la sala moría
+    // en cuanto su creador se quedaba solo y perdía la conexión.
+    #[test]
+    fn empty_lobby_stays_joinable() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let host = Uuid::new_v4();
+        lobby.add_player(host, "Host".to_string()).unwrap();
+
+        lobby.remove_player(&host);
+
+        assert!(lobby.players.is_empty());
+        assert_eq!(lobby.status, LobbyStatus::Waiting, "un lobby vacío tiene que seguir siendo reutilizable");
+        assert!(lobby.empty_since.is_some(), "hay que fechar cuándo quedó vacío para poder reciclarlo");
+        assert!(lobby.add_player(Uuid::new_v4(), "Host".to_string()).is_ok());
+        assert!(lobby.empty_since.is_none(), "al volver a entrar alguien deja de estar vacío");
+    }
+
+    #[tokio::test]
+    async fn rejoin_reclaims_an_abandoned_seat_but_never_a_live_one() {
+        let manager = LobbyManager::new();
+        let lobby_id = manager.create_lobby(4).await;
+        let ghost = Uuid::new_v4();
+        let alive = Uuid::new_v4();
+        let no_one = HashSet::new();
+        manager.join_lobby(&lobby_id, ghost, "Ana".to_string(), &no_one).await.unwrap();
+        manager.join_lobby(&lobby_id, alive, "Beto".to_string(), &no_one).await.unwrap();
+
+        // Solo `alive` conserva socket: Ana recargó la página.
+        let live: HashSet<Uuid> = [alive].into_iter().collect();
+
+        let reconnected = Uuid::new_v4();
+        let lobby = manager.join_lobby(&lobby_id, reconnected, "Ana".to_string(), &live).await
+            .expect("volver a entrar con el propio nombre tras recargar");
+        assert_eq!(lobby.players.len(), 2, "Ana recupera su sitio en vez de duplicarse");
+        assert!(lobby.players.iter().any(|p| p.id == reconnected));
+        assert!(!lobby.players.iter().any(|p| p.id == ghost));
+
+        // A alguien que sigue conectado no se le puede quitar el sitio.
+        let impostor = Uuid::new_v4();
+        let live: HashSet<Uuid> = [alive, reconnected].into_iter().collect();
+        assert!(manager.join_lobby(&lobby_id, impostor, "Beto".to_string(), &live).await.is_err());
     }
 
     #[test]
