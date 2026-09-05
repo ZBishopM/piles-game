@@ -164,6 +164,18 @@ impl Lobby {
     }
 }
 
+/// Alfabeto de los códigos de lobby. Excluye I, O, 0 y 1 para que nadie
+/// tenga que adivinar entre caracteres parecidos al dictar un código.
+pub const LOBBY_CODE_CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+pub const LOBBY_CODE_LEN: usize = 6;
+
+/// Valida un código con el mismo alfabeto que lo genera — un `[A-Z0-9]{6}`
+/// aceptaría I/O/0/1, que nunca se generan.
+pub fn is_valid_lobby_code(code: &str) -> bool {
+    code.len() == LOBBY_CODE_LEN
+        && code.bytes().all(|b| LOBBY_CODE_CHARSET.contains(&b))
+}
+
 /// Gestor de lobbies global
 pub struct LobbyManager {
     lobbies: Arc<RwLock<HashMap<String, Lobby>>>,
@@ -179,13 +191,12 @@ impl LobbyManager {
     /// Genera un ID único para un lobby (código de 6 caracteres)
     fn generate_lobby_id() -> String {
         use rand::Rng;
-        const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         let mut rng = rand::thread_rng();
 
-        (0..6)
+        (0..LOBBY_CODE_LEN)
             .map(|_| {
-                let idx = rng.gen_range(0..CHARSET.len());
-                CHARSET[idx] as char
+                let idx = rng.gen_range(0..LOBBY_CODE_CHARSET.len());
+                LOBBY_CODE_CHARSET[idx] as char
             })
             .collect()
     }

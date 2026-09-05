@@ -251,6 +251,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_qr"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aafa8088286fa3903718197ceb03dac70f8b4763748fbdca1e431a5a7217a09e"
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -808,6 +814,7 @@ dependencies = [
  "axum",
  "chrono",
  "dotenvy",
+ "fast_qr",
  "futures",
  "rand",
  "serde",

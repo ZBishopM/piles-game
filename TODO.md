@@ -48,6 +48,9 @@
 
 ## 📱 Responsive / Mobile
 
+- [ ] Media queries para el **tablero de juego** (`#gameScreen`) < 768px — las
+      pantallas de entrada (home/perfil/tutorial/hospedar/unirse) ya tienen las
+      suyas; falta el tablero, que es lo que sigue sin adaptarse en móvil
 - [ ] Media queries para pantallas < 768px
 - [ ] Reemplazar hover-clicks por touch events en móvil
 - [ ] Cartas más grandes en pantalla táctil
@@ -70,10 +73,10 @@
 
 ## ✨ Polish / Mejoras Futuras
 
-- [ ] **Tutorial corto** (onboarding, 3 pasos con imagen por paso):
-  1. "¡Intercambia cartas hasta que todas tus PILAS tengan la misma prenda!" — imagen de las 6 pilas alineadas, cada una con 4 copias iguales.
-  2. "Muestra una pila cuando creas que está completa. Recuerda: todos ven cuándo se muestra una pila y qué prenda tiene." — imagen del botón "👁 Revelar" (`flipCurrentSet`).
-  3. "Al terminar verificamos que todas tus pilas sean correctas — si te equivocaste, revisa tus pilas, los demás pueden seguir jugando." — imagen de un error de verificación mientras un QTE sigue en curso (deja claro que un fallo tuyo no congela a los demás).
+- [x] **Tutorial corto** (onboarding, 3 pasos) — hecho en `#howToPlayScreen`. Las
+      ilustraciones se arman con cartas reales del juego (mismo marcado y CSS que
+      el tablero) en vez de imágenes, así que `client/assets/` sigue vacío a
+      propósito. Si algún día hay arte de verdad, sustituir `.tut-art`.
 - [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación correcta/incorrecta
 - [ ] Animación de carta al hacer swap (slide desde set al centro y viceversa)
 - [ ] Drag & drop en lugar de click-click para intercambiar cartas

@@ -25,6 +25,8 @@ serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
+# QR del lobby, renderizado a SVG en /api/qr/:lobby_code
+fast_qr = { version = "0.14", features = ["svg"] }
 
 # Logging
 tracing = "0.1"

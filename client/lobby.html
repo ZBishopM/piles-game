@@ -4,8 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piles! - Lobby</title>
-    <link rel="stylesheet" href="css/styles.css">
+    <!-- qr-scanner 1.4.2 (nimiq, MIT), vendorizado — sin CDN ni npm.
+         sha384-np0yBqru4jLMa2u0xLtxD3WvMtkLuNiMNQwxQ8GT132ygYFONACD2xc33tx1avQz
+         Usa BarcodeDetector nativo cuando existe y carga su propio worker
+         (qr-scanner-worker.min.js, sha384-irhTGf70Ryc7WyNLyAljPrpg7lTLXwg5Qb
+         Ysw40uLuCdAa4ziKF5DVclab4C7uxc) en el resto — iOS y Firefox incluidos.
+         Ambos ficheros viven en la raíz de client/ a propósito: el worker se
+         carga con un import() relativo que, desde un script clásico, se
+         resuelve contra la URL del documento (/lobby.html), no la del script. -->
+    <script src="/qr-scanner.umd.min.js"></script>
     <style>
+        /* Reset — venía de css/styles.css, que era el resto código muerto de
+           una página de pruebas anterior. */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         :root {
             --accent: #667eea;
             --success: #28a745;
@@ -18,16 +30,56 @@
         .screen { display: none; }
         .screen.active { display: block; }
 
-        /* ── HOME ── */
-        #homeScreen {
+        /* Contenedor común de las pantallas de entrada. Antes cada una
+           repetía este mismo fondo/radio/padding por su cuenta. */
+        .panel {
             max-width: 480px;
             margin: 60px auto;
             padding: 20px;
             background: #16213e;
             border-radius: 16px;
         }
-        #homeScreen h1 { text-align: center; font-size: 2.5rem; color: var(--accent); margin-bottom: 4px; }
-        #homeScreen .subtitle { text-align: center; color: #999; margin-bottom: 28px; }
+        .panel h1 { text-align: center; font-size: 2.5rem; color: var(--accent); margin-bottom: 4px; }
+        .panel .subtitle { text-align: center; color: #999; margin-bottom: 28px; }
+        .panel h2 { text-align: center; font-size: 1.4rem; color: #eee; margin-bottom: 20px; }
+
+        /* Barra superior de las subpantallas: volver + título opcional */
+        .screen-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            min-height: 32px;
+        }
+        .back-btn {
+            background: none;
+            border: none;
+            color: #aaa;
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 6px 2px;
+        }
+        .back-btn:hover { color: #eee; }
+        .step-counter { color: #888; font-size: 0.85rem; }
+
+        /* Icono de perfil, esquina superior del home */
+        .profile-btn {
+            display: block;
+            margin-left: auto;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            border: 2px solid #2a2a5a;
+            background: #0f3460;
+            color: #eee;
+            font-size: 1.2rem;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .profile-btn:hover { border-color: var(--accent); }
+
+        /* Botones grandes del home, uno por función */
+        .home-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
         .form-group { margin-bottom: 16px; }
         .form-group label { display: block; margin-bottom: 6px; color: #ccc; font-size: 0.9rem; }
         .form-group input {
@@ -40,7 +92,97 @@
         .btn-primary { background: var(--accent); color: white; }
         .btn-secondary { background: #2a2a5a; color: #ccc; }
         .btn:hover { opacity: 0.88; }
-        #connStatus { text-align: center; margin-top: 16px; font-size: 0.85rem; }
+        #connStatus { text-align: center; margin-top: 16px; font-size: 0.85rem; color: #888; }
+
+        /* ── HOSPEDAR: selector de jugadores ── */
+        .seg-group { display: flex; gap: 6px; flex-wrap: wrap; }
+        .seg-btn {
+            flex: 1;
+            min-width: 44px;
+            padding: 12px 4px;
+            border: 2px solid #2a2a5a;
+            border-radius: 8px;
+            background: #0f3460;
+            color: #aaa;
+            font-size: 1rem;
+            cursor: pointer;
+        }
+        .seg-btn:hover { border-color: var(--accent); color: #eee; }
+        .seg-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: bold; }
+
+        /* ── CÓMO JUGAR ── */
+        .tut-art {
+            background: #0f3460;
+            border-radius: 12px;
+            padding: 18px 12px;
+            margin-bottom: 18px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        /* Las ilustraciones son cartas reales del juego, no imágenes: mismo
+           marcado y mismo CSS que el tablero, así no se desincronizan. */
+        .tut-row { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
+        .tut-row .card { width: 54px; height: 68px; font-size: 0.6rem; cursor: default; }
+        .tut-row .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+        .tut-row .card .card-icon { font-size: 1.4rem; }
+        .tut-row .card .card-label { display: none; }
+        .tut-caption { color: #888; font-size: 0.75rem; text-align: center; }
+        .tut-text { color: #eee; font-size: 1rem; line-height: 1.5; text-align: center; min-height: 72px; }
+        .tut-dots { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
+        .tut-dot { width: 9px; height: 9px; border-radius: 50%; background: #2a2a5a; }
+        .tut-dot.active { background: var(--accent); }
+        .tut-nav { display: flex; gap: 8px; }
+        .tut-nav .btn { margin-top: 0; }
+
+        /* ── UNIRSE: código + escáner ── */
+        #lobbyCode {
+            text-align: center;
+            font-size: 1.6rem;
+            letter-spacing: 0.25em;
+            font-weight: bold;
+        }
+        #scanWrap { margin-top: 10px; display: none; }
+        #scanWrap.active { display: block; }
+        #scanVideo {
+            width: 100%;
+            max-height: 260px;
+            border-radius: 12px;
+            background: #000;
+            object-fit: cover;
+        }
+        #scanError { color: var(--danger); font-size: 0.85rem; margin-top: 8px; text-align: center; }
+
+        /* Móvil, solo pantallas de entrada. El tablero de juego sigue sin
+           adaptar (ver TODO.md). */
+        @media (max-width: 600px) {
+            .panel {
+                margin: 16px auto;
+                border-radius: 12px;
+                padding: 16px;
+            }
+            .panel h1 { font-size: 2rem; }
+            .panel .subtitle { font-size: 0.95rem; margin-bottom: 20px; }
+            .btn { padding: 14px; font-size: 1.05rem; }
+            .seg-btn { min-width: 40px; padding: 14px 4px; }
+            #lobbyCode { font-size: 1.4rem; }
+            .lobby-code { font-size: 2rem; }
+            .tut-row .card { width: 46px; height: 58px; }
+        }
+
+        /* ── LOBBY: QR para compartir ── */
+        .lobby-qr {
+            width: 168px;
+            height: 168px;
+            margin: 14px auto 8px;
+            background: #fff;
+            border-radius: 10px;
+            padding: 8px;
+            display: block;
+        }
 
         /* ── LOBBY ── */
         #lobbyScreen {
@@ -535,17 +677,36 @@
 <body>
 
 <!-- ════ HOME ════ -->
-<div id="homeScreen" class="screen active">
+<div id="homeScreen" class="screen panel active">
+    <button type="button" class="profile-btn" onclick="showScreen('profileScreen')" title="Perfil">👤</button>
+
     <h1>🎮 Piles!</h1>
     <p class="subtitle">Juego de Cartas Multijugador</p>
 
     <div class="form-group">
-        <label for="nickname">Tu Nickname</label>
+        <label for="nickname">Tu nombre</label>
         <input type="text" id="nickname" placeholder="Ej: Jugador1" maxlength="20">
+        <small id="nameHint" style="color:var(--warning)" hidden>Escribe tu nombre para poder jugar.</small>
     </div>
 
+    <div class="home-actions">
+        <button class="btn btn-secondary" onclick="openTutorial()">❓ Cómo jugar</button>
+        <button class="btn btn-primary" onclick="showScreen('hostScreen')">🎲 Hospedar</button>
+        <button class="btn btn-secondary" onclick="showScreen('joinScreen')">🔗 Unirse</button>
+    </div>
+
+    <p id="connStatus">⏳ Conectando...</p>
+</div>
+
+<!-- ════ PERFIL ════ -->
+<div id="profileScreen" class="screen panel">
+    <div class="screen-top">
+        <button type="button" class="back-btn" onclick="showScreen('homeScreen')">← Atrás</button>
+    </div>
+    <h2>👤 Perfil</h2>
+
     <div class="form-group">
-        <label for="smCode">Código de Session Manager (opcional)</label>
+        <label for="smCode">Vincular con Session Manager</label>
         <div style="display:flex;gap:8px;align-items:center;">
             <input type="text" id="smCode" placeholder="Pega aquí tu código" maxlength="12"
                    style="text-transform:uppercase;flex:1;width:auto;min-width:0;">
@@ -557,21 +718,65 @@
         <small id="smCodeHint">Genera un código en tu perfil de Session Manager y pégalo aquí.</small>
     </div>
 
-    <div class="form-group">
-        <label for="maxPlayers">Máximo de jugadores</label>
-        <input type="number" id="maxPlayers" min="2" max="8" value="4">
+    <p style="color:#888;font-size:0.85rem;line-height:1.5">
+        Sin código se juega igual — solo que el resultado no se guarda en ningún perfil.
+    </p>
+</div>
+
+<!-- ════ CÓMO JUGAR ════ -->
+<div id="howToPlayScreen" class="screen panel">
+    <div class="screen-top">
+        <button type="button" class="back-btn" onclick="showScreen('homeScreen')">← Atrás</button>
+        <span class="step-counter" id="tutCounter">1/3</span>
     </div>
-    <button class="btn btn-primary" onclick="createLobby()">Crear Lobby</button>
 
-    <div class="divider">— o únete a uno existente —</div>
+    <div class="tut-art" id="tutArt"></div>
+    <p class="tut-text" id="tutText"></p>
+
+    <div class="tut-dots" id="tutDots"></div>
+    <div class="tut-nav">
+        <button class="btn btn-secondary" id="tutPrev" onclick="tutorialPrev()">Atrás</button>
+        <button class="btn btn-primary" id="tutNext" onclick="tutorialNext()">Siguiente</button>
+    </div>
+</div>
+
+<!-- ════ HOSPEDAR ════ -->
+<div id="hostScreen" class="screen panel">
+    <div class="screen-top">
+        <button type="button" class="back-btn" onclick="showScreen('homeScreen')">← Atrás</button>
+    </div>
+    <h2>🎲 Nueva sala</h2>
 
     <div class="form-group">
-        <label for="lobbyCode">Código del Lobby</label>
+        <label>¿Cuántos jugadores?</label>
+        <div class="seg-group" id="maxPlayersGroup"></div>
+        <!-- createLobby() sigue leyendo este input; los botones de arriba
+             solo escriben en él. -->
+        <input type="hidden" id="maxPlayers" value="4">
+    </div>
+
+    <button class="btn btn-primary" onclick="createLobby()">Crear sala</button>
+</div>
+
+<!-- ════ UNIRSE ════ -->
+<div id="joinScreen" class="screen panel">
+    <div class="screen-top">
+        <button type="button" class="back-btn" onclick="leaveJoinScreen()">← Atrás</button>
+    </div>
+    <h2>🔗 Unirse a sala</h2>
+
+    <div class="form-group">
+        <label for="lobbyCode">Código de la sala</label>
         <input type="text" id="lobbyCode" placeholder="ABC123" maxlength="6" style="text-transform:uppercase">
     </div>
-    <button class="btn btn-secondary" onclick="joinLobby()">Unirse al Lobby</button>
+    <button class="btn btn-primary" onclick="joinLobby()">Unirse</button>
 
-    <p id="connStatus">⏳ Conectando...</p>
+    <div class="divider">— o —</div>
+    <button class="btn btn-secondary" id="scanBtn" onclick="toggleScanner()">📷 Escanear QR</button>
+    <div id="scanWrap">
+        <video id="scanVideo" playsinline muted autoplay></video>
+    </div>
+    <p id="scanError" hidden></p>
 </div>
 
 <!-- ════ LOBBY ════ -->
@@ -579,10 +784,13 @@
     <div class="lobby-code-box">
         <small>Código del lobby</small>
         <div class="lobby-code" id="lobbyCodeDisplay">------</div>
-        <small>Comparte este código con otros jugadores</small>
+        <img class="lobby-qr" id="lobbyQr" alt="QR para unirse a la sala" hidden>
+        <button class="btn btn-secondary" id="copyLinkBtn" onclick="copyJoinLink()"
+                style="max-width:220px;margin:0 auto">📋 Copiar enlace</button>
+        <small style="display:block;margin-top:8px">Escanea el QR o comparte el enlace</small>
     </div>
 
-    <h3 style="margin:0 0 8px">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
+    <h3 style="margin:0 0 8px;color:#eee">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
     <ul class="player-list" id="playerList"></ul>
 
     <button id="readyBtn" onclick="toggleReady()">Marcar como Listo ✓</button>
@@ -736,8 +944,10 @@ window.addEventListener('DOMContentLoaded', () => {
     const savedSmCode = localStorage.getItem('piles_sm_code');
     if (savedSmCode) smCodeInput.value = savedSmCode;
     refreshSmCodeUi();
-    smCodeInput.addEventListener('input', refreshSmCodeUi);
-    smCodeInput.addEventListener('blur', () => {
+    // Guardar en cada pulsación, no solo al salir del campo: ahora el input
+    // vive en su propia pantalla y se puede salir de ella sin disparar blur.
+    smCodeInput.addEventListener('input', () => {
+        refreshSmCodeUi();
         const v = smCodeInput.value.trim();
         if (v) localStorage.setItem('piles_sm_code', v);
         else localStorage.removeItem('piles_sm_code');
@@ -748,8 +958,29 @@ window.addEventListener('DOMContentLoaded', () => {
         refreshSmCodeUi();
     });
 
+    buildMaxPlayersSelector();
+    handleJoinDeepLink();
     connectWs();
 });
+
+/** Enlace de invitación (`?join=ABC123`), que es lo que codifica el QR del
+ *  lobby. Así la cámara nativa del teléfono ya sirve para entrar, sin
+ *  escanear desde dentro de la app. */
+function handleJoinDeepLink() {
+    const code = extractLobbyCode(new URLSearchParams(location.search).get('join'));
+    if (!code) return;
+
+    // Limpiar la URL para que un F5 no reintente unirse a una sala vieja.
+    history.replaceState({}, '', location.pathname);
+
+    document.getElementById('lobbyCode').value = code;
+    showScreen('joinScreen');
+
+    // Con nombre ya guardado no hay nada que preguntar: entrar directo en
+    // cuanto el WebSocket esté listo.
+    if (localStorage.getItem('piles_nickname')) pendingAutoJoin = true;
+}
+let pendingAutoJoin = false;
 
 function connectWs() {
     closedIntentionally = false;
@@ -767,6 +998,13 @@ function connectWs() {
                 ws.send(JSON.stringify({ type: 'ping' }));
             }
         }, 25000);
+
+        // Sala abierta desde un enlace/QR con nombre ya guardado. Solo la
+        // primera conexión: en una reconexión el jugador ya está donde toca.
+        if (pendingAutoJoin) {
+            pendingAutoJoin = false;
+            joinLobby();
+        }
     };
 
     ws.onerror = () => { st.textContent = '❌ Error de conexión. ¿Está el servidor corriendo?'; };
@@ -806,14 +1044,13 @@ function handleMsg(msg) {
         case 'lobby_created':
             currentLobbyId = msg.lobby_id;
             currentPlayerId = msg.player_id;
-            document.getElementById('lobbyCodeDisplay').textContent = msg.lobby_id;
+            onEnteredLobby(msg.lobby_id);
             break;
 
         case 'joined_lobby':
             currentLobbyId = msg.lobby_id;
             currentPlayerId = msg.player_id;
-            document.getElementById('lobbyCodeDisplay').textContent = msg.lobby_id;
-            showScreen('lobbyScreen');
+            onEnteredLobby(msg.lobby_id);
             break;
 
         case 'lobby_update':
@@ -912,23 +1149,230 @@ function handleMsg(msg) {
 }
 
 // ─── Lobby ────────────────────────────────────────────────────────────────
-function createLobby() {
+
+/** El campo de nombre vive solo en el home, así que un `alert()` desde
+ *  Hospedar/Unirse dejaría al jugador mirando una pantalla sin ese campo.
+ *  Devuelve el nombre o null, y en ese caso lleva de vuelta al home. */
+function requireNickname() {
     const nickname = document.getElementById('nickname').value.trim();
+    if (nickname) {
+        document.getElementById('nameHint').hidden = true;
+        localStorage.setItem('piles_nickname', nickname);
+        currentNickname = nickname;
+        return nickname;
+    }
+    showScreen('homeScreen');
+    const hint = document.getElementById('nameHint');
+    hint.hidden = false;
+    document.getElementById('nickname').focus();
+    return null;
+}
+
+function createLobby() {
+    const nickname = requireNickname();
+    if (!nickname) return;
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
-    if (!nickname) { alert('Ingresa un nickname'); return; }
-    currentNickname = nickname;
-    localStorage.setItem('piles_nickname', nickname);
     send({ type: 'create_lobby', nickname, max_players: maxPlayers });
 }
 
 function joinLobby() {
-    const nickname = document.getElementById('nickname').value.trim();
+    const nickname = requireNickname();
+    if (!nickname) return;
     const code = document.getElementById('lobbyCode').value.trim().toUpperCase();
-    if (!nickname || !code) { alert('Ingresa nickname y código'); return; }
-    currentNickname = nickname;
-    localStorage.setItem('piles_nickname', nickname);
+    if (!code) {
+        showScreen('joinScreen');
+        document.getElementById('lobbyCode').focus();
+        return;
+    }
     send({ type: 'join_lobby', lobby_id: code, nickname });
 }
+
+/** Host y jugador que se une llegan al lobby por mensajes distintos
+ *  (`lobby_created` / `joined_lobby`); ambos pasan por aquí para que la
+ *  pantalla, el QR y el enlace se preparen igual en los dos casos. */
+function onEnteredLobby(lobbyId) {
+    document.getElementById('lobbyCodeDisplay').textContent = lobbyId;
+
+    const qr = document.getElementById('lobbyQr');
+    qr.src = `/api/qr/${encodeURIComponent(lobbyId)}`;
+    qr.hidden = false;
+    qr.onerror = () => { qr.hidden = true; };
+
+    stopScanner();
+    showScreen('lobbyScreen');
+}
+
+function joinLinkFor(lobbyId) {
+    return `${location.origin}/lobby.html?join=${lobbyId}`;
+}
+
+async function copyJoinLink() {
+    const btn = document.getElementById('copyLinkBtn');
+    const link = joinLinkFor(currentLobbyId);
+    try {
+        await navigator.clipboard.writeText(link);
+        btn.textContent = '✅ Enlace copiado';
+    } catch {
+        // Sin permiso de portapapeles (o sin HTTPS): al menos que se vea.
+        btn.textContent = link;
+    }
+    setTimeout(() => { btn.textContent = '📋 Copiar enlace'; }, 2500);
+}
+
+// ─── Cómo jugar ───────────────────────────────────────────────────────────
+// Las ilustraciones se arman con las mismas cartas del tablero en vez de
+// imágenes: client/assets/ está vacío y así nunca se desincronizan del juego.
+const TUTORIAL_STEPS = [
+    {
+        text: '¡Intercambia cartas hasta que todas tus <strong>PILAS</strong> tengan la misma prenda!',
+        art: () => [
+            { cards: ['Camiseta manga corta', 'Camiseta manga corta', 'Camiseta manga corta', 'Camiseta manga corta'], caption: '✅ Pila completa' },
+            { cards: ['Jeans', 'Gorra', 'Jeans', 'Botas'], caption: '❌ Todavía mezclada' },
+        ],
+    },
+    {
+        text: 'Muestra una pila cuando creas que está completa. Recuerda: <strong>todos ven</strong> cuándo se muestra una pila y qué prenda tiene.',
+        art: () => [
+            { cards: ['Bufanda', 'Bufanda', 'Bufanda', 'Bufanda'], caption: '👁 Revelar este set a otros' },
+        ],
+    },
+    {
+        text: 'Al terminar verificamos que todas tus pilas sean correctas. Si te equivocaste, revisa tus pilas — <strong>los demás pueden seguir jugando</strong>.',
+        art: () => [
+            { cards: ['Abrigo', 'Abrigo', 'Sandalias', 'Abrigo'], caption: '❌ Verificación fallida' },
+        ],
+    },
+];
+let tutorialStep = 0;
+
+function openTutorial() {
+    tutorialStep = 0;
+    renderTutorial();
+    showScreen('howToPlayScreen');
+}
+
+function renderTutorial() {
+    const step = TUTORIAL_STEPS[tutorialStep];
+    document.getElementById('tutCounter').textContent = `${tutorialStep + 1}/${TUTORIAL_STEPS.length}`;
+    document.getElementById('tutText').innerHTML = step.text;
+
+    const art = document.getElementById('tutArt');
+    art.innerHTML = '';
+    step.art().forEach(group => {
+        const row = document.createElement('div');
+        row.className = 'tut-row';
+        group.cards.forEach(name => row.appendChild(buildCard({ name })));
+        art.appendChild(row);
+        const cap = document.createElement('div');
+        cap.className = 'tut-caption';
+        cap.textContent = group.caption;
+        art.appendChild(cap);
+    });
+
+    const dots = document.getElementById('tutDots');
+    dots.innerHTML = '';
+    TUTORIAL_STEPS.forEach((_, i) => {
+        const dot = document.createElement('div');
+        dot.className = 'tut-dot' + (i === tutorialStep ? ' active' : '');
+        dots.appendChild(dot);
+    });
+
+    document.getElementById('tutPrev').disabled = tutorialStep === 0;
+    document.getElementById('tutNext').textContent =
+        tutorialStep === TUTORIAL_STEPS.length - 1 ? 'Empezar' : 'Siguiente';
+}
+
+function tutorialPrev() {
+    if (tutorialStep > 0) { tutorialStep--; renderTutorial(); }
+}
+
+function tutorialNext() {
+    if (tutorialStep < TUTORIAL_STEPS.length - 1) { tutorialStep++; renderTutorial(); }
+    else showScreen('homeScreen');
+}
+
+// ─── Hospedar: selector de jugadores ──────────────────────────────────────
+function buildMaxPlayersSelector() {
+    const group = document.getElementById('maxPlayersGroup');
+    const hidden = document.getElementById('maxPlayers');
+    group.innerHTML = '';
+    for (let n = 2; n <= 8; n++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'seg-btn' + (String(n) === hidden.value ? ' active' : '');
+        btn.textContent = n;
+        btn.onclick = () => {
+            hidden.value = n;
+            group.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        };
+        group.appendChild(btn);
+    }
+}
+
+// ─── Unirse: escáner de QR ────────────────────────────────────────────────
+// qr-scanner usa BarcodeDetector nativo donde existe y su propio worker en el
+// resto (iOS y Firefox no lo tienen), así que no hace falta ramificar aquí.
+let qrScanner = null;
+
+function extractLobbyCode(raw) {
+    let value = (raw || '').trim();
+    // El QR del lobby lleva la URL de invitación completa; el manual, solo el código.
+    try {
+        const parsed = new URL(value);
+        value = parsed.searchParams.get('join') || '';
+    } catch { /* no era una URL: se usa tal cual */ }
+    value = value.trim().toUpperCase();
+    return /^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(value) ? value : null;
+}
+
+async function toggleScanner() {
+    if (qrScanner) { stopScanner(); return; }
+
+    const err = document.getElementById('scanError');
+    err.hidden = true;
+    try {
+        qrScanner = new QrScanner(
+            document.getElementById('scanVideo'),
+            result => {
+                const code = extractLobbyCode(result.data);
+                if (!code) return; // QR ajeno: seguir escaneando
+                document.getElementById('lobbyCode').value = code;
+                stopScanner();
+                joinLobby();
+            },
+            { highlightScanRegion: true, preferredCamera: 'environment' },
+        );
+        await qrScanner.start();
+        document.getElementById('scanWrap').classList.add('active');
+        document.getElementById('scanBtn').textContent = '✕ Cerrar cámara';
+    } catch (e) {
+        stopScanner();
+        err.textContent = 'No se pudo abrir la cámara. Escribe el código a mano.';
+        err.hidden = false;
+        console.error(e);
+    }
+}
+
+/** Único punto de apagado. Si esto no corre, la luz de la cámara se queda
+ *  encendida y consume batería — por eso lo llaman también onEnteredLobby(),
+ *  el botón Atrás y pagehide. */
+function stopScanner() {
+    if (qrScanner) {
+        qrScanner.stop();
+        qrScanner.destroy();
+        qrScanner = null;
+    }
+    document.getElementById('scanWrap').classList.remove('active');
+    document.getElementById('scanBtn').textContent = '📷 Escanear QR';
+}
+
+function leaveJoinScreen() {
+    stopScanner();
+    showScreen('homeScreen');
+}
+
+window.addEventListener('pagehide', stopScanner);
 
 function toggleReady() {
     isReady = !isReady;
@@ -1555,8 +1999,9 @@ function onGameOver(rankings) {
 // profile. No effect on anonymous play — nothing is sent without a code.
 // See pb_hooks/piles_claim.pb.js in the session-manager repo.
 function claimSessionManagerResult(rankings) {
-    const codeInput = document.getElementById('smCode');
-    const code = codeInput ? codeInput.value.trim() : '';
+    // Desde localStorage, no del input: el campo vive en la pantalla de
+    // perfil y aquí solo importa el valor guardado.
+    const code = (localStorage.getItem('piles_sm_code') || '').trim();
     if (!code) return;
 
     const myNickname = localStorage.getItem('piles_nickname');
