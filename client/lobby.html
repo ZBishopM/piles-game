@@ -1952,6 +1952,11 @@ function openVerifyOverlay(playerName) {
     } else {
         // Verificación ajena → notificación pequeña en segundo plano
         const area = document.getElementById('verifyNotifications');
+        // Tras fallar se puede reintentar: sin esto la notificación anterior
+        // de ese jugador se quedaba huérfana en pantalla al reemplazarla en
+        // el Map, y ya nadie la borraba.
+        const previous = otherVerifications.get(playerName);
+        if (previous) previous.remove();
         const notif = document.createElement('div');
         notif.className = 'verify-notif';
         notif.dataset.player = playerName;
@@ -2007,7 +2012,7 @@ function onVerificationSuccess(playerName, position) {
         if (notif) {
             notif.classList.add('success');
             notif.querySelector('.vnotif-header').textContent = `${medal} ${playerName}: Puesto ${position}`;
-            setTimeout(() => { notif.remove(); otherVerifications.delete(playerName); }, 5000);
+            dismissVerifyNotif(playerName, notif, 5000);
         }
     }
 }
@@ -2027,7 +2032,7 @@ function onVerificationFailed(playerName, failedSets) {
         if (notif) {
             notif.classList.add('failure');
             notif.querySelector('.vnotif-header').textContent = `❌ ${playerName} falló: ${failedNames}`;
-            setTimeout(() => { notif.remove(); otherVerifications.delete(playerName); }, 4000);
+            dismissVerifyNotif(playerName, notif, 4000);
         }
     }
 }
@@ -2036,9 +2041,36 @@ function closeVerifyOverlay() {
     document.getElementById('verifyOverlay').classList.remove('active');
 }
 
+/** Programa el borrado de una notificación de verificación ajena.
+ *
+ * Solo saca del Map la notificación que realmente programó: si ese jugador
+ * volvió a verificar mientras corría el temporizador, el `delete` a secas
+ * borraba la entrada NUEVA y dejaba su notificación flotando para siempre.
+ */
+function dismissVerifyNotif(playerName, notif, delayMs) {
+    setTimeout(() => {
+        notif.remove();
+        if (otherVerifications.get(playerName) === notif) {
+            otherVerifications.delete(playerName);
+        }
+    }, delayMs);
+}
+
+/** Las notificaciones de verificación solo se borraban al llegar el
+ *  resultado de ESA verificación. Si la partida terminaba antes (alguien
+ *  completó el podio mientras otro seguía verificando) el resultado no
+ *  llegaba nunca y la notificación se quedaba en pantalla — incluso en la
+ *  siguiente ronda. Al cerrar la partida se limpian todas. */
+function clearMatchNotifications() {
+    document.getElementById('verifyNotifications').innerHTML = '';
+    otherVerifications.clear();
+    qteBattleNotif = null;
+}
+
 function onGameOver(rankings) {
     gameOver = true;
     closeVerifyOverlay();
+    clearMatchNotifications();
     const list = document.getElementById('rankingList');
     list.innerHTML = '';
     const medals = ['🥇', '🥈', '🥉'];
@@ -2108,6 +2140,7 @@ function onGameCancelled(reason) {
     // Cerrar overlays activos del juego
     closeVerifyOverlay();
     closeQteOverlay('');
+    clearMatchNotifications();
     // Mostrar notificación breve y volver al lobby
     const notif = document.createElement('div');
     notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#16213e;border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:#eee;';
@@ -2127,6 +2160,9 @@ function returnToLobby() {
     verificationSent = false;
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
+    // Red de seguridad: si algo quedó de la partida anterior, no debe
+    // aparecer flotando encima de la siguiente.
+    clearMatchNotifications();
     // Resetear botón de listo
     const btn = document.getElementById('readyBtn');
     btn.textContent = 'Marcar como Listo ✓';
