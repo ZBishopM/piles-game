@@ -962,6 +962,7 @@ window.addEventListener('DOMContentLoaded', () => {
         refreshSmCodeUi();
     });
 
+    applyBetaMode();
     buildMaxPlayersSelector();
     handleJoinDeepLink();
 
@@ -1568,6 +1569,25 @@ function renderPlayersProgress(progress) {
 }
 
 
+// ─── Entorno de pruebas ───────────────────────────────────────────────────
+// El despliegue beta corre en su propio host, proceso y checkout, así que
+// romper algo ahí no toca a quien está jugando en producción. Además no se
+// vincula con Session Manager: los testers no necesitan cuenta, y sus
+// partidas de prueba no ensucian perfiles reales.
+const IS_BETA = location.hostname.startsWith('beta.');
+
+function applyBetaMode() {
+    if (!IS_BETA) return;
+    document.querySelector('.profile-btn')?.remove();
+    const badge = document.createElement('div');
+    badge.textContent = 'BETA';
+    badge.title = 'Entorno de pruebas — los resultados no cuentan';
+    badge.style.cssText = 'position:fixed;top:0;left:0;z-index:400;background:var(--warning);'
+        + 'color:#1a1a2e;font-weight:bold;font-size:0.7rem;letter-spacing:0.1em;'
+        + 'padding:2px 10px;border-bottom-right-radius:8px;pointer-events:none;';
+    document.body.appendChild(badge);
+}
+
 // ─── Hoja de sprites ──────────────────────────────────────────────────────
 // client/cards.webp: 16 columnas × 13 filas. Cada fila lleva 4 prendas y
 // cada prenda 4 variantes de color seguidas, así que:
@@ -2087,6 +2107,9 @@ function onGameOver(rankings) {
 // profile. No effect on anonymous play — nothing is sent without a code.
 // See pb_hooks/piles_claim.pb.js in the session-manager repo.
 function claimSessionManagerResult(rankings) {
+    // En beta no se reclama nada: no hace falta cuenta de Session Manager y
+    // las partidas de prueba no deben sumar en perfiles reales.
+    if (IS_BETA) return;
     // Desde localStorage, no del input: el campo vive en la pantalla de
     // perfil y aquí solo importa el valor guardado.
     const code = (localStorage.getItem('piles_sm_code') || '').trim().toUpperCase();
