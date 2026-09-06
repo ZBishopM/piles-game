@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piles! - Lobby</title>
+    <!-- La hoja de sprites pesa ~535 KB y no se pide hasta que se pinta la
+         primera carta, o sea justo al empezar la partida: con conexión lenta
+         el tablero salía en blanco unos segundos. Pidiéndola ya, se descarga
+         mientras el jugador está en el menú o esperando en la sala. -->
+    <link rel="preload" as="image" href="cards.webp" fetchpriority="high">
     <!-- qr-scanner 1.4.2 (nimiq, MIT), vendorizado — sin CDN ni npm.
          sha384-np0yBqru4jLMa2u0xLtxD3WvMtkLuNiMNQwxQ8GT132ygYFONACD2xc33tx1avQz
          Usa BarcodeDetector nativo cuando existe y carga su propio worker
