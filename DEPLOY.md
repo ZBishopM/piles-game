@@ -1,13 +1,104 @@
 # Guía de Deployment — Piles!
 
-Dos opciones según tu situación:
+> Lo de aquí arriba es **el despliegue real**. Las "Opción A / Opción B" de
+> más abajo son alternativas para montarlo en otro sitio desde cero; describen
+> Docker y Caddy, que **no** es lo que corre hoy.
 
-| Opción | Ideal para | Pros | Contras |
-|---|---|---|---|
-| **A. Arch Linux** | Probar con un amigo rápido | Sin costo, rápido, sin cuenta | Tu laptop debe estar encendida |
-| **B. VPS** | MVP estable y accesible | Siempre disponible, HTTPS gratis | Costo (~$4-6/mes en DigitalOcean/Hetzner) |
+## Cómo está montado ahora
 
-**Actualmente en producción**: Opción B, en el VPS compartido con artchat y gamesessions (agapornis), vía Docker + nginx (no Caddy como se describe abajo — nginx ya está configurado para los otros proyectos del mismo VPS).
+Dos entornos aislados en el mismo VPS (`agapornis`, 167.233.88.83, usuario
+`bicho`), sin Docker: pm2 lanza el binario directamente y nginx hace de
+proxy.
+
+| | producción | beta |
+|---|---|---|
+| dominio | `piles.danassistantassistant.website` | `beta.piles.danassistantassistant.website` |
+| rama | `master` | `beta` |
+| checkout | `/var/www/piles-game` | `/home/bicho/piles-beta` |
+| proceso pm2 | `piles-game`, puerto 3000 | `piles-beta`, puerto 3010 |
+| Session Manager | reclama resultados | **no lo toca nunca** |
+
+Cada entorno tiene su propio proceso, su propio checkout y su propia memoria:
+los lobbies **no** se comparten, y romper la beta no puede afectar a quien
+esté jugando en producción.
+
+**Modo beta**: el cliente lo detecta por el hostname (prefijo `beta.`). Quita
+el botón de perfil, no reclama resultados en Session Manager — los testers no
+necesitan cuenta y sus partidas no ensucian perfiles reales — y muestra una
+insignia BETA para que ningún reporte de bug sea ambiguo. No hay flag de
+build ni fichero de configuración aparte.
+
+**nginx**: en beta se hace proxy de *todo* (incluidos los estáticos) al
+puerto 3010, porque el binario ya sirve `client/` con su propio `ServeDir`.
+Producción, en cambio, sirve los estáticos desde disco y solo hace proxy de
+`/ws` y `/api/`. Ojo: `ServeDir::new("client")` es **relativo al CWD**, así
+que el proceso pm2 tiene que arrancar con `cwd` en la raíz del checkout.
+
+## Flujo de trabajo: beta primero, luego producción
+
+Los cambios van **siempre a beta antes que a producción**, por pequeños que
+parezcan. La beta existe justo para eso, y ya se ganó el sueldo: el fallo de
+la hoja de sprites (tablero en blanco los primeros segundos) se detectó ahí
+antes de que lo viera ningún jugador. Además reiniciar producción corta las
+partidas en curso, así que cada despliegue evitable cuesta partidas reales.
+
+```bash
+# 1. desarrollar sobre la rama beta
+git checkout beta
+git commit -am "..."
+git push origin beta
+
+# 2. desplegar en beta
+ssh bicho@167.233.88.83
+cd ~/piles-beta && git pull --ff-only
+#    solo si cambió algo de server/:
+cd server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
+pm2 restart piles-beta
+#    si solo cambió client/, no hace falta ni compilar ni reiniciar
+
+# 3. probar en https://beta.piles.danassistantassistant.website
+
+# 4. promover a producción
+git checkout master && git merge beta --ff-only && git push origin master
+
+# 5. comprobar que no hay nadie jugando ANTES de reiniciar
+ssh bicho@167.233.88.83 "ss -tn state established '( sport = :3000 )'"
+
+# 6. desplegar en producción
+cd /var/www/piles-game && git pull --ff-only
+cd server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
+pm2 restart piles-game
+```
+
+### Dos cosas que hay que respetar
+
+**Compilar con `nice -n 19 ... -j 1`.** La máquina tiene 2 núcleos, 3,7 GB y
+**sin swap**, y encima comparte sitio con el correo (Stalwart), Postgres, n8n
+y gamesessions. Una compilación sin limitar puede disparar el OOM killer
+sobre algo que importa.
+
+**`sudo` pide contraseña.** Cualquier cosa de nginx, certbot o `/var/www` la
+tiene que ejecutar una persona; no se puede automatizar desde aquí.
+
+### Levantar otro entorno desde cero
+
+```bash
+git clone --branch beta https://github.com/ZBishopM/piles-game.git ~/piles-beta
+cd ~/piles-beta/server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
+cd ~/piles-beta && PORT=3010 pm2 start ./server/target/release/piles-server \
+    --name piles-beta --cwd /home/bicho/piles-beta
+pm2 save
+```
+
+Después, con el registro DNS ya apuntando al VPS (y como `sudo` pide
+contraseña, esto lo hace una persona):
+
+```bash
+sudo cp ~/piles-beta-nginx.conf /etc/nginx/sites-available/piles-beta
+sudo ln -s /etc/nginx/sites-available/piles-beta /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d beta.piles.danassistantassistant.website
+```
 
 ---
 

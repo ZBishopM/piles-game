@@ -81,7 +81,22 @@ Ver `TODO.md` — tiene el estado real del proyecto (QTE implementado pendiente 
 
 ## 🚢 Deploy
 
-VPS compartido con artchat y gamesessions (agapornis), vía Docker + nginx. Ver `DEPLOY.md` para el procedimiento completo.
+VPS compartido con artchat y gamesessions (agapornis), con pm2 + nginx —
+**sin Docker**, pese a que el `Dockerfile` siga en el repo.
+
+Hay **dos entornos aislados**, con procesos, puertos y checkouts distintos:
+
+| | dominio | rama | puerto |
+|---|---|---|---|
+| producción | `piles.danassistantassistant.website` | `master` | 3000 |
+| beta | `beta.piles.danassistantassistant.website` | `beta` | 3010 |
+
+Los cambios van **siempre a beta primero**; solo se promueven a `master` una
+vez probados ahí. La beta no se conecta con Session Manager: no hace falta
+cuenta y las partidas de prueba no cuentan en perfiles reales.
+
+Procedimiento completo, y las dos reglas de la máquina (compilar con `nice`
+y `-j 1` porque no hay swap; `sudo` pide contraseña) en `DEPLOY.md`.
 
 ## 👥 Autores
 
