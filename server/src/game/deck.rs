@@ -1,4 +1,4 @@
-use super::models::Card;
+use super::models::{Card, TOTAL_CLOTHING_TYPES};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 
@@ -22,19 +22,32 @@ pub fn calculate_total_sets(num_players: u8) -> u8 {
 /// - 8 jugadores: 49 sets → 196 cartas totales
 pub fn generate_deck(num_players: u8) -> Vec<Card> {
     let num_sets = calculate_total_sets(num_players);
+    assert!(
+        num_sets <= TOTAL_CLOTHING_TYPES,
+        "hacen falta {num_sets} prendas distintas y solo hay {TOTAL_CLOTHING_TYPES}"
+    );
+    let mut rng = thread_rng();
+
+    // Qué prendas entran se sortea entre las 50 dibujadas, no se cogen las
+    // primeras en orden: si no, cada partida de 2 jugadores usaría siempre
+    // las mismas 13. Con 8 jugadores hacen falta 49, así que siempre queda
+    // alguna fuera.
+    let mut clothing_types: Vec<u8> = (0..TOTAL_CLOTHING_TYPES).collect();
+    clothing_types.shuffle(&mut rng);
+    clothing_types.truncate(num_sets as usize);
+
+    // Los ids son correlativos y se reparten de 4 en 4, así que `id % 4`
+    // identifica la variante de color dentro del set — es lo que usa el
+    // cliente para elegir la celda de la hoja de sprites.
     let mut deck = Vec::new();
     let mut card_id = 0;
-
-    // Generar 4 cartas por cada tipo de prenda
-    for clothing_type in 0..num_sets {
+    for clothing_type in clothing_types {
         for _ in 0..4 {
             deck.push(Card::new(card_id, clothing_type));
             card_id += 1;
         }
     }
 
-    // Barajar el mazo
-    let mut rng = thread_rng();
     deck.shuffle(&mut rng);
 
     deck
@@ -133,10 +146,63 @@ mod tests {
     fn test_generate_deck_has_all_clothing_types() {
         let deck = generate_deck(2);
 
-        // Verificar que cada tipo de prenda (0-12) aparece exactamente 4 veces
-        for clothing_type in 0..13 {
+        // Las prendas ya no son las 13 primeras sino 13 cualesquiera de las
+        // 50, pero cada una elegida sigue apareciendo exactamente 4 veces.
+        let mut types: Vec<u8> = deck.iter().map(|c| c.clothing_type).collect();
+        types.sort_unstable();
+        types.dedup();
+        assert_eq!(types.len(), 13);
+        for clothing_type in types {
             let count = deck.iter().filter(|c| c.clothing_type == clothing_type).count();
-            assert_eq!(count, 4, "Tipo {} debería aparecer 4 veces", clothing_type);
+            assert_eq!(count, 4, "el tipo {clothing_type} debería aparecer 4 veces");
+            assert!(clothing_type < TOTAL_CLOTHING_TYPES);
+        }
+    }
+
+    #[test]
+    fn deck_picks_a_different_set_of_clothes_each_game() {
+        // Sin esto cada partida de 2 jugadores usaba siempre las 13 mismas
+        // prendas, porque los tipos se cogían en orden (0..num_sets).
+        let types_of = || {
+            let mut t: Vec<u8> = generate_deck(2).iter().map(|c| c.clothing_type).collect();
+            t.sort_unstable();
+            t.dedup();
+            t
+        };
+        let first = types_of();
+        // Con 13 de 50 la probabilidad de repetir selección es ínfima; 10
+        // intentos descartan el caso de "siempre la misma lista".
+        assert!((0..10).any(|_| types_of() != first), "la selección de prendas no varía");
+    }
+
+    #[test]
+    fn eight_players_leave_at_least_one_garment_out() {
+        let deck = generate_deck(8);
+        let mut types: Vec<u8> = deck.iter().map(|c| c.clothing_type).collect();
+        types.sort_unstable();
+        types.dedup();
+        assert_eq!(types.len(), 49, "8 jugadores usan 49 sets");
+        assert!(
+            (TOTAL_CLOTHING_TYPES as usize) > types.len(),
+            "siempre tiene que sobrar alguna prenda"
+        );
+    }
+
+    #[test]
+    fn card_ids_encode_the_colour_variant() {
+        // El cliente saca la variante de color con `id % 4`, así que los 4
+        // ids de un mismo set tienen que cubrir 0,1,2,3 exactamente.
+        let deck = generate_deck(4);
+        let mut types: Vec<u8> = deck.iter().map(|c| c.clothing_type).collect();
+        types.sort_unstable();
+        types.dedup();
+        for clothing_type in types {
+            let mut variants: Vec<u32> = deck.iter()
+                .filter(|c| c.clothing_type == clothing_type)
+                .map(|c| c.id % 4)
+                .collect();
+            variants.sort_unstable();
+            assert_eq!(variants, vec![0, 1, 2, 3], "tipo {clothing_type}");
         }
     }
 

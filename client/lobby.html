@@ -126,10 +126,9 @@
         /* Las ilustraciones son cartas reales del juego, no imágenes: mismo
            marcado y mismo CSS que el tablero, así no se desincronizan. */
         .tut-row { display: flex; gap: 6px; align-items: center; justify-content: center; flex-wrap: wrap; }
-        .tut-row .card { width: 54px; height: 68px; font-size: 0.6rem; cursor: default; }
+        /* Solo el ancho: la altura la fija aspect-ratio, si no se deforma el dibujo. */
+        .tut-row .card { width: 54px; cursor: default; }
         .tut-row .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-        .tut-row .card .card-icon { font-size: 1.4rem; }
-        .tut-row .card .card-label { display: none; }
         .tut-caption { color: #888; font-size: 0.75rem; text-align: center; }
         .tut-text { color: #eee; font-size: 1rem; line-height: 1.5; text-align: center; min-height: 72px; }
         .tut-dots { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
@@ -170,7 +169,7 @@
             .seg-btn { min-width: 40px; padding: 14px 4px; }
             #lobbyCode { font-size: 1.4rem; }
             .lobby-code { font-size: 2rem; }
-            .tut-row .card { width: 46px; height: 58px; }
+            .tut-row .card { width: 46px; }
         }
 
         /* ── LOBBY: QR para compartir ── */
@@ -276,33 +275,21 @@
         }
 
         .card {
-            aspect-ratio: 2/3;
+            /* Relación exacta de una celda de cards.webp ((3188/16) x
+               (4000/13)). Si no coincide, el % de background-size deforma
+               el dibujo. */
+            aspect-ratio: 10361 / 16000;
             min-height: 0;        /* permite que el grid controle la altura */
-            overflow: hidden;     /* el texto no puede empujar el tamaño de la carta */
+            overflow: hidden;
             border-radius: 8px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 4px;
-            padding: 8px;
-            text-align: center;
-            font-weight: bold;
-            font-size: 0.78rem;
+            background-color: #fff;
+            background-image: url("cards.webp");
+            background-repeat: no-repeat;
+            background-size: 1600% 1300%;   /* 16 columnas x 13 filas */
             box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             cursor: pointer;
             transition: transform 0.15s, box-shadow 0.15s, outline 0.1s;
-            word-break: break-word;
-            line-height: 1.2;
-            color: rgba(0,0,0,0.7);
             position: relative;
-        }
-        .card-icon {
-            font-size: 2rem;
-            line-height: 1;
-        }
-        .card-label {
-            font-size: 0.68rem;
         }
         .card:hover { transform: translateY(-3px); box-shadow: 0 5px 12px rgba(0,0,0,0.5); }
         .card.selected {
@@ -408,7 +395,7 @@
         }
         .opponent-set-slot {
             width: 48px;
-            height: 64px;
+            height: 74px;
             border-radius: 6px;
             display: flex;
             align-items: center;
@@ -420,6 +407,14 @@
             box-sizing: border-box;
             color: rgba(0,0,0,0.65);
             line-height: 1.2;
+        }
+        /* Set revelado: se ve la prenda, no su nombre */
+        .opponent-set-slot.revealed {
+            background-color: #fff;
+            background-image: url("cards.webp");
+            background-repeat: no-repeat;
+            background-size: 1600% 1300%;
+            padding: 0;
         }
         .opponent-set-slot.hidden {
             background: #2a2a5a;
@@ -477,15 +472,15 @@
         .verify-set-label { width: 52px; color: #888; flex-shrink: 0; }
         .verify-cards { display: flex; gap: 4px; flex: 1; }
         .verify-card-mini {
+            display: inline-block;
+            width: 34px;
+            height: 52px;
             border-radius: 4px;
-            padding: 3px 6px;
-            font-size: 0.7rem;
-            font-weight: bold;
-            color: rgba(0,0,0,0.7);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 70px;
+            background-color: #fff;
+            background-image: url("cards.webp");
+            background-repeat: no-repeat;
+            background-size: 1600% 1300%;
+            flex-shrink: 0;
         }
         .verify-icon { width: 28px; text-align: center; font-size: 1.1rem; flex-shrink: 0; }
         .verify-footer { text-align: center; margin-top: 20px; font-size: 1rem; min-height: 28px; }
@@ -1285,24 +1280,30 @@ async function copyJoinLink() {
 // ─── Cómo jugar ───────────────────────────────────────────────────────────
 // Las ilustraciones se arman con las mismas cartas del tablero en vez de
 // imágenes: client/assets/ está vacío y así nunca se desincronizan del juego.
+// Las ilustraciones son cartas reales de la hoja de sprites. `pile(tipo)`
+// arma un set completo (las 4 variantes de color de la misma prenda), que es
+// justo lo que hay que conseguir en el juego.
+const pile = (type) => [0, 1, 2, 3].map((variant) => ({ clothing_type: type, id: type * 4 + variant }));
+const card = (type, variant = 0) => ({ clothing_type: type, id: type * 4 + variant });
+
 const TUTORIAL_STEPS = [
     {
         text: '¡Intercambia cartas hasta que todas tus <strong>PILAS</strong> tengan la misma prenda!',
         art: () => [
-            { cards: ['Camiseta manga corta', 'Camiseta manga corta', 'Camiseta manga corta', 'Camiseta manga corta'], caption: '✅ Pila completa' },
-            { cards: ['Jeans', 'Gorra', 'Jeans', 'Botas'], caption: '❌ Todavía mezclada' },
+            { cards: pile(18), caption: '✅ Pila completa' },
+            { cards: [card(14), card(46), card(14, 2), card(35)], caption: '❌ Todavía mezclada' },
         ],
     },
     {
         text: 'Muestra una pila cuando creas que está completa. Recuerda: <strong>todos ven</strong> cuándo se muestra una pila y qué prenda tiene.',
         art: () => [
-            { cards: ['Bufanda', 'Bufanda', 'Bufanda', 'Bufanda'], caption: '👁 Revelar este set a otros' },
+            { cards: pile(44), caption: '👁 Revelar este set a otros' },
         ],
     },
     {
         text: 'Al terminar verificamos que todas tus pilas sean correctas. Si te equivocaste, revisa tus pilas — <strong>los demás pueden seguir jugando</strong>.',
         art: () => [
-            { cards: ['Abrigo', 'Abrigo', 'Sandalias', 'Abrigo'], caption: '❌ Verificación fallida' },
+            { cards: [card(39), card(39, 1), card(9), card(39, 3)], caption: '❌ Verificación fallida' },
         ],
     },
 ];
@@ -1324,7 +1325,7 @@ function renderTutorial() {
     step.art().forEach(group => {
         const row = document.createElement('div');
         row.className = 'tut-row';
-        group.cards.forEach(name => row.appendChild(buildCard({ name })));
+        group.cards.forEach(c => row.appendChild(buildCard(c)));
         art.appendChild(row);
         const cap = document.createElement('div');
         cap.className = 'tut-caption';
@@ -1566,39 +1567,33 @@ function renderPlayersProgress(progress) {
     });
 }
 
-const CLOTHING_EMOJI = {
-    "Camiseta manga corta": "👕", "Camiseta manga larga": "👕", "Polo": "👕", "Camisa formal": "👔", "Blusa": "👚",
-    "Sudadera con capucha": "🧥", "Sudadera sin capucha": "🧥", "Chaqueta": "🧥", "Abrigo": "🧥", "Blazer": "🧥",
-    "Jeans": "👖", "Pantalones de vestir": "👖", "Shorts": "🩳", "Bermudas": "🩳", "Falda": "👗",
-    "Vestido casual": "👗", "Vestido formal": "👗", "Jumpsuit": "🥻", "Overol": "🥻", "Leggings": "🩱",
-    "Zapatos deportivos": "👟", "Zapatos formales": "👞", "Botas": "🥾", "Sandalias": "👡", "Tacones": "👠",
-    "Gorra": "🧢", "Sombrero": "👒", "Beanie": "🧶", "Bufanda": "🧣", "Guantes": "🧤",
-    "Calcetines": "🧦", "Medias": "🧦", "Cinturón": "👖", "Corbata": "👔", "Moño": "🎀",
-    "Mochila": "🎒", "Bolso": "👜", "Cartera": "👛", "Lentes de sol": "🕶️", "Reloj": "⌚",
-    "Bikini": "👙", "Traje de baño": "🩱", "Pijama": "🥱", "Bata": "🥋", "Ropa interior": "🩲",
-    "Suéter": "🧶", "Chaleco": "🦺", "Poncho": "🧣", "Kimono": "👘"
-};
 
-function clothingEmoji(name) {
-    return CLOTHING_EMOJI[name] || '👕';
+// ─── Hoja de sprites ──────────────────────────────────────────────────────
+// client/cards.webp: 16 columnas × 13 filas. Cada fila lleva 4 prendas y
+// cada prenda 4 variantes de color seguidas, así que:
+//   fila    = clothing_type / 4
+//   columna = (clothing_type % 4) * 4 + variante
+// La variante sale de `id % 4`: el servidor reparte los ids de 4 en 4 dentro
+// de cada set, así que las 4 cartas iguales salen en 4 colores distintos.
+// (La celda 8 de la última fila es el reverso; no se usa por ahora.)
+const SPRITE_COLS = 16;
+const SPRITE_ROWS = 13;
+
+function applyCardSprite(el, card) {
+    const type = card.clothing_type ?? 0;
+    const variant = (card.id ?? 0) % 4;
+    const col = (type % 4) * 4 + variant;
+    const row = Math.floor(type / 4);
+    // Posición en % : índice / (total - 1). Encaja la celda exacta sin
+    // depender de píxeles, así la carta escala con su contenedor.
+    el.style.backgroundPosition =
+        `${(col / (SPRITE_COLS - 1)) * 100}% ${(row / (SPRITE_ROWS - 1)) * 100}%`;
 }
 
 function buildCard(card) {
     const el = document.createElement('div');
     el.className = 'card';
-    el.style.backgroundColor = cardColor(card.name);
-
-    const icon = document.createElement('div');
-    icon.className = 'card-icon';
-    icon.textContent = clothingEmoji(card.name);
-
-    const label = document.createElement('div');
-    label.className = 'card-label';
-    label.textContent = card.name;
-
-    el.appendChild(icon);
-    el.appendChild(label);
-    el.title = card.name;
+    applyCardSprite(el, card);
     return el;
 }
 
@@ -1744,9 +1739,8 @@ function renderOpponentPanel() {
             const slot = document.createElement('div');
             if (flippedMap.has(i)) {
                 const card = flippedMap.get(i);
-                slot.className = 'opponent-set-slot';
-                slot.style.backgroundColor = cardColor(card.name);
-                slot.textContent = card.name;
+                slot.className = 'opponent-set-slot revealed';
+                applyCardSprite(slot, card);
                 slot.title = `Set ${i + 1}: ${card.name}`;
             } else {
                 slot.className = 'opponent-set-slot hidden';
@@ -1983,8 +1977,7 @@ function revealVerifySet(playerName, setIndex, isValid, cards) {
             cards.forEach(card => {
                 const mini = document.createElement('span');
                 mini.className = 'verify-card-mini';
-                mini.style.backgroundColor = cardColor(card.name);
-                mini.textContent = card.name;
+                applyCardSprite(mini, card);
                 mini.title = card.name;
                 cardsDiv.appendChild(mini);
             });
@@ -2176,11 +2169,6 @@ function isSetComplete(set) {
     return set.every(c => c.clothing_type === set[0].clothing_type);
 }
 
-function cardColor(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-    return `hsl(${Math.abs(h % 360)}, ${60 + Math.abs(h >> 8) % 20}%, ${50 + Math.abs(h >> 16) % 20}%)`;
-}
 
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));

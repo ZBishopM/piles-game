@@ -20,19 +20,45 @@ impl Card {
     }
 }
 
-/// Nombres de las 49 prendas disponibles
+/// Las 50 prendas dibujadas en `client/cards.webp`, **en el orden exacto de
+/// la hoja de sprites**: 4 prendas por fila, 4 variantes de color cada una.
+/// El cliente calcula la celda a partir del índice, así que reordenar esta
+/// lista cambia qué dibujo sale en cada carta.
+///
+/// Los nombres ya no se muestran en pantalla (las cartas son solo imagen),
+/// pero se siguen enviando y sirven para tooltips/depuración.
 pub const CLOTHING_NAMES: &[&str] = &[
-    "Camiseta manga corta", "Camiseta manga larga", "Polo", "Camisa formal", "Blusa",
-    "Sudadera con capucha", "Sudadera sin capucha", "Chaqueta", "Abrigo", "Blazer",
-    "Jeans", "Pantalones de vestir", "Shorts", "Bermudas", "Falda",
-    "Vestido casual", "Vestido formal", "Jumpsuit", "Overol", "Leggings",
-    "Zapatos deportivos", "Zapatos formales", "Botas", "Sandalias", "Tacones",
-    "Gorra", "Sombrero", "Beanie", "Bufanda", "Guantes",
-    "Calcetines", "Medias", "Cinturón", "Corbata", "Moño",
-    "Mochila", "Bolso", "Cartera", "Lentes de sol", "Reloj",
-    "Bikini", "Traje de baño", "Pijama", "Bata", "Ropa interior",
-    "Suéter", "Chaleco", "Poncho", "Kimono"
+    // fila 0
+    "Calcetines cortos", "Calcetines largos", "Calzoncillos", "Bóxers",
+    // fila 1
+    "Top deportivo", "Camiseta de tirantes", "Bermudas cargo", "Shorts de baño",
+    // fila 2
+    "Shorts deportivos", "Shorts vaqueros", "Falda plisada", "Pantalones chinos",
+    // fila 3
+    "Pantalón de chándal", "Pantalones cargo", "Jeans rotos", "Leggings",
+    // fila 4
+    "Jumpsuit", "Peto vaquero", "Camiseta manga corta", "Polo",
+    // fila 5
+    "Camisa hawaiana", "Blusa de tirantes", "Camisa de franela", "Camiseta sin mangas",
+    // fila 6
+    "Camiseta de baloncesto", "Camiseta de béisbol", "Sudadera sin capucha", "Suéter de punto",
+    // fila 7
+    "Camisa formal", "Blusa abullonada", "Mono corto", "Túnica",
+    // fila 8
+    "Chaleco de rombos", "Chaleco acolchado", "Sudadera con capucha", "Chaqueta",
+    // fila 9
+    "Cárdigan", "Chaqueta universitaria", "Plumífero", "Parka",
+    // fila 10
+    "Gabardina", "Vestido de verano", "Sudadera con cremallera", "Body de bebé",
+    // fila 11
+    "Bufanda", "Guantes", "Gorro de lana", "Bata",
+    // fila 12 (la celda siguiente de la hoja es el reverso, sin usar)
+    "Bikini", "Bañador",
 ];
+
+/// Cuántas prendas distintas existen. Con 8 jugadores hacen falta 49 sets,
+/// así que siempre queda al menos una prenda fuera de la partida.
+pub const TOTAL_CLOTHING_TYPES: u8 = CLOTHING_NAMES.len() as u8;
 
 /// Obtiene el nombre de una prenda según su tipo
 pub fn get_clothing_name(clothing_type: u8) -> &'static str {
@@ -180,9 +206,19 @@ mod tests {
 
     #[test]
     fn test_clothing_names() {
-        assert_eq!(get_clothing_name(0), "Camiseta manga corta");
-        assert_eq!(get_clothing_name(10), "Jeans");
-        assert_eq!(get_clothing_name(48), "Kimono");
+        // El orden es el de client/cards.webp: 4 prendas por fila.
+        assert_eq!(get_clothing_name(0), "Calcetines cortos");
+        assert_eq!(get_clothing_name(18), "Camiseta manga corta");
+        assert_eq!(get_clothing_name(49), "Bañador");
+        assert_eq!(get_clothing_name(TOTAL_CLOTHING_TYPES), "Desconocida");
+    }
+
+    #[test]
+    fn there_are_enough_clothes_for_a_full_table() {
+        // 8 jugadores necesitan 49 sets; la hoja dibuja 50 prendas, así que
+        // siempre sobra alguna. Si alguien recorta la lista, esto avisa.
+        assert_eq!(CLOTHING_NAMES.len(), 50);
+        assert!(TOTAL_CLOTHING_TYPES > 49);
     }
 
     #[test]
