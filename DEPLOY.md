@@ -2,7 +2,7 @@
 
 > Lo de aquí arriba es **el despliegue real**. Las "Opción A / Opción B" de
 > más abajo son alternativas para montarlo en otro sitio desde cero; describen
-> Docker y Caddy, que **no** es lo que corre hoy.
+> Caddy y Docker, que **no** es lo que corre hoy.
 
 ## Cómo está montado ahora
 
@@ -193,106 +193,24 @@ cd ~/piles-game && ./server/target/release/piles-server
 
 ---
 
-## Opción B — VPS (DigitalOcean, Hetzner, Vultr, etc.)
+## Montarlo en otro VPS desde cero
 
-Para tener el juego siempre disponible con tu propio dominio y HTTPS.
+El despliegue real está descrito arriba. Si hace falta levantarlo en otra
+máquina, el resumen es:
 
-**Costo estimado**: Hetzner CAX11 (~€3.29/mes), DigitalOcean Droplet 1GB (~$4/mes).
+1. Ubuntu/Debian con Rust instalado (`rustup`) y nginx.
+2. `git clone` del repo, `cargo build --release` dentro de `server/`.
+3. Lanzar el binario con `pm2`, con el `cwd` en la raíz del checkout — el
+   servidor sirve `client/` con `ServeDir` y esa ruta es relativa al CWD.
+4. nginx como proxy al puerto elegido, con los headers de `Upgrade` para el
+   WebSocket (ver el bloque de troubleshooting más abajo).
+5. `certbot --nginx -d <dominio>` para el HTTPS.
 
-### 1. Crear el servidor
+El `PORT` se pasa por entorno (`PORT=3010 pm2 start ...`); por defecto 3000.
 
-Elige Ubuntu 22.04 o Debian 12 en tu proveedor. Anota la IP pública.
-
-### 2. Conectarse por SSH
-
-```bash
-ssh root@<IP_DEL_VPS>
-```
-
-### 3. Instalar Docker en el VPS
-
-```bash
-curl -fsSL https://get.docker.com | sh
-systemctl enable --now docker
-```
-
-### 4. Subir el proyecto al VPS
-
-**Opción A — git (recomendada)**:
-```bash
-# En el VPS
-git clone <tu-repo> /opt/piles-game
-cd /opt/piles-game
-```
-
-**Opción B — scp desde tu máquina**:
-```bash
-# Desde tu Windows/Linux local (excluye la carpeta target/ enorme)
-rsync -avz --exclude='server/target' D:/2026-projects/piles-game/ root@<IP>:/opt/piles-game/
-```
-
-### 5. Construir y levantar con Docker
-
-```bash
-cd /opt/piles-game
-docker compose up -d --build
-```
-
-La primera build tarda unos minutos. Después:
-```bash
-docker compose logs -f app   # ver logs en vivo
-docker compose ps            # ver estado
-```
-
-Prueba: `curl http://localhost:3000/health` → debería responder `OK`
-
-### 6. Instalar Caddy para HTTPS automático
-
-Caddy obtiene certificados SSL de Let's Encrypt automáticamente.
-
-```bash
-apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
-apt update && apt install caddy
-```
-
-### 7. Configurar Caddy
-
-Necesitas un dominio apuntando a la IP del VPS. Si no tienes dominio, usa uno gratuito en [freedns.afraid.org](https://freedns.afraid.org) o [duckdns.org](https://duckdns.org).
-
-```bash
-nano /etc/caddy/Caddyfile
-```
-
-Contenido del Caddyfile:
-```
-tu-dominio.com {
-    reverse_proxy localhost:3000
-}
-```
-
-```bash
-systemctl reload caddy
-```
-
-Caddy obtiene el certificado automáticamente. Accede a `https://tu-dominio.com/lobby.html`.
-
-### 8. Configurar auto-restart del contenedor
-
-El `restart: unless-stopped` en docker-compose ya lo hace. Para que Docker arranque al boot:
-
-```bash
-systemctl enable docker
-```
-
-### 9. Actualizar el juego cuando hagas cambios
-
-```bash
-cd /opt/piles-game
-git pull                          # si usas git
-docker compose up -d --build      # reconstruye y reinicia
-```
+> Este proyecto **no usa Docker**. Hubo un `Dockerfile` y un
+> `docker-compose.yml`, pero ningún entorno los usaba y se eliminaron para
+> que nadie los siga creyendo la vía de despliegue.
 
 ---
 
@@ -310,17 +228,23 @@ Independientemente de la opción elegida, prueba esto en el navegador:
 ## Comandos útiles post-deployment
 
 ```bash
-# Ver logs del servidor (Docker)
-docker compose logs -f app
+# Logs en vivo
+pm2 logs piles-game        # producción
+pm2 logs piles-beta        # beta
 
-# Reiniciar el servidor
-docker compose restart app
+# Estado y consumo
+pm2 list
+pm2 jlist | jq '.[] | select(.name|test("piles")) | {name, status: .pm2_env.status}'
 
-# Detener todo
-docker compose down
+# Reiniciar
+pm2 restart piles-game
 
-# Ver uso de recursos
-docker stats piles-app
+# Comprobar que responde
+curl -s -o /dev/null -w '%{http_code}
+' https://piles.danassistantassistant.website/health
+
+# Ver si hay alguien jugando antes de reiniciar
+ss -tn state established '( sport = :3000 )'
 ```
 
 ---

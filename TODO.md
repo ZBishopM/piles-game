@@ -1,105 +1,100 @@
 # Piles! — Tareas Pendientes
 
-## 🚀 Prioridad Alta: Deployment (Desbloquea prueba de QTE)
-
-- [ ] **Desplegar en VPS** — necesario para probar QTE con dos jugadores reales
-  - Compilar release build: `cargo build --release`
-  - Configurar `Dockerfile` y `docker-compose.yml`
-  - Servir el frontend estático (directamente con Axum o Caddy/nginx)
-  - Configurar variables de entorno (`HOST`, `PORT`)
-  - Exponer puertos WebSocket y HTTP
-  - Alternativa rápida: usar `ngrok` o `cloudflared` desde tu máquina local
+Estado y despliegue: ver `README.md` y `DEPLOY.md`. El juego está en
+producción (`piles.danassistantassistant.website`) con un entorno de pruebas
+aparte (`beta.piles.danassistantassistant.website`).
 
 ---
 
-## 🧪 Pruebas Pendientes (Post-Deployment)
+## 🧪 Pruebas pendientes con jugadores reales
+
+Lo de aquí abajo tiene tests automáticos o se ha comprobado con navegadores
+reales, pero **no** con varias personas jugando a la vez, que es donde salen
+los problemas de sincronización.
 
 ### QTE
-- [ ] Probar detección de conflicto (ventana de 300ms): dos jugadores toman la misma carta simultáneamente
-- [ ] Verificar que el conteo de clicks se actualiza en tiempo real para ambos participantes
-- [ ] Probar que el ganador recibe la carta correctamente y el perdedor recibe `swap_failed`
-- [ ] Probar **conceder** (`🏳️ Ceder la carta`) — QTE debe terminar de inmediato dando la carta al oponente
-- [ ] Verificar que espectadores ven la notificación de batalla (no bloqueante) y pueden seguir jugando
-- [ ] Probar race condition: QTE termina por timeout al mismo tiempo que alguien concede
+- [ ] Conflicto real: dos personas tocando la misma carta del centro a la vez
+      (la ventana de detección son 300 ms; con navegadores automatizados sale
+      siempre, con personas reales está sin confirmar)
+- [ ] Conteo de clicks en vivo para ambos participantes
+- [ ] **Ceder** (`🏳️ Ceder la carta`) — debe cerrar el QTE al instante
+- [ ] Race condition: el QTE vence por timeout justo cuando alguien concede
 
-### FlipSet + Auto-Verificación
-- [ ] Verificar que al voltear todos los sets se auto-envía `RequestVerification`
-- [ ] Comprobar que sets fallidos se desmarcan (se les quita el volteo) tras verificación fallida
-- [ ] Verificar que los oponentes ven correctamente los sets volteados en el panel lateral
-- [ ] Comprobar que solo se muestra la primera carta del set (no las 4)
-
-### Flujo Completo
-- [ ] Partida completa 2 jugadores: inicio → intercambios → QTE → verificación → game over
-- [ ] Partida con 3+ jugadores para probar rankings (1°, 2°, 3°)
-- [ ] Probar desconexión de un jugador a mitad de partida (¿el juego se cuelga?)
+### Flujo completo
+- [ ] Partida entera a 2 jugadores: intercambios → QTE → verificación → fin
+- [ ] Partida a 3+ para ver los rankings (1º, 2º, 3º)
+- [ ] Desconexión a mitad de partida (hoy se cancela la partida y todos
+      vuelven a la sala; falta decidir si eso es lo que queremos)
 
 ---
 
-## 🗄️ Base de Datos PostgreSQL (Diferido)
+## 🎮 Mecánicas / bugs conocidos
 
-- [ ] Levantar PostgreSQL con Docker
-- [ ] Implementar migración inicial (`001_init.sql`) — tabla `players`
-- [ ] Implementar `db.rs`: guardar puntos al terminar partida
-- [ ] Endpoint `GET /leaderboard` — top 10 jugadores
-- [ ] Mostrar puntos acumulados en pantalla de resultados (`game_over`)
-- [ ] Mostrar tabla de puntuaciones en la pantalla de inicio (`index.html`)
-
----
-
-## 📱 Responsive / Mobile
-
-- [ ] Media queries para el **tablero de juego** (`#gameScreen`) < 768px — las
-      pantallas de entrada (home/perfil/tutorial/hospedar/unirse) ya tienen las
-      suyas; falta el tablero, que es lo que sigue sin adaptarse en móvil
-- [ ] Media queries para pantallas < 768px
-- [ ] Reemplazar hover-clicks por touch events en móvil
-- [ ] Cartas más grandes en pantalla táctil
-- [ ] Layout vertical en móvil (centro arriba, set propio abajo, oponentes colapsables)
+- [ ] **Desconexión en partida activa**: ahora mismo cancela la partida entera
+      para todos. Lo suyo sería que el resto pudiera seguir jugando sin quien
+      se fue. Requiere reconstruir el estado de juego sin ese jugador.
+- [ ] **Reconexión automática**: al caerse la conexión aparece un overlay con
+      botón *Reconectar*. Volver a la sala ya funciona (y sobrevive a un F5),
+      pero hay que pulsar el botón; falta reintentar solo, con backoff.
+- [ ] **Anti-cheat del QTE**: no hay ningún límite de clicks por segundo, así
+      que un autoclicker gana siempre.
+- [ ] `ListLobbies`: el servidor lo implementa y el cliente lo ignora
+      (`case 'lobby_list': break`). Falta la pantalla de salas abiertas.
+- [ ] Reanudar partida en curso tras reconectar (hoy se pierde el estado del
+      tablero; solo se recupera la sala).
 
 ---
 
-## 🎮 Mecánicas / Bugs Conocidos
+## 📱 Responsive / móvil
 
-- [ ] Manejo de desconexión de jugador en partida activa (quitar del lobby, continuar juego)
-- [ ] Limpiar lobbies inactivos automáticamente (TTL o garbage collection)
-- [ ] `ListLobbies` — implementar en frontend (pantalla de lobbies disponibles)
-- [ ] Anti-cheat QTE: limitar a 20 CPS máximo (actualmente no hay límite)
-- [ ] Reconexión automática de WebSocket en cliente si se cae la conexión
-- [ ] **Heartbeat / ping-pong**: la conexión se cae silenciosamente tras inactividad; implementar ping cada ~25s desde el cliente (o keep-alive desde el servidor) para mantener la conexión viva y detectar cortes rápido
-- [ ] Añade el nick en el local storage
-- [ ] Cuando se termine una partida que se mantenga la sala con todos los participantes listo para la siguiente ronda.
+- [ ] Media queries para el **tablero** (`#gameScreen`) en < 768px. Las
+      pantallas de entrada (home, perfil, tutorial, hospedar, unirse) ya las
+      tienen; el tablero es lo que falta.
+- [ ] Sustituir estados `:hover` por eventos táctiles
+- [ ] Layout vertical en móvil (centro arriba, set propio abajo, oponentes
+      colapsables)
 
 ---
 
-## ✨ Polish / Mejoras Futuras
+## 🗄️ Base de datos / puntuación (diferido)
 
-- [x] **Tutorial corto** (onboarding, 3 pasos) — hecho en `#howToPlayScreen`. Las
-      ilustraciones se arman con cartas reales del juego (mismo marcado y CSS que
-      el tablero) en vez de imágenes, así que `client/assets/` sigue vacío a
-      propósito. Si algún día hay arte de verdad, sustituir `.tut-art`.
-- [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación correcta/incorrecta
-- [ ] Animación de carta al hacer swap (slide desde set al centro y viceversa)
-- [ ] Drag & drop en lugar de click-click para intercambiar cartas
-- [ ] Pantalla de resultados con animación de confetti para el 1° lugar
-- [ ] Imágenes reales de prendas (reemplazar placeholders de texto + color)
-- [ ] Chat básico en el lobby
-- [ ] Avatar / foto de perfil guardada en `localStorage`
-- [ ] Tema oscuro
+Hoy no hay base de datos: `sqlx`/Postgres siguen comentados en `Cargo.toml`.
+Los resultados que se guardan van a Session Manager, no aquí.
+
+- [ ] Levantar PostgreSQL
+- [ ] Migración inicial (`001_init.sql`) — tabla `players`
+- [ ] `db.rs`: guardar puntos al terminar la partida
+- [ ] `GET /leaderboard` — top 10
+- [ ] Mostrar puntos acumulados en la pantalla de resultados
 
 ---
 
-## 📋 Estado Actual del Proyecto
+## ✨ Polish / mejoras futuras
 
-| Módulo | Estado |
-|---|---|
-| Modelos de juego (`models.rs`) | ✅ Completo |
-| Mazo de cartas (`deck.rs`) | ✅ Completo |
-| Sistema de lobbies (`lobby.rs`) | ✅ Completo |
-| Mensajes WebSocket (`messages.rs`) | ✅ Completo |
-| Lógica WebSocket (`websocket.rs`) | ✅ Completo |
-| Frontend lobby (`lobby.html`) | ✅ Completo |
-| QTE sistema | ✅ Implementado, pendiente pruebas reales |
-| FlipSet + auto-verificación | ✅ Implementado, pendiente pruebas reales |
-| PostgreSQL / puntuación | ⏳ Diferido |
-| Deployment | ⏳ Pendiente |
-| Mobile responsive | ⏳ Diferido |
+- [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación
+- [ ] Animación de la carta al intercambiar (del set al centro y viceversa)
+- [ ] Drag & drop en vez de click-click
+- [ ] Confeti para el 1º puesto
+- [ ] Chat básico en la sala
+- [ ] Avatar guardado en `localStorage`
+- [ ] Usar el reverso de la hoja de sprites (fila 12, celda 8) para las cartas
+      boca abajo — está dibujado y sin usar
+
+---
+
+## ✅ Hecho
+
+- Despliegue en VPS con pm2 + nginx, y entorno beta aparte (`DEPLOY.md`)
+- Arte real de las prendas desde `client/cards.webp` (50 prendas × 4 colores);
+  las cartas ya no llevan texto
+- Las prendas de cada partida se sortean entre las 50 (antes salían siempre
+  las mismas por orden)
+- Tutorial de 3 pasos en `#howToPlayScreen`, ilustrado con cartas reales
+- Pantalla de inicio reorganizada: perfil, cómo jugar, hospedar y unirse
+- Unirse por QR y por enlace `?join=CODE`, con escáner dentro de la app
+- Heartbeat WebSocket (ping cada 25 s)
+- Volver a la sala tras desconexión o F5, sin duplicar al jugador
+- Las salas vacías siguen siendo reutilizables y se reciclan a los 30 min
+- Nick guardado en `localStorage`
+- La sala se mantiene al terminar la partida, lista para otra ronda
+- Vinculación opcional con Session Manager (código en 👤 Perfil)

@@ -9,13 +9,12 @@ Juego de cartas multijugador en tiempo real donde los jugadores compiten para co
 - ✅ Sistema de lobbies
 - ⏳ Puntuación persistente con PostgreSQL — diferido, ver `TODO.md`
 
-No hay base de datos en este momento: `sqlx`/Postgres están comentados en `Cargo.toml`, `docker-compose.yml` y `.env.example`, y el servidor corre sin ninguna dependencia externa.
+No hay base de datos en este momento: `sqlx`/Postgres están comentados en `Cargo.toml` y `.env.example`, y el servidor corre sin ninguna dependencia externa.
 
 ## 📋 Requisitos previos
 
 - **Rust** (stable) con Cargo
 - Navegador web moderno
-- (Docker es opcional — solo para el deploy vía `Dockerfile`, no hace falta para desarrollo local)
 
 ## 🛠️ Correr en local
 
@@ -47,14 +46,14 @@ piles-game/
 │   │   ├── websocket.rs # Lógica de conexión/lobby/QTE/verificación
 │   │   └── game/        # Modelos, mazo, lobbies (deck.rs, models.rs, lobby.rs)
 │   └── Cargo.toml
-├── client/               # Frontend estático
-│   ├── lobby.html        # La UI real del juego (lobby + partida)
-│   ├── index.html        # Landing
-│   ├── css/, js/, assets/
-├── Dockerfile            # Build para deploy (VPS + Docker, ver DEPLOY.md)
-├── docker-compose.yml    # Solo el contenedor de la app; el bloque Postgres está comentado
+├── client/                     # Frontend estático (lo sirve el propio binario)
+│   ├── lobby.html              # TODA la UI: menú, sala y partida, en un fichero
+│   ├── index.html              # Redirección a /lobby.html
+│   ├── cards.webp              # Hoja de sprites: 50 prendas × 4 colores + reverso
+│   └── qr-scanner*.min.js      # qr-scanner 1.4.2 (nimiq, MIT), vendorizado
 ├── .env.example
-└── TODO.md               # Backlog real y priorizado — léelo antes que este README
+├── DEPLOY.md                   # Entornos (producción/beta) y cómo desplegar
+└── TODO.md                     # Backlog real y priorizado — léelo antes que este README
 ```
 
 ## 🧪 Testing
@@ -81,8 +80,8 @@ Ver `TODO.md` — tiene el estado real del proyecto (QTE implementado pendiente 
 
 ## 🚢 Deploy
 
-VPS compartido con artchat y gamesessions (agapornis), con pm2 + nginx —
-**sin Docker**, pese a que el `Dockerfile` siga en el repo.
+VPS compartido con artchat y gamesessions (agapornis), con pm2 + nginx.
+Este proyecto no usa Docker.
 
 Hay **dos entornos aislados**, con procesos, puertos y checkouts distintos:
 
