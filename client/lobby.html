@@ -1760,24 +1760,46 @@ function cardRectAt(rowId, index) {
 }
 
 /** Lanza una copia de la carta de `from` a `to`. Se borra sola al terminar. */
-function flyCard(cardData, from, to) {
-    if (!cardData || !from || !to) return;
-    const layer = document.getElementById('fxLayer');
+/** Vuela una copia de `cardData` desde `from` hasta el hueco `index` de
+ *  `rowId`.
+ *
+ *  El tablero ya está redibujado cuando esto arranca, así que la carta de
+ *  destino existe y se ve: si además volara una copia encima, se verían las
+ *  dos a la vez (que es exactamente lo que pasaba). Por eso la de destino se
+ *  esconde mientras dura el vuelo y se descubre justo cuando la copia llega.
+ */
+function flyCard(cardData, from, rowId, index) {
+    const dest = document.getElementById(rowId)?.children[index];
+    const to = dest ? dest.getBoundingClientRect() : null;
+    if (!cardData || !from || !to) { if (dest) markLanded(rowId, index); return; }
+
     const el = buildCard(cardData);
     el.style.left = `${from.left}px`;
     el.style.top = `${from.top}px`;
     el.style.width = `${from.width}px`;
     el.style.height = `${from.height}px`;
-    layer.appendChild(el);
+    document.getElementById('fxLayer').appendChild(el);
+    dest.style.visibility = 'hidden';
+
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        el.remove();
+        // Descubrir SIEMPRE, pase lo que pase con la transición: una carta
+        // invisible para siempre sería mucho peor que ver la copia de más.
+        dest.style.visibility = '';
+        markLanded(rowId, index);
+    };
 
     requestAnimationFrame(() => {
         el.style.transform =
             `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
     });
-    el.addEventListener('transitionend', () => el.remove(), { once: true });
-    // Red de seguridad: si la transición no llega a dispararse (pestaña en
-    // segundo plano, por ejemplo) la copia no puede quedarse ahí para siempre.
-    setTimeout(() => el.remove(), 900);
+    el.addEventListener('transitionend', finish, { once: true });
+    // Red de seguridad por si la transición no llega a dispararse (pestaña en
+    // segundo plano, por ejemplo).
+    setTimeout(finish, 900);
 }
 
 /** Marca una carta recién llegada para que se vea qué ha cambiado. */
@@ -1844,17 +1866,15 @@ function onSwapSuccess(msg) {
 
     if (before) {
         // Intercambio normal: las dos cartas se cruzan.
-        flyCard(before.myCard, fromMine, cardRectAt('centerCards', before.centerCardIndex));
-        flyCard(before.centerCard, fromCenter, cardRectAt('yourCards', before.myCardIndex));
-        markLanded('yourCards', before.myCardIndex);
-        markLanded('centerCards', before.centerCardIndex);
+        // flyCard descubre y resalta la carta de destino al aterrizar.
+        flyCard(before.myCard, fromMine, 'centerCards', before.centerCardIndex);
+        flyCard(before.centerCard, fromCenter, 'yourCards', before.myCardIndex);
     } else if (wonFight) {
         // Pelea ganada: la carta sale del centro y aterriza en tu set. Ese
         // vuelo es todo el "has ganado" que hace falta.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) {
-            flyCard(qteWonSlot.card, fromCenter, cardRectAt('yourCards', slot));
-            markLanded('yourCards', slot);
+            flyCard(qteWonSlot.card, fromCenter, 'yourCards', slot);
         }
         qteWonSlot = null;
     }
