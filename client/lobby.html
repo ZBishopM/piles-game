@@ -23,6 +23,17 @@
            una página de pruebas anterior. */
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
+        /* En móvil, dos toques rápidos son un "doble toque" y el navegador
+           hace zoom. En un QTE se pulsa lo más rápido posible, así que el
+           zoom saltaba justo encima del botón y dejaba la pantalla torcida
+           en mitad de la pelea. `touch-action: manipulation` desactiva ese
+           gesto solo en los controles; el pinch-zoom de la página sigue
+           funcionando, que hace falta para accesibilidad. */
+        button, .card {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         :root {
             --accent: #667eea;
             --success: #28a745;
@@ -271,6 +282,14 @@
             color: #888;
             margin-bottom: 6px;
         }
+        /* Título de sección con su acción al lado (Tus Sets + Revelar) */
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .section-head .section-label { margin-bottom: 0; }
         .card-row {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -363,15 +382,18 @@
 
         /* Botón voltear set */
         #flipBtn {
-            padding: 8px 16px;
+            flex-shrink: 0;
+            padding: 7px 14px;
             border: 1px solid #4a5a9a;
             border-radius: 8px;
-            background: transparent;
-            color: #aaa;
+            background: rgba(74,90,154,0.15);
+            color: #ccc;
             font-size: 0.85rem;
+            font-weight: bold;
+            white-space: nowrap;
             cursor: pointer;
             transition: all 0.2s;
-            margin-top: 8px;
+            margin-bottom: 6px;
         }
         #flipBtn:hover { background: rgba(74,90,154,0.2); color: #eee; }
         #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: rgba(102,126,234,0.1); }
@@ -576,6 +598,9 @@
             cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
+            /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
+               en mitad del QTE. */
+            -webkit-touch-callout: none;
             transition: transform 0.05s, background 0.1s;
         }
         #qteClickBtn:active { transform: scale(0.96); background: #c0392b; }
@@ -814,15 +839,18 @@
     <p class="section-label">Cartas del Centro</p>
     <div class="card-row" id="centerCards"></div>
 
-    <!-- Navegación de sets -->
-    <p class="section-label">Tus Sets</p>
+    <!-- Navegación de sets. El botón de revelar va aquí arriba, a la altura
+         del título: debajo de las cartas quedaba fuera del recorrido de la
+         vista y no se encontraba con las prisas. -->
+    <div class="section-head">
+        <p class="section-label">Tus Sets</p>
+        <button id="flipBtn" onclick="flipCurrentSet()"
+                title="Mostrar este set a los demás jugadores">👁 Revelar set</button>
+    </div>
     <div class="set-nav" id="setNav"></div>
 
     <!-- Cards del set actual -->
     <div class="card-row" id="yourCards"></div>
-
-    <!-- Botón de voltear set actual -->
-    <button id="flipBtn" onclick="flipCurrentSet()">👁 Revelar este set a otros</button>
 
     <!-- Panel de oponentes (sets volteados) -->
     <div id="opponentPanel"></div>
@@ -1713,7 +1741,12 @@ function updateFlipBtn() {
     const btn = document.getElementById('flipBtn');
     if (!btn) return;
     const flipped = myFlippedSets[currentSetIndex];
-    btn.textContent = flipped ? '🙈 Ocultar este set' : '👁 Revelar este set a otros';
+    // Texto corto: ahora comparte línea con el título de la sección. La
+    // explicación completa va en el title, para no romper el layout.
+    btn.textContent = flipped ? '🙈 Ocultar set' : '👁 Revelar set';
+    btn.title = flipped
+        ? 'Dejar de mostrar este set a los demás jugadores'
+        : 'Mostrar este set a los demás jugadores';
     btn.classList.toggle('is-flipped', flipped);
 }
 
