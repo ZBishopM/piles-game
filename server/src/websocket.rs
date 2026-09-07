@@ -18,24 +18,25 @@ use crate::game::{
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
 
-/// Intento de swap pendiente (esperando posible conflicto QTE)
+/// Alguien ha ido a por una carta del centro y estamos dentro de la ventana
+/// en la que otro puede ir a por la misma.
 #[derive(Debug, Clone)]
-pub struct SwapIntent {
+pub struct TakeIntent {
     player_id: Uuid,
-    player_nickname: String,
-    player_set_index: usize,
-    my_card_index: usize,
+    nickname: String,
     timestamp: Instant,
 }
 
-/// Datos de un participante en el QTE
+/// Participante en una pelea. Dónde va la carta lo dice su propio
+/// `owed_slot`, así que aquí no hace falta nada más.
 #[derive(Debug, Clone)]
 struct QtePlayerData {
     player_id: Uuid,
     nickname: String,
-    set_index: usize,
-    card_index: usize,
 }
+
+/// Ventana para considerar que dos jugadores van a por la misma carta.
+const CONFLICT_WINDOW: Duration = Duration::from_millis(300);
 
 /// Estado compartido de la aplicación
 #[derive(Clone)]
@@ -43,8 +44,8 @@ pub struct AppState {
     pub lobby_manager: Arc<LobbyManager>,
     /// Mapa de player_id -> sender para broadcast
     pub connections: Arc<RwLock<HashMap<Uuid, ClientSender>>>,
-    /// Intents de swap pendientes: lobby_id -> center_card_index -> SwapIntent
-    pub swap_intents: Arc<RwLock<HashMap<String, HashMap<usize, SwapIntent>>>>,
+    /// Intentos de coger carta: lobby_id -> card_id -> TakeIntent
+    pub take_intents: Arc<RwLock<HashMap<String, HashMap<u32, TakeIntent>>>>,
 }
 
 impl AppState {
@@ -52,7 +53,7 @@ impl AppState {
         Self {
             lobby_manager: Arc::new(LobbyManager::new()),
             connections: Arc::new(RwLock::new(HashMap::new())),
-            swap_intents: Arc::new(RwLock::new(HashMap::new())),
+            take_intents: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -184,7 +185,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 if lobby.players.is_empty() {
                     // Lobby vacío: guardarlo como Finished y limpiar intents
                     state.lobby_manager.update_lobby(lobby).await;
-                    state.swap_intents.write().await.remove(lobby_id);
+                    state.take_intents.write().await.remove(lobby_id);
                 } else if was_playing {
                     // Partida en curso cancelada: resetear lobby y notificar
                     lobby.game_state = None;
@@ -199,7 +200,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     }).collect();
                     let max_players = lobby.max_players;
                     state.lobby_manager.update_lobby(lobby).await;
-                    state.swap_intents.write().await.remove(lobby_id);
+                    state.take_intents.write().await.remove(lobby_id);
 
                     // Avisar a los demás que la partida fue cancelada
                     state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
@@ -438,181 +439,6 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::SwapCard { my_card_index, center_card_index } => {
-            let lobby_id = match current_lobby.as_ref() {
-                Some(id) => id.clone(),
-                None => {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "No estás en una partida".to_string(),
-                    }).await;
-                    return;
-                }
-            };
-
-            // Tu set siempre son 4 huecos, pero el centro crece con cada
-            // carta soltada: acotarlo a 4 dejaba las soltadas inalcanzables
-            // para el intercambio normal, que es justo como se supone que
-            // otro jugador se las lleva.
-            if my_card_index >= 4 {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "Índice de carta inválido".to_string(),
-                }).await;
-                return;
-            }
-
-            // Validar estado del jugador (sin modificar nada aún)
-            let player_info = {
-                let lobby = match state.lobby_manager.get_lobby(&lobby_id).await {
-                    Some(l) => l,
-                    None => {
-                        state.send_to_player(&player_id, ServerMessage::Error {
-                            message: "Lobby no encontrado".to_string(),
-                        }).await;
-                        return;
-                    }
-                };
-                let game_state = match lobby.game_state.as_ref() {
-                    Some(gs) => gs,
-                    None => {
-                        state.send_to_player(&player_id, ServerMessage::Error {
-                            message: "El juego no ha iniciado".to_string(),
-                        }).await;
-                        return;
-                    }
-                };
-                // Contra la longitud real del centro, que varía: sin esto un
-                // índice inventado indexaría fuera del Vec y tiraría el
-                // servidor, y este mensaje llega de un cliente cualquiera.
-                if center_card_index >= game_state.center_cards.len() {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Índice de carta inválido".to_string(),
-                    }).await;
-                    return;
-                }
-                if game_state.active_qte.is_some() {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Carta peleada".to_string(),
-                    }).await;
-                    return;
-                }
-                // Bloqueado por haber perdido una pelea. El cliente ya lo
-                // impide, pero el castigo tiene que valer también contra un
-                // cliente modificado, así que se comprueba aquí.
-                if let Some(left) = lobby.stun_remaining(&player_id) {
-                    state.send_to_player(&player_id, ServerMessage::Stunned {
-                        ms: left.as_millis() as u64,
-                    }).await;
-                    return;
-                }
-                let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
-                    Some(idx) => idx,
-                    None => {
-                        state.send_to_player(&player_id, ServerMessage::Error {
-                            message: "Jugador no encontrado".to_string(),
-                        }).await;
-                        return;
-                    }
-                };
-                // Debiendo una carta lo único permitido es cogerla.
-                if game_state.players[player_idx].owes_card() {
-                    return;
-                }
-                if game_state.players[player_idx].is_verifying {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "No puedes intercambiar cartas durante la verificación".to_string(),
-                    }).await;
-                    return;
-                }
-                let current_set = game_state.players[player_idx].current_set_index;
-                let nickname = game_state.players[player_idx].nickname.clone();
-                (current_set, nickname)
-            };
-            let (current_set, player_nickname) = player_info;
-
-            // Revisar si hay un intent previo para esta posición del centro
-            let conflict = {
-                let mut intents = state.swap_intents.write().await;
-                let lobby_intents = intents.entry(lobby_id.clone()).or_default();
-                let conflict = lobby_intents.get(&center_card_index).and_then(|existing| {
-                    if existing.player_id != player_id
-                        && existing.timestamp.elapsed() < Duration::from_millis(300)
-                    {
-                        Some(existing.clone())
-                    } else {
-                        None
-                    }
-                });
-                if conflict.is_some() {
-                    lobby_intents.remove(&center_card_index);
-                } else {
-                    lobby_intents.insert(center_card_index, SwapIntent {
-                        player_id,
-                        player_nickname: player_nickname.clone(),
-                        player_set_index: current_set,
-                        my_card_index,
-                        timestamp: Instant::now(),
-                    });
-                }
-                conflict
-            };
-
-            if let Some(other) = conflict {
-                // ─── Iniciar QTE ───
-                let p_a = QtePlayerData {
-                    player_id,
-                    nickname: player_nickname.clone(),
-                    set_index: current_set,
-                    card_index: my_card_index,
-                };
-                let p_b = QtePlayerData {
-                    player_id: other.player_id,
-                    nickname: other.player_nickname.clone(),
-                    set_index: other.player_set_index,
-                    card_index: other.my_card_index,
-                };
-
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-                    if let Some(gs) = lobby.game_state.as_mut() {
-                        let mut swap_data = std::collections::HashMap::new();
-                        swap_data.insert(p_a.player_id, (p_a.set_index, p_a.card_index));
-                        swap_data.insert(p_b.player_id, (p_b.set_index, p_b.card_index));
-                        gs.active_qte = Some(crate::game::QteState {
-                            participants: vec![
-                                (p_a.player_id, p_a.nickname.clone()),
-                                (p_b.player_id, p_b.nickname.clone()),
-                            ],
-                            center_card_index,
-                            clicks: std::collections::HashMap::new(),
-                            swap_data,
-                            duration_ms: 3000,
-                        });
-                    }
-                    state.lobby_manager.update_lobby(lobby).await;
-                }
-
-                state.broadcast_to_lobby(&lobby_id, ServerMessage::SwapConflict {
-                    players: vec![p_a.nickname.clone(), p_b.nickname.clone()],
-                    center_card_index,
-                    qte_duration: 3000,
-                }).await;
-
-                let state_clone = state.clone();
-                tokio::spawn(async move {
-                    run_qte(state_clone, lobby_id, center_card_index, p_a, p_b).await;
-                });
-            } else {
-                // ─── Swap diferido 300ms (sin conflicto) ───
-                let state_clone = state.clone();
-                tokio::spawn(async move {
-                    sleep(Duration::from_millis(300)).await;
-                    execute_delayed_swap(
-                        state_clone, lobby_id, center_card_index,
-                        player_id, current_set, my_card_index, player_nickname,
-                    ).await;
-                });
-            }
-        }
-
         ClientMessage::RequestVerification => {
             if let Some(ref lobby_id) = *current_lobby {
                 if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
@@ -739,13 +565,16 @@ async fn handle_client_message(
         }
 
         // ── Coger una carta del centro para tapar el hueco ──
-        ClientMessage::TakeCard { center_card_index } => {
+        // ── Coger una carta del centro para tapar el hueco ──
+        // Aquí es donde se pelea: si dos jugadores van a por la misma carta
+        // con menos de CONFLICT_WINDOW de diferencia, se resuelve a clicks.
+        ClientMessage::TakeCard { card_id } => {
             let lobby_id = match current_lobby.as_ref() {
                 Some(id) => id.clone(),
                 None => return,
             };
 
-            let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
             if let Some(left) = lobby.stun_remaining(&player_id) {
                 state.send_to_player(&player_id, ServerMessage::Stunned {
                     ms: left.as_millis() as u64,
@@ -753,42 +582,78 @@ async fn handle_client_message(
                 return;
             }
 
-            let result = {
-                let Some(game_state) = lobby.game_state.as_mut() else { return };
+            let nickname = {
+                let Some(game_state) = lobby.game_state.as_ref() else { return };
                 if game_state.active_qte.is_some() { return; }
-                if center_card_index >= game_state.center_cards.len() { return; }
-                let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
-                // Solo se coge para tapar una deuda; si no debes nada, el
-                // intercambio normal (1↔1) sigue siendo el único camino.
-                let Some((set_index, card_index)) = game_state.players[idx].owed_slot else { return };
-
-                let card = game_state.center_cards.remove(center_card_index);
-                let player = &mut game_state.players[idx];
-                player.sets[set_index][card_index] = Some(card);
-                player.owed_slot = None;
-
-                (set_index, set_to_info(&game_state.players[idx].sets[set_index]))
+                if !game_state.center_cards.iter().any(|c| c.id == card_id) { return; }
+                let Some(p) = game_state.players.iter().find(|p| p.id == player_id) else { return };
+                // Solo se coge para tapar un hueco: sin deuda no hay nada que
+                // rellenar, y sin intercambio 1↔1 no hay otra forma de coger.
+                if !p.owes_card() { return; }
+                p.nickname.clone()
             };
 
-            let (set_index, new_set) = result;
-            let (new_center, players_progress) = snapshot(&lobby);
-            let nickname = lobby.players.iter()
-                .find(|p| p.id == player_id)
-                .map(|p| p.nickname.clone())
-                .unwrap_or_default();
-            state.lobby_manager.update_lobby(lobby).await;
+            let rival = {
+                let mut intents = state.take_intents.write().await;
+                let per_card = intents.entry(lobby_id.clone()).or_default();
+                let rival = per_card.get(&card_id).and_then(|other| {
+                    (other.player_id != player_id && other.timestamp.elapsed() < CONFLICT_WINDOW)
+                        .then(|| other.clone())
+                });
+                if rival.is_some() {
+                    per_card.remove(&card_id);
+                } else {
+                    per_card.insert(card_id, TakeIntent {
+                        player_id,
+                        nickname: nickname.clone(),
+                        timestamp: Instant::now(),
+                    });
+                }
+                rival
+            };
 
-            state.send_to_player(&player_id, ServerMessage::SwapSuccess {
-                player: nickname,
-                set_index,
-                your_new_set: Some(new_set),
-                center_cards: new_center.clone(),
-            }).await;
-            state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
-                center_cards: new_center,
-                players_progress,
-            }).await;
+            match rival {
+                Some(other) => {
+                    let me = QtePlayerData { player_id, nickname: nickname.clone() };
+                    let them = QtePlayerData { player_id: other.player_id, nickname: other.nickname };
+
+                    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                        if let Some(gs) = lobby.game_state.as_mut() {
+                            gs.active_qte = Some(crate::game::QteState {
+                                participants: vec![
+                                    (me.player_id, me.nickname.clone()),
+                                    (them.player_id, them.nickname.clone()),
+                                ],
+                                card_id,
+                                clicks: std::collections::HashMap::new(),
+                                duration_ms: 3000,
+                            });
+                        }
+                        state.lobby_manager.update_lobby(lobby).await;
+                    }
+
+                    state.broadcast_to_lobby(&lobby_id, ServerMessage::SwapConflict {
+                        players: vec![me.nickname.clone(), them.nickname.clone()],
+                        card_id,
+                        qte_duration: 3000,
+                    }).await;
+
+                    let state_clone = state.clone();
+                    tokio::spawn(async move {
+                        run_qte(state_clone, lobby_id, card_id, me, them).await;
+                    });
+                }
+                None => {
+                    // Sin rival de momento: se espera la ventana por si aparece.
+                    let state_clone = state.clone();
+                    tokio::spawn(async move {
+                        sleep(CONFLICT_WINDOW).await;
+                        execute_delayed_take(state_clone, lobby_id, card_id, player_id).await;
+                    });
+                }
+            }
         }
+
 
         ClientMessage::FlipSet { set_index } => {
             if let Some(ref lobby_id) = *current_lobby {
@@ -926,26 +791,12 @@ async fn handle_client_message(
                         .map(|(_, n)| n.clone())
                         .unwrap_or_default();
 
-                    let center_card_index = qte.center_card_index;
-                    let (winner_set, winner_card) = qte.swap_data
-                        .get(&winner_id)
-                        .copied()
-                        .unwrap_or((0, 0));
-
-                    // Tomar el QTE y ejecutar el swap del ganador
+                    let card_id = qte.card_id;
                     game_state.active_qte = None;
 
-                    if let Some(w_idx) = game_state.players.iter().position(|p| p.id == winner_id) {
-                        let my_card = game_state.players[w_idx].sets[winner_set][winner_card];
-                        let center_card = game_state.center_cards[center_card_index];
-                        game_state.players[w_idx].sets[winner_set][winner_card] = Some(center_card);
-                        // Un hueco vacío no debería llegar hasta aquí (no se
-                        // puede intercambiar debiendo una carta), pero si
-                        // pasara, el centro no se queda con un agujero.
-                        if let Some(card) = my_card {
-                            game_state.center_cards[center_card_index] = card;
-                        }
-                    }
+                    // El que cede pierde: la carta va al hueco del otro.
+                    let Some((winner_set, winner_new_set)) =
+                        take_card_into_slot(game_state, winner_id, card_id) else { return };
 
                     let new_center: Vec<CardInfo> = game_state.center_cards.iter()
                         .map(|&c| CardInfo::from(c)).collect();
@@ -955,10 +806,6 @@ async fn handle_client_message(
                             completed_sets: p.count_completed_sets(),
                             finished: p.finished_position.is_some(),
                         }).collect();
-                    let winner_new_set: Vec<Option<CardInfo>> = game_state.players.iter()
-                        .find(|p| p.id == winner_id)
-                        .map(|p| set_to_info(&p.sets[winner_set]))
-                        .unwrap_or_default();
 
                     Some((winner_id, winner_nickname, winner_set, winner_new_set,
                           player_id, loser_nickname, new_center, players_progress))
@@ -1095,7 +942,7 @@ async fn run_verification(
                         let max_players = lobby.max_players;
                         state.lobby_manager.update_lobby(lobby).await;
                         // Limpiar intents de swap del lobby terminado
-                        state.swap_intents.write().await.remove(&lobby_id);
+                        state.take_intents.write().await.remove(&lobby_id);
                         state.broadcast_to_lobby(&lobby_id, ServerMessage::LobbyUpdate {
                             players: player_infos,
                             ready_count: 0,
@@ -1137,109 +984,81 @@ async fn run_verification(
     }
 }
 
-/// Ejecuta el swap diferido si no fue cancelado por un QTE
-async fn execute_delayed_swap(
+/// Coge la carta una vez pasada la ventana de conflicto, si sigue disponible.
+async fn execute_delayed_take(
     state: AppState,
     lobby_id: String,
-    center_card_index: usize,
+    card_id: u32,
     player_id: Uuid,
-    player_set_index: usize,
-    my_card_index: usize,
-    player_nickname: String,
 ) {
-    // Verificar que el intent sigue siendo nuestro
     {
-        let mut intents = state.swap_intents.write().await;
-        let still_ours = intents
-            .get(&lobby_id)
-            .and_then(|m| m.get(&center_card_index))
+        // Si el intent ya no es nuestro, es que se convirtió en pelea.
+        let mut intents = state.take_intents.write().await;
+        let mine = intents.get(&lobby_id)
+            .and_then(|m| m.get(&card_id))
             .map(|i| i.player_id == player_id)
             .unwrap_or(false);
-        if !still_ours {
-            return; // El intent fue consumido por un QTE
-        }
-        if let Some(m) = intents.get_mut(&lobby_id) {
-            m.remove(&center_card_index);
-        }
+        if !mine { return; }
+        if let Some(m) = intents.get_mut(&lobby_id) { m.remove(&card_id); }
     }
 
-    // Ejecutar el swap
-    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-        let result = {
-            let game_state = match lobby.game_state.as_mut() {
-                Some(gs) => gs,
-                None => return,
-            };
-            if game_state.active_qte.is_some() {
-                None // Una carta entró en disputa (QTE) mientras esperábamos
-            } else {
-                let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
-                    Some(idx) => idx,
-                    None => return,
-                };
+    let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+    let taken = {
+        let Some(game_state) = lobby.game_state.as_mut() else { return };
+        if game_state.active_qte.is_some() { return; }
+        take_card_into_slot(game_state, player_id, card_id)
+    };
 
-                // 300 ms después el centro puede haber encogido (alguien
-                // tapó su hueco), así que se vuelve a comprobar.
-                match game_state.center_cards.get(center_card_index).copied() {
-                  None => None,
-                  Some(center_card) => {
-                let my_card = game_state.players[player_idx].sets[player_set_index][my_card_index];
-                game_state.players[player_idx].sets[player_set_index][my_card_index] = Some(center_card);
-                // Debiendo una carta no se puede intercambiar, así que el
-                // hueco siempre está lleno aquí; la guarda evita dejar el
-                // centro con un agujero si esa regla cambiara.
-                if let Some(card) = my_card {
-                    game_state.center_cards[center_card_index] = card;
-                }
-
-                let new_set = set_to_info(&game_state.players[player_idx].sets[player_set_index]);
-                let new_center: Vec<CardInfo> = game_state.center_cards.iter()
-                    .map(|&c| CardInfo::from(c)).collect();
-                let players_progress: Vec<PlayerProgress> = game_state.players.iter()
-                    .map(|p| PlayerProgress {
-                        nickname: p.nickname.clone(),
-                        completed_sets: p.count_completed_sets(),
-                        finished: p.finished_position.is_some(),
-                    }).collect();
-
-                Some((new_set, new_center, players_progress))
-                  }
-                }
-            }
-        };
-
-        // Antes esto se descartaba en silencio: el jugador clickeaba, esperaba
-        // los 300ms, y su carta simplemente no se movía sin ningún aviso — eso
-        // es lo que se reportó como latencia "inconsistente". Ahora siempre
-        // se avisa por qué no se completó.
-        let Some((new_set, new_center, players_progress)) = result else {
-            state.lobby_manager.update_lobby(lobby).await;
-            state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                reason: "Esa carta entró en disputa justo antes de tu intercambio, intenta de nuevo".to_string(),
-            }).await;
-            return;
-        };
-        state.lobby_manager.update_lobby(lobby).await;
-
-        state.send_to_player(&player_id, ServerMessage::SwapSuccess {
-            player: player_nickname,
-            set_index: player_set_index,
-            your_new_set: Some(new_set),
-            center_cards: new_center.clone(),
+    let Some((set_index, new_set)) = taken else {
+        // Otro se la llevó mientras esperábamos: se sigue debiendo una.
+        state.send_to_player(&player_id, ServerMessage::SwapFailed {
+            reason: "Esa carta ya no está".to_string(),
         }).await;
+        return;
+    };
 
-        state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
-            center_cards: new_center,
-            players_progress,
-        }).await;
-    }
+    let (new_center, players_progress) = snapshot(&lobby);
+    let nickname = lobby.players.iter()
+        .find(|p| p.id == player_id)
+        .map(|p| p.nickname.clone())
+        .unwrap_or_default();
+    state.lobby_manager.update_lobby(lobby).await;
+
+    state.send_to_player(&player_id, ServerMessage::SwapSuccess {
+        player: nickname,
+        set_index,
+        your_new_set: Some(new_set),
+        center_cards: new_center.clone(),
+    }).await;
+    state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
+        center_cards: new_center,
+        players_progress,
+    }).await;
 }
+
+/// Saca la carta del centro y la mete en el hueco que ese jugador debe.
+/// `None` si la carta ya no está o el jugador no debe nada.
+fn take_card_into_slot(
+    game_state: &mut crate::game::models::GameState,
+    player_id: Uuid,
+    card_id: u32,
+) -> Option<(usize, Vec<Option<CardInfo>>)> {
+    let idx = game_state.center_cards.iter().position(|c| c.id == card_id)?;
+    let p = game_state.players.iter().position(|p| p.id == player_id)?;
+    let (set_index, card_index) = game_state.players[p].owed_slot?;
+
+    let card = game_state.center_cards.remove(idx);
+    game_state.players[p].sets[set_index][card_index] = Some(card);
+    game_state.players[p].owed_slot = None;
+    Some((set_index, set_to_info(&game_state.players[p].sets[set_index])))
+}
+
 
 /// Ejecuta el QTE: envía updates cada 500ms y resuelve al finalizar
 async fn run_qte(
     state: AppState,
     lobby_id: String,
-    center_card_index: usize,
+    card_id: u32,
     p_a: QtePlayerData,
     p_b: QtePlayerData,
 ) {
@@ -1279,15 +1098,9 @@ async fn run_qte(
                 (p_b.clone(), p_a.clone())
             };
 
-            // Ejecutar swap del ganador
-            if let Some(w_idx) = game_state.players.iter().position(|p| p.id == winner.player_id) {
-                let my_card = game_state.players[w_idx].sets[winner.set_index][winner.card_index];
-                let center_card = game_state.center_cards[center_card_index];
-                game_state.players[w_idx].sets[winner.set_index][winner.card_index] = Some(center_card);
-                if let Some(card) = my_card {
-                    game_state.center_cards[center_card_index] = card;
-                }
-            }
+            // El ganador se lleva la carta a su hueco.
+            let Some((winner_set, winner_new_set)) =
+                take_card_into_slot(game_state, winner.player_id, card_id) else { return };
 
             let new_center: Vec<CardInfo> = game_state.center_cards.iter()
                 .map(|&c| CardInfo::from(c)).collect();
@@ -1297,15 +1110,10 @@ async fn run_qte(
                     completed_sets: p.count_completed_sets(),
                     finished: p.finished_position.is_some(),
                 }).collect();
-            let winner_new_set: Vec<Option<CardInfo>> = game_state.players.iter()
-                .find(|p| p.id == winner.player_id)
-                .map(|p| set_to_info(&p.sets[winner.set_index]))
-                .unwrap_or_default();
-
-            (winner, loser, winner_new_set, new_center, players_progress)
+            (winner, loser, winner_set, winner_new_set, new_center, players_progress)
         };
 
-        let (winner, loser, winner_new_set, new_center, players_progress) = outcome;
+        let (winner, loser, winner_set, winner_new_set, new_center, players_progress) = outcome;
         // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
         // mensaje de "has perdido": el tablero apagándose es el aviso.
         lobby.stun_player(&loser.player_id);
@@ -1319,7 +1127,7 @@ async fn run_qte(
         // Ganador: swap_success
         state.send_to_player(&winner.player_id, ServerMessage::SwapSuccess {
             player: winner.nickname,
-            set_index: winner.set_index,
+            set_index: winner_set,
             your_new_set: Some(winner_new_set),
             center_cards: new_center.clone(),
         }).await;

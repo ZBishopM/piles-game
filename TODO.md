@@ -52,15 +52,15 @@ los problemas de sincronización.
         juego. Haría falta mandarlos y ampliar el juego de variables del
         DSL (`src/lib/core/achievement-generator.ts` y `achievements.ts` en
         session-manager).
-- [x] **Soltar una carta al centro sin coger otra a cambio** — hecho.
-      Dejas un hueco en tu set y la carta se añade al centro, donde cualquiera
-      puede llevársela con un intercambio normal. Hasta que tapes el hueco
-      cogiendo otra no puedes soltar más, ni intercambiar, ni mostrar sets
-      (comprobado en el servidor, no solo en el cliente). Tu propia carta
-      soltada también puedes recuperarla, si nadie se te adelanta.
-      Implicó: `sets` pasa a `[[Option<Card>; 4]; 6]` y `center_cards` a un
-      `Vec` que crece; `is_set_complete` y la verificación rechazan sets con
-      hueco; mensajes `drop_card` / `take_card`.
+- [x] **Soltar y coger sustituyen al intercambio 1↔1** — hecho. Ya no hay
+      intercambio simultáneo: tocas una carta tuya y va directa al centro
+      (sin botón ni confirmación), y luego coges una del centro para tapar el
+      hueco. Hasta taparlo no puedes soltar otra ni mostrar sets. La carta
+      soltada la puede coger cualquiera, incluido tú.
+      Las peleas ahora saltan cuando dos jugadores van a por la misma carta
+      del centro, no al intercambiar. Las cartas se identifican por id y no
+      por posición: el centro cambia de tamaño constantemente y un índice
+      dejaría de apuntar a la misma carta.
 - [ ] **Desconexión en partida activa**: ahora mismo cancela la partida entera
       para todos. Lo suyo sería que el resto pudiera seguir jugando sin quien
       se fue. Requiere reconstruir el estado de juego sin ese jugador.
@@ -104,7 +104,14 @@ Los resultados que se guardan van a Session Manager, no aquí.
 
 - [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación
 - [ ] Animación de la carta al intercambiar (del set al centro y viceversa)
-- [ ] Drag & drop en vez de click-click
+- [ ] **Drag & drop en vez de click-click**. Hoy todo es seleccionar y luego
+      pulsar: carta tuya → carta del centro para intercambiar, y carta tuya →
+      botón para soltar. Arrastrar diría por sí solo lo que hace cada gesto
+      (llevar una carta al centro = soltarla; traer una del centro = cogerla)
+      y quitaría el botón de soltar de en medio. Hay que cubrir también el
+      táctil (`pointerdown`/`pointermove`/`pointerup`, no sólo los eventos
+      de arrastre de escritorio) y dejar el click-click funcionando como
+      alternativa accesible.
 - [ ] Confeti para el 1º puesto
 - [ ] Chat básico en la sala
 - [ ] Avatar guardado en `localStorage`

@@ -133,13 +133,11 @@ impl PlayerState {
 pub struct QteState {
     /// Participantes del QTE (player_id, nickname)
     pub participants: Vec<(Uuid, String)>,
-    /// Índice de la carta en disputa (0-3)
-    pub center_card_index: usize,
+    /// Carta en disputa, por id: el centro cambia de tamaño y un índice
+    /// dejaría de apuntar a la misma carta.
+    pub card_id: u32,
     /// Clicks por jugador
     pub clicks: std::collections::HashMap<Uuid, u32>,
-    /// Datos del swap de cada participante: player_id -> (set_index, card_index)
-    #[serde(skip)]
-    pub swap_data: std::collections::HashMap<Uuid, (usize, usize)>,
     /// Duración del QTE en milisegundos (ej: 3000ms)
     pub duration_ms: u64,
 }

@@ -25,19 +25,17 @@ pub enum ClientMessage {
     SwitchSet {
         set_index: usize,
     },
-    /// Intercambiar carta
-    SwapCard {
-        my_card_index: usize,
-        center_card_index: usize,
-    },
-    /// Soltar una carta al centro sin coger nada a cambio. Deja un hueco en
-    /// el set hasta que se coja otra, y cualquiera puede llevarse la soltada.
+    /// Soltar una carta al centro. Es el único modo de deshacerse de una
+    /// carta: no hay intercambio 1↔1, se suelta y luego se coge.
     DropCard {
         my_card_index: usize,
     },
     /// Coger una carta del centro para tapar el hueco que dejó DropCard.
+    /// Por id y no por posición: el centro cambia de tamaño constantemente
+    /// según quién debe una carta, así que un índice deja de apuntar a la
+    /// misma carta en cuanto alguien coge otra.
     TakeCard {
-        center_card_index: usize,
+        card_id: u32,
     },
     /// Voltear un set para que otros lo vean
     FlipSet {
@@ -92,10 +90,10 @@ pub enum ServerMessage {
         set_index: usize,
         cards: Vec<CardInfo>,
     },
-    /// Conflicto de intercambio (inicia QTE)
+    /// Dos jugadores van a por la misma carta del centro: empieza la pelea.
     SwapConflict {
         players: Vec<String>,
-        center_card_index: usize,
+        card_id: u32,
         qte_duration: u64,
     },
     /// Actualización de clicks del QTE

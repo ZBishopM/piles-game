@@ -312,22 +312,6 @@
         }
         .card.card-empty:hover { transform: none; box-shadow: none; }
 
-        /* Botón de soltar, solo visible con una carta tuya seleccionada */
-        #dropBtn {
-            display: none;
-            width: 100%;
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px dashed #4a5a9a;
-            border-radius: 8px;
-            background: rgba(74,90,154,0.12);
-            color: #ccc;
-            font-size: 0.9rem;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        #dropBtn.active { display: block; }
-        #dropBtn:hover { border-color: var(--accent); color: #fff; }
 
         /* Debes una carta: el centro es lo único con lo que puedes actuar */
         .owing #yourCards .card { opacity: 0.5; pointer-events: none; }
@@ -831,7 +815,7 @@
 
     <div class="home-actions">
         <button class="btn btn-secondary" onclick="openTutorial()">❓ Cómo jugar</button>
-        <button class="btn btn-primary" onclick="showScreen('hostScreen')">🎲 Hospedar</button>
+        <button class="btn btn-primary" onclick="showScreen('hostScreen')">🎲 Crear sala</button>
         <button class="btn btn-secondary" onclick="showScreen('joinScreen')">🔗 Unirse</button>
     </div>
 
@@ -895,7 +879,7 @@
         <input type="hidden" id="maxPlayers" value="4">
     </div>
 
-    <button class="btn btn-primary" onclick="createLobby()">Crear sala</button>
+    <button class="btn btn-primary" onclick="createLobby()">Empezar</button>
 </div>
 
 <!-- ════ UNIRSE ════ -->
@@ -953,8 +937,6 @@
     <!-- Cuenta atrás del bloqueo por perder una pelea -->
     <div id="stunBar"><div id="stunBarFill"></div></div>
 
-    <!-- Soltar la carta elegida al centro sin coger nada a cambio -->
-    <button id="dropBtn" onclick="dropSelectedCard()">⬇ Soltar al centro</button>
 
     <!-- Centro -->
     <p class="section-label">Cartas del Centro</p>
@@ -1053,7 +1035,6 @@ const opponentFlippedSets = new Map();
 let opponentNames = [];
 
 // Selección para intercambio
-let selection = null;      // { source: 'player'|'center', index: 0-3 }
 
 // Verificaciones en curso de otros jugadores: Map<playerName, HTMLElement>
 const otherVerifications = new Map();
@@ -1278,13 +1259,11 @@ function handleMsg(msg) {
             // Perder una pelea no lleva mensaje: el bloqueo ya lo dice. Y no
             // se decide comparando el texto del servidor —ese acoplamiento ya
             // rompió esto una vez—, sino por si venías de una pelea.
-            pendingSwap = null;
             pendingDrop = null;
             pendingTake = null;
             document.querySelectorAll('.card-pending')
                 .forEach(el => el.classList.remove('card-pending'));
             if (!qtePlayers.includes(currentNickname) && !isStunned() && msg.reason) {
-                selection = null;
                 renderYourCards();
                 renderCenterCards();
                 updateSwapHint(`⚠️ ${msg.reason}`);
@@ -1293,7 +1272,7 @@ function handleMsg(msg) {
             break;
 
         case 'swap_conflict':
-            onSwapConflict(msg.players, msg.center_card_index, msg.qte_duration);
+            onSwapConflict(msg.players, msg.card_id, msg.qte_duration);
             break;
 
         case 'qte_update':
@@ -1378,7 +1357,7 @@ function handleMsg(msg) {
 // ─── Lobby ────────────────────────────────────────────────────────────────
 
 /** El campo de nombre vive solo en el home, así que un `alert()` desde
- *  Hospedar/Unirse dejaría al jugador mirando una pantalla sin ese campo.
+ *  Crear sala/Unirse dejaría al jugador mirando una pantalla sin ese campo.
  *  Devuelve el nombre o null, y en ese caso lleva de vuelta al home. */
 function requireNickname() {
     const nickname = document.getElementById('nickname').value.trim();
@@ -1524,7 +1503,7 @@ function tutorialNext() {
     else showScreen('homeScreen');
 }
 
-// ─── Hospedar: selector de jugadores ──────────────────────────────────────
+// ─── Crear sala: selector de jugadores ────────────────────────────────────
 function buildMaxPlayersSelector() {
     const group = document.getElementById('maxPlayersGroup');
     const hidden = document.getElementById('maxPlayers');
@@ -1648,9 +1627,7 @@ function onGameStart(msg) {
     allSets = msg.your_sets;       // 6 sets
     centerCards = msg.center_cards;
     currentSetIndex = 0;
-    selection = null;
-    // Una partida nueva no arrastra bloqueos ni intercambios a medias.
-    pendingSwap = null;
+    // Una partida nueva no arrastra bloqueos ni movimientos a medias.
     pendingDrop = null;
     pendingTake = null;
     clearStun();
@@ -1704,9 +1681,6 @@ function renderCenterCards() {
     div.innerHTML = '';
     centerCards.forEach((card, i) => {
         const el = buildCard(card);
-        if (selection && selection.source === 'center' && selection.index === i) {
-            el.classList.add('selected');
-        }
         if (qteBlockedCenterIndex !== null) {
             el.classList.add(i === qteBlockedCenterIndex ? 'qte-locked' : 'qte-waiting');
         }
@@ -1729,9 +1703,6 @@ function renderYourCards() {
             return;
         }
         const el = buildCard(card);
-        if (selection && selection.source === 'player' && selection.index === i) {
-            el.classList.add('selected');
-        }
         el.onclick = () => onPlayerCardClick(i);
         div.appendChild(el);
     });
@@ -1863,77 +1834,51 @@ function markLanded(rowId, index) {
 }
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
+// No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
+// una del centro la coge. Nada que seleccionar, nada que confirmar.
 function onPlayerCardClick(index) {
-    if (selection && selection.source === 'center') {
-        // Ya hay una carta del centro seleccionada → hacer swap
-        doSwap(index, selection.index);
-    } else {
-        // Seleccionar (o cambiar selección) dentro del mismo set
-        selection = { source: 'player', index };
-        updateSwapHint(`Carta del set seleccionada. Ahora haz click en una carta del <strong>centro</strong>.`);
-        renderYourCards();
-        renderCenterCards();
-    }
+    if (qteBlockedCenterIndex !== null || isStunned() || owesCard()) return;
+    const card = (allSets[currentSetIndex] || [])[index];
+    if (!card) return;
+    pendingDrop = { index, card };
+    send({ type: 'drop_card', my_card_index: index });
 }
 
 function onCenterCardClick(index) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta y el tablero apagado ya
     // explican por qué no pasa nada.
     if (qteBlockedCenterIndex !== null || isStunned()) return;
-
-    // Debiendo una carta, un click en el centro solo puede significar una
-    // cosa: cogerla para tapar el hueco.
-    if (owesCard()) {
-        pendingTake = { centerIndex: index, card: centerCards[index] };
-        send({ type: 'take_card', center_card_index: index });
-        return;
-    }
-
-    if (selection && selection.source === 'player') {
-        // Ya hay una carta del jugador seleccionada → hacer swap
-        doSwap(selection.index, index);
-    } else {
-        // Seleccionar (o cambiar selección) del centro
-        selection = { source: 'center', index };
-        updateSwapHint(`Carta del centro seleccionada. Ahora haz click en una carta de <strong>tu set</strong>.`);
-        renderCenterCards();
-        renderYourCards();
-    }
+    // Solo se coge para tapar un hueco.
+    if (!owesCard()) return;
+    const card = centerCards[index];
+    if (!card) return;
+    pendingTake = { centerIndex: index, card };
+    // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
+    // una posición deja de referirse a la misma carta.
+    send({ type: 'take_card', card_id: card.id });
 }
 
-/** Intercambio confirmado. Las dos cartas se cruzan por encima del tablero:
- *  es lo que dice "esta ha ido ahí". Si el intercambio vino de ganar una
- *  pelea, `pendingSwap` no existe (el swap lo lanzó el servidor al resolver),
- *  y entonces la carta vuela desde el centro en disputa hasta tu set. */
+/** Movimiento confirmado. La carta vuela de donde salió a donde ha llegado:
+ *  al centro si la soltaste, a tu hueco si la cogiste o ganaste la pelea. */
 function onSwapSuccess(msg) {
-    const before = pendingSwap;
     const drop = pendingDrop;
     const take = pendingTake;
-    const wonFight = !before && !drop && !take && qteWonSlot !== null;
+    const wonFight = !drop && !take && qteWonSlot !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
-    const fromMine = before ? cardRectAt('yourCards', before.myCardIndex)
-                   : (drop ? cardRectAt('yourCards', drop.index) : null);
-    const fromCenter = before
-        ? cardRectAt('centerCards', before.centerCardIndex)
-        : take ? cardRectAt('centerCards', take.centerIndex)
+    const fromMine = drop ? cardRectAt('yourCards', drop.index) : null;
+    const fromCenter = take ? cardRectAt('centerCards', take.centerIndex)
         : (wonFight ? cardRectAt('centerCards', qteWonSlot.index) : null);
 
     const oldSet = (allSets[msg.set_index] || []).slice();
 
     if (msg.your_new_set) allSets[msg.set_index] = msg.your_new_set;
     centerCards = msg.center_cards;
-    clearSelection();
     renderYourCards();
     renderCenterCards();
     updateSetNav();
 
-    if (before) {
-        // Intercambio normal: las dos cartas se cruzan.
-        // flyCard descubre y resalta la carta de destino al aterrizar.
-        flyCard(before.myCard, fromMine, 'centerCards', before.centerCardIndex);
-        flyCard(before.centerCard, fromCenter, 'yourCards', before.myCardIndex);
-    } else if (wonFight) {
+    if (wonFight) {
         // Pelea ganada: la carta sale del centro y aterriza en tu set. Ese
         // vuelo es todo el "has ganado" que hace falta.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
@@ -1949,9 +1894,9 @@ function onSwapSuccess(msg) {
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) flyCard(take.card, fromCenter, 'yourCards', slot);
     }
-    pendingSwap = null;
     pendingDrop = null;
     pendingTake = null;
+    updateOwingUi();
 }
 
 /** Primer hueco cuya carta cambió, comparando por id. El servidor manda los
@@ -1976,86 +1921,39 @@ function owesCard() {
     return allSets.some(set => (set || []).some(card => !card));
 }
 
-function dropSelectedCard() {
-    if (!selection || selection.source !== 'player') return;
-    if (owesCard() || isStunned() || qteBlockedCenterIndex !== null) return;
-    const index = selection.index;
-    pendingDrop = { index, card: (allSets[currentSetIndex] || [])[index] };
-    send({ type: 'drop_card', my_card_index: index });
-    clearSelection();
-}
-
-/** Refleja en el tablero si debes una carta: tus cartas se apagan, el centro
- *  se resalta, y el botón de soltar desaparece. */
+/** Refleja en el tablero si debes una carta: tus cartas se apagan y el centro
+ *  se resalta como lo único con lo que puedes actuar. */
 function updateOwingUi() {
     const owing = owesCard();
     document.getElementById('gameScreen')?.classList.toggle('owing', owing);
-    const drop = document.getElementById('dropBtn');
-    if (drop) {
-        drop.classList.toggle('active',
-            !owing && !!selection && selection.source === 'player' && !isStunned());
-    }
+    const hint = document.getElementById('swapHint');
+    if (hint) hint.innerHTML = owing ? OWING_HINT : DEFAULT_SWAP_HINT;
     const flip = document.getElementById('flipBtn');
     if (flip) flip.disabled = owing;
 }
 
-/** Intercambio enviado y aún sin confirmar. Guarda los índices y las cartas
- *  porque el servidor solo devuelve los arrays enteros: sin esto no habría
- *  forma de saber qué carta se movió y adónde para animarla. */
-let pendingSwap = null;
-
-function doSwap(myCardIndex, centerCardIndex) {
-    // Carta en disputa, bloqueado por perder, o debiendo una carta: no se
-    // intenta siquiera. La etiqueta PELEADA, el tablero apagado y el hueco
-    // en el set ya lo explican.
-    if (qteBlockedCenterIndex !== null || isStunned() || owesCard()) return;
-
-    pendingSwap = {
-        myCardIndex,
-        centerCardIndex,
-        myCard: (allSets[currentSetIndex] || [])[myCardIndex],
-        centerCard: centerCards[centerCardIndex],
-    };
-    // El servidor espera 300ms por si otro jugador va a por la misma carta,
-    // así que hasta entonces no pasa nada. Atenuar las dos cartas elegidas
-    // llena ese hueco en vez de dejar la pantalla congelada sin motivo.
-    document.getElementById('yourCards')?.children[myCardIndex]?.classList.add('card-pending');
-    document.getElementById('centerCards')?.children[centerCardIndex]?.classList.add('card-pending');
-
-    send({ type: 'swap_card', my_card_index: myCardIndex, center_card_index: centerCardIndex });
-}
-
-const DEFAULT_SWAP_HINT = `Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar`;
+const DEFAULT_SWAP_HINT = `Toca una carta tuya para soltarla al centro`;
+const OWING_HINT = `Coge una carta del centro`;
 
 function clearSelection() {
-    selection = null;
-    updateSwapHint(DEFAULT_SWAP_HINT);
+    updateSwapHint(owesCard() ? OWING_HINT : DEFAULT_SWAP_HINT);
 }
 
 let swapHintResetTimer = null;
 
-/** Devuelve el hint a su texto por defecto tras un aviso temporal.
- *
- * Antes esto era `setTimeout(clearSelection, 2500)`, que además de
- * restaurar el texto anulaba `selection`. Si el jugador ya había elegido
- * una carta dentro de esos 2.5s (justo lo que pasa al salir de una pelea:
- * quieres seguir jugando de inmediato), su selección se borraba sola y el
- * siguiente click solo volvía a seleccionar en vez de completar el
- * intercambio — se siente como lag o como que el juego ignoró el click.
- */
+/** Devuelve el hint a su texto por defecto tras un aviso temporal. */
 function resetSwapHintLater(delayMs) {
     if (swapHintResetTimer) clearTimeout(swapHintResetTimer);
     swapHintResetTimer = setTimeout(() => {
         swapHintResetTimer = null;
-        if (selection === null) updateSwapHint(DEFAULT_SWAP_HINT);
+        updateSwapHint(owesCard() ? OWING_HINT : DEFAULT_SWAP_HINT);
     }, delayMs);
 }
 
 function updateSwapHint(html) {
     const el = document.getElementById('swapHint');
     el.innerHTML = html;
-    el.classList.toggle('selected', selection !== null);
-    updateOwingUi();
+    el.classList.toggle('selected', owesCard());
 }
 
 // ─── Cambio de set ────────────────────────────────────────────────────────
@@ -2198,24 +2096,25 @@ function clearStun() {
     document.getElementById('gameScreen')?.classList.remove('stunned');
 }
 
-function onSwapConflict(players, centerCardIndex, durationMs) {
+function onSwapConflict(players, cardId, durationMs) {
     qtePlayers = players;
-    qteBlockedCenterIndex = centerCardIndex;
-    // La carta en disputa hay que guardarla AHORA: el servidor nunca dice cuál
-    // era, y en cuanto se resuelva la pelea el centro ya tendrá otra en ese
-    // hueco. De aquí sale la carta que se enseña en el overlay y la que vuela
-    // al ganador.
-    qteContestedCard = centerCards[centerCardIndex] ?? null;
-    qteContestedIndex = centerCardIndex;
-    // Un intercambio pendiente propio queda anulado por la pelea.
-    pendingSwap = null;
+    // El servidor identifica la carta por id porque el centro se reordena;
+    // aquí hace falta su posición para marcarla y para el vuelo, y la carta
+    // en sí para enseñarla en el overlay (cuando termine la pelea ya no
+    // estará en el centro).
+    const idx = centerCards.findIndex(c => c && c.id === cardId);
+    qteBlockedCenterIndex = idx === -1 ? null : idx;
+    qteContestedCard = idx === -1 ? null : centerCards[idx];
+    qteContestedIndex = qteBlockedCenterIndex;
+    // Un movimiento propio a medias queda anulado por la pelea.
+    pendingDrop = null;
+    pendingTake = null;
     renderCenterCards();
     const isParticipant = players.includes(currentNickname);
 
     if (isParticipant) {
         // ── Overlay completo para participantes ──
         qteActive = true;
-        clearSelection();
 
         const rival = players.find(p => p !== currentNickname) || '';
         document.getElementById('qteTitle').textContent = '⚡ ¡CLICK!';
@@ -2638,11 +2537,9 @@ function returnToLobby() {
     // Resetear estado de juego
     allSets = [];
     centerCards = [];
-    selection = null;
     verificationSent = false;
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
-    pendingSwap = null;
     pendingDrop = null;
     pendingTake = null;
     clearStun();
