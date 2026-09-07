@@ -24,7 +24,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         /* En móvil, dos toques rápidos son un "doble toque" y el navegador
-           hace zoom. En un QTE se pulsa lo más rápido posible, así que el
+           hace zoom. En una pelea se pulsa lo más rápido posible, así que el
            zoom saltaba justo encima del botón y dejaba la pantalla torcida
            en mitad de la pelea. `touch-action: manipulation` desactiva ese
            gesto solo en los controles; el pinch-zoom de la página sigue
@@ -599,7 +599,7 @@
             user-select: none;
             -webkit-user-select: none;
             /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
-               en mitad del QTE. */
+               en mitad de la pelea. */
             -webkit-touch-callout: none;
             transition: transform 0.05s, background 0.1s;
         }
@@ -617,7 +617,84 @@
             transition: all 0.2s;
         }
         #qteConcedeBtn:hover { border-color: #e74c3c; color: #e74c3c; background: rgba(231,76,60,0.08); }
-        .qte-spectator { color: #888; font-size: 0.9rem; margin-top: 8px; }
+        /* Carta en disputa dentro del overlay */
+        .qte-card-slot { display: flex; justify-content: center; margin-bottom: 16px; }
+        .qte-card-slot .card { width: 84px; cursor: default; }
+        .qte-card-slot .card:hover { transform: none; }
+        @keyframes fightIn {
+            from { opacity: 0; transform: scale(0.88); }
+            to   { opacity: 1; transform: scale(1); }
+        }
+        #qteBox { animation: fightIn 0.18s ease-out; }
+
+        /* Resultado: sin frases. Gana el número que brilla. */
+        .qte-player-score.won .qte-count { color: var(--success); text-shadow: 0 0 12px rgba(40,167,69,0.7); }
+        .qte-player-score.lost { opacity: 0.4; }
+        .qte-player-score.won { border-color: var(--success); }
+
+        /* Bloqueo tras perder: el tablero se apaga y no responde. Ese apagón
+           ES el mensaje de "has perdido" — no hay ningún texto. */
+        #stunBar {
+            display: none;
+            height: 6px;
+            border-radius: 3px;
+            background: #2a2a5a;
+            overflow: hidden;
+            margin: 0 0 10px;
+        }
+        #stunBar.active { display: block; }
+        #stunBarFill { height: 100%; background: var(--danger); transition: width 0.1s linear; }
+        .stunned #centerCards,
+        .stunned #yourCards {
+            opacity: 0.35;
+            filter: grayscale(70%);
+            pointer-events: none;
+            transition: opacity 0.15s, filter 0.15s;
+        }
+
+        /* Etiqueta sobre la carta que se está peleando */
+        .card.qte-locked::after {
+            content: "PELEADA";
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%) rotate(-8deg);
+            background: var(--danger);
+            color: #fff;
+            font-size: 0.6rem;
+            font-weight: bold;
+            letter-spacing: 0.08em;
+            padding: 2px 6px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+
+        /* Capa para las cartas que vuelan. Va por encima del tablero y por
+           debajo de los overlays, y nunca intercepta clicks. */
+        #fxLayer {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 120;
+        }
+        #fxLayer .card {
+            position: absolute;
+            margin: 0;
+            cursor: default;
+            transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+
+        /* Esperando confirmación del servidor (hay 300ms de margen para
+           detectar peleas): las dos cartas elegidas se atenúan en vez de
+           quedarse quietas sin explicación. */
+        .card.card-pending { opacity: 0.45; }
+
+        /* "Esto es lo que ha cambiado" al volver al tablero */
+        @keyframes cardLanded {
+            0%   { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(102,126,234,0.55); }
+            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(102,126,234,0); }
+        }
+        .card.card-landed { animation: cardLanded 0.9s ease-out; }
 
         /* Notificación QTE para espectadores */
         .qte-battle-notif {
@@ -835,6 +912,9 @@
     <!-- Hint de intercambio -->
     <div id="swapHint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
 
+    <!-- Cuenta atrás del bloqueo por perder una pelea -->
+    <div id="stunBar"><div id="stunBarFill"></div></div>
+
     <!-- Centro -->
     <p class="section-label">Cartas del Centro</p>
     <div class="card-row" id="centerCards"></div>
@@ -873,16 +953,17 @@
     </div>
 </div>
 
-<!-- ════ OVERLAY QTE ════ -->
+<!-- ════ OVERLAY PELEA ════ -->
 <div id="qteOverlay">
-    <div class="qte-box">
-        <h2>⚡ ¡QTE!</h2>
-        <p class="qte-desc" id="qteDesc">Dos jugadores quieren la misma carta</p>
+    <div class="qte-box" id="qteBox">
+        <h2 id="qteTitle">⚡ ¡CLICK!</h2>
+        <p class="qte-desc" id="qteDesc"></p>
+        <!-- La carta en disputa: se ve por qué se está peleando, sin leer nada -->
+        <div class="qte-card-slot" id="qteCard"></div>
         <div class="qte-scores" id="qteScores"></div>
         <div class="qte-timer-bar"><div id="qteTimerFill"></div></div>
         <button id="qteClickBtn" onclick="sendQteClick()" style="display:none">¡ C L I C K !</button>
         <button id="qteConcedeBtn" onclick="sendQteConcede()" style="display:none">🏳️ Ceder la carta</button>
-        <p class="qte-spectator" id="qteSpectator" style="display:none">Observando el QTE...</p>
     </div>
 </div>
 
@@ -897,6 +978,9 @@
 </div>
 
 <!-- ════ OVERLAY RECONEXIÓN ════ -->
+<!-- Cartas volando entre el centro y tu set -->
+<div id="fxLayer"></div>
+
 <div id="reconnectOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
     <div style="background:#16213e;border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;">
         <div style="font-size:2.5rem;margin-bottom:12px;">🔌</div>
@@ -1146,20 +1230,17 @@ function handleMsg(msg) {
             break;
 
         case 'swap_success':
-            if (msg.your_new_set) allSets[msg.set_index] = msg.your_new_set;
-            centerCards = msg.center_cards;
-            clearSelection();
-            renderYourCards();
-            renderCenterCards();
-            updateSetNav();
+            onSwapSuccess(msg);
             break;
 
         case 'swap_failed':
-            // Perder un QTE ya se avisa con el banner de qte_resolved; esto
-            // solo agrega texto para el otro caso: tu intercambio sin
-            // conflicto quedó cancelado porque una carta entró en disputa
-            // justo antes de ejecutarse.
-            if (msg.reason && msg.reason !== 'Perdiste el QTE') {
+            // Perder una pelea no lleva mensaje: el bloqueo ya lo dice. Y no
+            // se decide comparando el texto del servidor —ese acoplamiento ya
+            // rompió esto una vez—, sino por si venías de una pelea.
+            pendingSwap = null;
+            document.querySelectorAll('.card-pending')
+                .forEach(el => el.classList.remove('card-pending'));
+            if (!qtePlayers.includes(currentNickname) && !isStunned() && msg.reason) {
                 selection = null;
                 renderYourCards();
                 renderCenterCards();
@@ -1177,15 +1258,28 @@ function handleMsg(msg) {
             break;
 
         case 'qte_resolved':
-            closeQteOverlay(msg.winner);
+            onQteResolved(msg.winner);
             break;
 
-        case 'game_update':
-            // Otro jugador hizo un swap: actualizar centro y progreso
-            centerCards = msg.center_cards;
-            renderCenterCards();
-            renderPlayersProgress(msg.players_progress);
+        case 'stunned':
+            startStun(msg.ms);
             break;
+
+        case 'game_update': {
+            // Intercambio de otro jugador. No vimos de dónde salía su carta,
+            // así que nada de vuelos: solo se resalta el hueco que cambió.
+            const changed = findChangedSlot(centerCards, msg.center_cards);
+            centerCards = msg.center_cards;
+            renderPlayersProgress(msg.players_progress);
+            // El servidor manda este broadcast también a quien hizo el
+            // intercambio, justo detrás de su swap_success. Redibujar otra vez
+            // borraría el resaltado que acaba de ponerse, así que si el centro
+            // ya está como toca no se toca nada.
+            if (changed === -1) break;
+            renderCenterCards();
+            if (qteBlockedCenterIndex === null) markLanded('centerCards', changed);
+            break;
+        }
 
         case 'set_flipped':
             onSetFlipped(msg.player, msg.set_index, msg.cards);
@@ -1512,6 +1606,9 @@ function onGameStart(msg) {
     centerCards = msg.center_cards;
     currentSetIndex = 0;
     selection = null;
+    // Una partida nueva no arrastra bloqueos ni intercambios a medias.
+    pendingSwap = null;
+    clearStun();
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
     verificationSent = false;
@@ -1648,6 +1745,47 @@ function buildCard(card) {
     return el;
 }
 
+// ─── Movimiento de cartas ─────────────────────────────────────────────────
+// renderCenterCards/renderYourCards hacen innerHTML='' y reconstruyen todo,
+// así que los nodos originales desaparecen en cada actualización. Por eso no
+// se anima el nodo real: se mide antes, se deja que el tablero se redibuje, y
+// se lanza una copia por encima que va del sitio viejo al nuevo.
+
+function cardRectAt(rowId, index) {
+    const el = document.getElementById(rowId)?.children[index];
+    return el ? el.getBoundingClientRect() : null;
+}
+
+/** Lanza una copia de la carta de `from` a `to`. Se borra sola al terminar. */
+function flyCard(cardData, from, to) {
+    if (!cardData || !from || !to) return;
+    const layer = document.getElementById('fxLayer');
+    const el = buildCard(cardData);
+    el.style.left = `${from.left}px`;
+    el.style.top = `${from.top}px`;
+    el.style.width = `${from.width}px`;
+    el.style.height = `${from.height}px`;
+    layer.appendChild(el);
+
+    requestAnimationFrame(() => {
+        el.style.transform =
+            `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
+    });
+    el.addEventListener('transitionend', () => el.remove(), { once: true });
+    // Red de seguridad: si la transición no llega a dispararse (pestaña en
+    // segundo plano, por ejemplo) la copia no puede quedarse ahí para siempre.
+    setTimeout(() => el.remove(), 900);
+}
+
+/** Marca una carta recién llegada para que se vea qué ha cambiado. */
+function markLanded(rowId, index) {
+    const el = document.getElementById(rowId)?.children[index];
+    if (!el) return;
+    el.classList.remove('card-landed');
+    void el.offsetWidth;   // reinicia la animación si ya la tenía
+    el.classList.add('card-landed');
+}
+
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 function onPlayerCardClick(index) {
     if (selection && selection.source === 'center') {
@@ -1663,10 +1801,9 @@ function onPlayerCardClick(index) {
 }
 
 function onCenterCardClick(index) {
-    if (qteBlockedCenterIndex !== null) {
-        updateSwapHint(`⚔️ Hay un QTE en curso — espera a que termine para intercambiar`);
-        return;
-    }
+    // Sin mensaje: la etiqueta PELEADA sobre la carta y el tablero apagado ya
+    // explican por qué no pasa nada.
+    if (qteBlockedCenterIndex !== null || isStunned()) return;
     if (selection && selection.source === 'player') {
         // Ya hay una carta del jugador seleccionada → hacer swap
         doSwap(selection.index, index);
@@ -1679,16 +1816,81 @@ function onCenterCardClick(index) {
     }
 }
 
-function doSwap(myCardIndex, centerCardIndex) {
-    if (qteBlockedCenterIndex !== null) {
-        // La selección se hizo antes de que empezara un QTE en otra carta —
-        // el servidor bloquea todo intercambio mientras dura, así que ni
-        // siquiera lo intentamos: evita el alert() de error.
-        updateSwapHint(`⚔️ Hay un QTE en curso — espera a que termine para intercambiar`);
-        return;
+/** Intercambio confirmado. Las dos cartas se cruzan por encima del tablero:
+ *  es lo que dice "esta ha ido ahí". Si el intercambio vino de ganar una
+ *  pelea, `pendingSwap` no existe (el swap lo lanzó el servidor al resolver),
+ *  y entonces la carta vuela desde el centro en disputa hasta tu set. */
+function onSwapSuccess(msg) {
+    const before = pendingSwap;
+    const wonFight = !before && qteWonSlot !== null;
+
+    // Medir el punto de partida antes de que el redibujado borre los nodos.
+    const fromMine = before ? cardRectAt('yourCards', before.myCardIndex) : null;
+    const fromCenter = before
+        ? cardRectAt('centerCards', before.centerCardIndex)
+        : (wonFight ? cardRectAt('centerCards', qteWonSlot.index) : null);
+
+    const oldSet = (allSets[msg.set_index] || []).slice();
+
+    if (msg.your_new_set) allSets[msg.set_index] = msg.your_new_set;
+    centerCards = msg.center_cards;
+    clearSelection();
+    renderYourCards();
+    renderCenterCards();
+    updateSetNav();
+
+    if (before) {
+        // Intercambio normal: las dos cartas se cruzan.
+        flyCard(before.myCard, fromMine, cardRectAt('centerCards', before.centerCardIndex));
+        flyCard(before.centerCard, fromCenter, cardRectAt('yourCards', before.myCardIndex));
+        markLanded('yourCards', before.myCardIndex);
+        markLanded('centerCards', before.centerCardIndex);
+    } else if (wonFight) {
+        // Pelea ganada: la carta sale del centro y aterriza en tu set. Ese
+        // vuelo es todo el "has ganado" que hace falta.
+        const slot = findChangedSlot(oldSet, msg.your_new_set);
+        if (slot !== -1) {
+            flyCard(qteWonSlot.card, fromCenter, cardRectAt('yourCards', slot));
+            markLanded('yourCards', slot);
+        }
+        qteWonSlot = null;
     }
+    pendingSwap = null;
+}
+
+/** Primer hueco cuya carta cambió, comparando por id. El servidor manda los
+ *  arrays enteros y nunca dice qué se movió, así que hay que deducirlo. */
+function findChangedSlot(oldCards, newCards) {
+    if (!newCards) return -1;
+    for (let i = 0; i < newCards.length; i++) {
+        if (!oldCards[i] || oldCards[i].id !== newCards[i].id) return i;
+    }
+    return -1;
+}
+
+/** Intercambio enviado y aún sin confirmar. Guarda los índices y las cartas
+ *  porque el servidor solo devuelve los arrays enteros: sin esto no habría
+ *  forma de saber qué carta se movió y adónde para animarla. */
+let pendingSwap = null;
+
+function doSwap(myCardIndex, centerCardIndex) {
+    // Carta en disputa o bloqueado por haber perdido: no se intenta siquiera.
+    // La etiqueta PELEADA y el tablero apagado ya lo explican.
+    if (qteBlockedCenterIndex !== null || isStunned()) return;
+
+    pendingSwap = {
+        myCardIndex,
+        centerCardIndex,
+        myCard: (allSets[currentSetIndex] || [])[myCardIndex],
+        centerCard: centerCards[centerCardIndex],
+    };
+    // El servidor espera 300ms por si otro jugador va a por la misma carta,
+    // así que hasta entonces no pasa nada. Atenuar las dos cartas elegidas
+    // llena ese hueco en vez de dejar la pantalla congelada sin motivo.
+    document.getElementById('yourCards')?.children[myCardIndex]?.classList.add('card-pending');
+    document.getElementById('centerCards')?.children[centerCardIndex]?.classList.add('card-pending');
+
     send({ type: 'swap_card', my_card_index: myCardIndex, center_card_index: centerCardIndex });
-    // La UI se actualizará cuando llegue el swap_success del servidor
 }
 
 const DEFAULT_SWAP_HINT = `Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar`;
@@ -1704,7 +1906,7 @@ let swapHintResetTimer = null;
  *
  * Antes esto era `setTimeout(clearSelection, 2500)`, que además de
  * restaurar el texto anulaba `selection`. Si el jugador ya había elegido
- * una carta dentro de esos 2.5s (justo lo que pasa al salir de un QTE:
+ * una carta dentro de esos 2.5s (justo lo que pasa al salir de una pelea:
  * quieres seguir jugando de inmediato), su selección se borraba sola y el
  * siguiente click solo volvía a seleccionar en vez de completar el
  * intercambio — se siente como lag o como que el juego ignoró el click.
@@ -1815,11 +2017,65 @@ function renderOpponentPanel() {
 
 // ─── QTE ─────────────────────────────────────────────────────────────────
 let qteBattleNotif = null;  // Notificación para espectadores
-let qtePlayers = [];        // Jugadores en el QTE actual
+let qtePlayers = [];        // Jugadores en la pelea actual
+let qteContestedCard = null;   // La carta por la que se pelea
+let qteContestedIndex = null;  // En qué hueco del centro estaba
+let qteWonSlot = null;         // Si ganaste: carta y hueco de origen, para el vuelo
+let qteResultTimer = null;     // Temporizador del resultado — separado de
+                               // qteTimerInterval, que lo comparten la cuenta
+                               // atrás del participante y la del espectador.
+
+/** Cuánto dura el resultado en pantalla antes de volver al tablero. */
+const FIGHT_RESULT_MS = 800;
+
+// ─── Bloqueo por perder ───────────────────────────────────────────────────
+let stunnedUntil = 0;
+let stunTimer = null;
+
+function isStunned() { return Date.now() < stunnedUntil; }
+
+/** El servidor manda la duración porque es quien la aplica de verdad; aquí
+ *  solo se pinta. No hay texto: el tablero apagado es el mensaje. */
+function startStun(ms) {
+    stunnedUntil = Date.now() + ms;
+    document.getElementById('gameScreen').classList.add('stunned');
+    const bar = document.getElementById('stunBar');
+    const fill = document.getElementById('stunBarFill');
+    bar.classList.add('active');
+    fill.style.width = '100%';
+
+    if (stunTimer) clearInterval(stunTimer);
+    stunTimer = setInterval(() => {
+        const left = stunnedUntil - Date.now();
+        if (left <= 0) {
+            clearInterval(stunTimer);
+            stunTimer = null;
+            bar.classList.remove('active');
+            document.getElementById('gameScreen').classList.remove('stunned');
+            return;
+        }
+        fill.style.width = `${(left / ms) * 100}%`;
+    }, 50);
+}
+
+function clearStun() {
+    stunnedUntil = 0;
+    if (stunTimer) { clearInterval(stunTimer); stunTimer = null; }
+    document.getElementById('stunBar')?.classList.remove('active');
+    document.getElementById('gameScreen')?.classList.remove('stunned');
+}
 
 function onSwapConflict(players, centerCardIndex, durationMs) {
     qtePlayers = players;
     qteBlockedCenterIndex = centerCardIndex;
+    // La carta en disputa hay que guardarla AHORA: el servidor nunca dice cuál
+    // era, y en cuanto se resuelva la pelea el centro ya tendrá otra en ese
+    // hueco. De aquí sale la carta que se enseña en el overlay y la que vuela
+    // al ganador.
+    qteContestedCard = centerCards[centerCardIndex] ?? null;
+    qteContestedIndex = centerCardIndex;
+    // Un intercambio pendiente propio queda anulado por la pelea.
+    pendingSwap = null;
     renderCenterCards();
     const isParticipant = players.includes(currentNickname);
 
@@ -1828,8 +2084,13 @@ function onSwapConflict(players, centerCardIndex, durationMs) {
         qteActive = true;
         clearSelection();
 
-        document.getElementById('qteDesc').textContent =
-            `¡Conflicto por la carta del centro ${centerCardIndex + 1}!`;
+        const rival = players.find(p => p !== currentNickname) || '';
+        document.getElementById('qteTitle').textContent = '⚡ ¡CLICK!';
+        document.getElementById('qteDesc').innerHTML = `Tú vs <strong>${rival}</strong>`;
+
+        const cardSlot = document.getElementById('qteCard');
+        cardSlot.innerHTML = '';
+        if (qteContestedCard) cardSlot.appendChild(buildCard(qteContestedCard));
 
         const scoresDiv = document.getElementById('qteScores');
         scoresDiv.innerHTML = '';
@@ -1843,7 +2104,6 @@ function onSwapConflict(players, centerCardIndex, durationMs) {
 
         document.getElementById('qteClickBtn').style.display = 'block';
         document.getElementById('qteConcedeBtn').style.display = 'block';
-        document.getElementById('qteSpectator').style.display = 'none';
 
         const fill = document.getElementById('qteTimerFill');
         fill.style.width = '100%';
@@ -1865,7 +2125,7 @@ function onSwapConflict(players, centerCardIndex, durationMs) {
         const funEmojis = ['⚔️', '🥊', '💥', '🔥', '⚡'];
         const emoji = funEmojis[Math.floor(Math.random() * funEmojis.length)];
         notif.innerHTML = `
-            <div class="qbn-title">${emoji} ¡PELEA QTE!</div>
+            <div class="qbn-title">${emoji} PELEA</div>
             <div class="qbn-versus">
                 <span class="qbn-player">${players[0]}</span>
                 <span class="qbn-vs">⚔️</span>
@@ -1905,17 +2165,58 @@ function onQteUpdate(clicks) {
     });
 }
 
-function closeQteOverlay(winnerName) {
+/** La pelea terminó. En vez de cerrar de golpe, el overlay se queda un
+ *  momento con la carta y los dos marcadores: el del ganador se ilumina y el
+ *  del perdedor se apaga. Sin una sola frase — quién ganó se ve, no se lee. */
+function onQteResolved(winnerName) {
+    const wasParticipant = qtePlayers.includes(currentNickname);
+
+    if (!wasParticipant) {
+        // Espectador: su avisito ya muestra los clicks finales, se cierra sin más.
+        closeQteOverlay();
+        return;
+    }
+
+    const iWon = winnerName === currentNickname;
+    // Si ganaste, el swap_success que viene detrás animará la carta desde el
+    // centro hasta tu set. Se guarda de dónde sale antes de que el tablero
+    // cambie debajo.
+    qteWonSlot = iWon && qteContestedCard
+        ? { card: qteContestedCard, index: qteContestedIndex }
+        : null;
+
+    document.getElementById('qteClickBtn').style.display = 'none';
+    document.getElementById('qteConcedeBtn').style.display = 'none';
+    if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
+
+    qtePlayers.forEach(name => {
+        const box = document.getElementById(`qte-score-${name}`);
+        if (box) box.classList.add(name === winnerName ? 'won' : 'lost');
+    });
+
+    qteActive = false;   // no se admiten más clicks mientras se ve el resultado
+    if (qteResultTimer) clearTimeout(qteResultTimer);
+    qteResultTimer = setTimeout(() => {
+        qteResultTimer = null;
+        closeQteOverlay();
+    }, FIGHT_RESULT_MS);
+}
+
+function closeQteOverlay() {
     qteActive = false;
     qteBlockedCenterIndex = null;
     renderCenterCards();
     if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
+    if (qteResultTimer) { clearTimeout(qteResultTimer); qteResultTimer = null; }
 
     // Cerrar overlay de participante
-    document.getElementById('qteOverlay').classList.remove('active');
+    const overlay = document.getElementById('qteOverlay');
+    overlay.classList.remove('active');
     document.getElementById('qteClickBtn').disabled = false;
     document.getElementById('qteConcedeBtn').disabled = false;
     document.getElementById('qteConcedeBtn').style.display = 'none';
+    document.getElementById('qteCard').innerHTML = '';
+    document.querySelectorAll('.qte-player-score').forEach(el => el.classList.remove('won', 'lost'));
 
     // Cerrar notificación de espectador
     if (qteBattleNotif) {
@@ -1923,14 +2224,9 @@ function closeQteOverlay(winnerName) {
         qteBattleNotif = null;
     }
 
-    if (winnerName) {
-        const hint = document.getElementById('swapHint');
-        hint.innerHTML = `⚡ <strong>${winnerName}</strong> ganó el QTE`;
-        hint.classList.add('selected');
-        resetSwapHintLater(2500);
-    }
-
     qtePlayers = [];
+    qteContestedCard = null;
+    qteContestedIndex = null;
 }
 
 function sendQteClick() {
@@ -2191,7 +2487,8 @@ function claimSessionManagerResult(rankings) {
 function onGameCancelled(reason) {
     // Cerrar overlays activos del juego
     closeVerifyOverlay();
-    closeQteOverlay('');
+    closeQteOverlay();
+    clearStun();
     clearMatchNotifications();
     // Mostrar notificación breve y volver al lobby
     const notif = document.createElement('div');
@@ -2212,6 +2509,9 @@ function returnToLobby() {
     verificationSent = false;
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
+    pendingSwap = null;
+    clearStun();
+    document.getElementById('fxLayer').innerHTML = '';
     // Red de seguridad: si algo quedó de la partida anterior, no debe
     // aparecer flotando encima de la siguiente.
     clearMatchNotifications();

@@ -145,6 +145,12 @@ pub enum ServerMessage {
     QteResolved {
         winner: String,
     },
+    /// Al que pierde una pelea se le bloquea el intercambio unos segundos.
+    /// La duración la manda el servidor —que es quien la aplica— para que
+    /// cliente y servidor no puedan discrepar.
+    Stunned {
+        ms: u64,
+    },
     /// El juego ha terminado
     GameOver {
         rankings: Vec<RankingEntry>,

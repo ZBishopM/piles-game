@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
-    LobbyStatus, PlayerProgress, Card, RankingEntry,
+    LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION,
 };
 
 /// Tipo para enviar mensajes a un cliente específico
@@ -466,7 +466,16 @@ async fn handle_client_message(
                 };
                 if game_state.active_qte.is_some() {
                     state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Hay un QTE en curso, ¡haz click!".to_string(),
+                        message: "Carta peleada".to_string(),
+                    }).await;
+                    return;
+                }
+                // Bloqueado por haber perdido una pelea. El cliente ya lo
+                // impide, pero el castigo tiene que valer también contra un
+                // cliente modificado, así que se comprueba aquí.
+                if let Some(left) = lobby.stun_remaining(&player_id) {
+                    state.send_to_player(&player_id, ServerMessage::Stunned {
+                        ms: left.as_millis() as u64,
                     }).await;
                     return;
                 }
@@ -809,7 +818,10 @@ async fn handle_client_message(
                 };
 
                 if let Some((winner_id, winner_name, winner_set, winner_new_set,
-                              loser_id, loser_name, new_center, players_progress)) = outcome {
+                              loser_id, _loser_name, new_center, players_progress)) = outcome {
+                    // Ceder también bloquea: si no, ceder sería gratis y
+                    // siempre mejor que perder peleando.
+                    lobby.stun_player(&loser_id);
                     state.lobby_manager.update_lobby(lobby).await;
 
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::QteResolved {
@@ -824,7 +836,10 @@ async fn handle_client_message(
                     }).await;
 
                     state.send_to_player(&loser_id, ServerMessage::SwapFailed {
-                        reason: format!("Cediste la carta a tu oponente"),
+                        reason: "Cediste la carta".to_string(),
+                    }).await;
+                    state.send_to_player(&loser_id, ServerMessage::Stunned {
+                        ms: STUN_DURATION.as_millis() as u64,
                     }).await;
 
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
@@ -1127,9 +1142,12 @@ async fn run_qte(
         };
 
         let (winner, loser, winner_new_set, new_center, players_progress) = outcome;
+        // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
+        // mensaje de "has perdido": el tablero apagándose es el aviso.
+        lobby.stun_player(&loser.player_id);
         state.lobby_manager.update_lobby(lobby).await;
 
-        // Broadcast: QTE resuelto (cierra overlay en todos)
+        // Broadcast: pelea resuelta (cierra el overlay en todos)
         state.broadcast_to_lobby(&lobby_id, ServerMessage::QteResolved {
             winner: winner.nickname.clone(),
         }).await;
@@ -1142,9 +1160,12 @@ async fn run_qte(
             center_cards: new_center.clone(),
         }).await;
 
-        // Perdedor: swap_failed
+        // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
         state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
-            reason: "Perdiste el QTE".to_string(),
+            reason: "Perdiste la carta".to_string(),
+        }).await;
+        state.send_to_player(&loser.player_id, ServerMessage::Stunned {
+            ms: STUN_DURATION.as_millis() as u64,
         }).await;
 
         // Todos: actualización del centro

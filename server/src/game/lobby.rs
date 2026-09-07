@@ -25,7 +25,16 @@ pub struct LobbyPlayer {
     pub id: Uuid,
     pub nickname: String,
     pub is_ready: bool,
+    /// Hasta cuándo este jugador no puede intercambiar por haber perdido una
+    /// pelea de cartas. Es el castigo por perder — y el aviso: no hay ningún
+    /// texto que diga "has perdido", se nota porque el tablero se apaga.
+    /// Se comprueba en el servidor, así que no basta con tocar el cliente.
+    #[serde(skip)]
+    pub stunned_until: Option<Instant>,
 }
+
+/// Cuánto dura el bloqueo tras perder una pelea.
+pub const STUN_DURATION: Duration = Duration::from_secs(2);
 
 /// Representa un lobby de juego
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +83,7 @@ impl Lobby {
             id: player_id,
             nickname,
             is_ready: false,
+            stunned_until: None,
         });
         self.empty_since = None;
 
@@ -169,6 +179,21 @@ impl Lobby {
         }
 
         Ok(())
+    }
+
+    /// Bloquea a un jugador tras perder una pelea.
+    pub fn stun_player(&mut self, player_id: &Uuid) {
+        if let Some(p) = self.players.iter_mut().find(|p| p.id == *player_id) {
+            p.stunned_until = Some(Instant::now() + STUN_DURATION);
+        }
+    }
+
+    /// Si sigue bloqueado, cuánto le queda. `None` si ya puede jugar.
+    pub fn stun_remaining(&self, player_id: &Uuid) -> Option<Duration> {
+        let until = self.players.iter()
+            .find(|p| p.id == *player_id)?
+            .stunned_until?;
+        until.checked_duration_since(Instant::now())
     }
 
     /// Cuenta cuántos jugadores están listos
@@ -364,6 +389,35 @@ mod tests {
         let impostor = Uuid::new_v4();
         let live: HashSet<Uuid> = [alive, reconnected].into_iter().collect();
         assert!(manager.join_lobby(&lobby_id, impostor, "Beto".to_string(), &live).await.is_err());
+    }
+
+    // Perder una pelea bloquea unos segundos. Es el único aviso de que has
+    // perdido —no hay texto—, así que tiene que aplicarse de verdad en el
+    // servidor y no solo pintarse en el cliente.
+    #[test]
+    fn losing_a_fight_stuns_only_the_loser() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let winner = Uuid::new_v4();
+        let loser = Uuid::new_v4();
+        lobby.add_player(winner, "Ana".to_string()).unwrap();
+        lobby.add_player(loser, "Beto".to_string()).unwrap();
+
+        assert!(lobby.stun_remaining(&loser).is_none(), "nadie empieza bloqueado");
+
+        lobby.stun_player(&loser);
+
+        let left = lobby.stun_remaining(&loser).expect("el perdedor queda bloqueado");
+        assert!(left <= STUN_DURATION && left > Duration::from_millis(500));
+        assert!(lobby.stun_remaining(&winner).is_none(), "al ganador no se le bloquea");
+    }
+
+    #[test]
+    fn an_unknown_player_is_never_stunned() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        lobby.add_player(Uuid::new_v4(), "Ana".to_string()).unwrap();
+        // Que no entre en pánico ni bloquee a nadie por un id que no existe.
+        lobby.stun_player(&Uuid::new_v4());
+        assert!(lobby.stun_remaining(&Uuid::new_v4()).is_none());
     }
 
     #[test]
