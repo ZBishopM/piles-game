@@ -20,7 +20,7 @@ type ClientSender = mpsc::UnboundedSender<ServerMessage>;
 
 /// Intento de swap pendiente (esperando posible conflicto QTE)
 #[derive(Debug, Clone)]
-struct SwapIntent {
+pub struct SwapIntent {
     player_id: Uuid,
     player_nickname: String,
     player_set_index: usize,
@@ -105,7 +105,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
 
     // Tarea para enviar mensajes desde el canal al WebSocket
-    let mut send_task = tokio::spawn(async move {
+    let send_task = tokio::spawn(async move {
         while let Some(message) = rx.recv().await {
             if let Ok(text) = serde_json::to_string(&message) {
                 if ws_sender.send(Message::Text(text)).await.is_err() {
@@ -584,7 +584,6 @@ async fn handle_client_message(
                             center_card_index,
                             clicks: std::collections::HashMap::new(),
                             swap_data,
-                            started_at: Instant::now(),
                             duration_ms: 3000,
                         });
                     }

@@ -9,7 +9,7 @@ Juego de cartas multijugador en tiempo real donde los jugadores compiten para co
 - ✅ Sistema de lobbies
 - ⏳ Puntuación persistente con PostgreSQL — diferido, ver `TODO.md`
 
-No hay base de datos en este momento: `sqlx`/Postgres están comentados en `Cargo.toml` y `.env.example`, y el servidor corre sin ninguna dependencia externa.
+No hay base de datos: el servidor no tiene ninguna dependencia externa y el estado vive en memoria. Los resultados que se guardan van a Session Manager.
 
 ## 📋 Requisitos previos
 
@@ -32,7 +32,7 @@ Servidor, WebSocket (`/ws`) y frontend quedan todos en `http://localhost:3000` �
 ## 🎯 Endpoints
 
 - `GET /health` — health check
-- `GET /api/test-deck/:num_players` — genera un mazo de prueba
+- `GET /api/qr/:lobby_code` — SVG con el QR de invitación de la sala
 - `GET /ws` — WebSocket del juego (lobbies, intercambios, QTE, verificación)
 - todo lo demás — estático, servido desde `client/`
 
@@ -76,7 +76,7 @@ curl http://localhost:3000/health   # → OK
 
 ## 📝 Backlog
 
-Ver `TODO.md` — tiene el estado real del proyecto (QTE implementado pendiente de pruebas reales, mobile responsive diferido, PostgreSQL diferido, y una lista de bugs conocidos: heartbeat de WebSocket ausente, sin reconexión automática, sin límite anti-cheat en el QTE, entre otros).
+Ver `TODO.md` — tiene el estado real: qué falta probar con jugadores de verdad, qué mecánicas están a medias y qué bugs se conocen (reconexión aún manual, sin anti-cheat en las peleas, tablero sin adaptar a móvil).
 
 ## 🚢 Deploy
 

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use super::models::Card;
 
 /// Mensajes que el cliente envía al servidor

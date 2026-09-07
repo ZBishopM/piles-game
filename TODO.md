@@ -89,7 +89,7 @@ los problemas de sincronización.
 
 ## 🗄️ Base de datos / puntuación (diferido)
 
-Hoy no hay base de datos: `sqlx`/Postgres siguen comentados en `Cargo.toml`.
+Hoy no hay base de datos y el servidor no tiene dependencias externas.
 Los resultados que se guardan van a Session Manager, no aquí.
 
 - [ ] Levantar PostgreSQL

@@ -1,5 +1,3 @@
-// Permitir código no usado temporalmente (se usará en fases futuras)
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -68,7 +66,6 @@ pub fn get_clothing_name(clothing_type: u8) -> &'static str {
 
 /// Estado de un jugador individual
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(dead_code)]
 pub struct PlayerState {
     pub id: Uuid,
     pub nickname: String,
@@ -92,7 +89,6 @@ pub struct PlayerState {
     pub owed_slot: Option<(usize, usize)>,
 }
 
-#[allow(dead_code)]
 impl PlayerState {
     pub fn new(id: Uuid, nickname: String, sets: [[Card; 4]; 6]) -> Self {
         Self {
@@ -130,16 +126,10 @@ impl PlayerState {
     pub fn count_completed_sets(&self) -> usize {
         (0..6).filter(|&i| self.is_set_complete(i)).count()
     }
-
-    /// Verifica si todos los sets están completos
-    pub fn all_sets_complete(&self) -> bool {
-        self.count_completed_sets() == 6
-    }
 }
 
 /// Estado del Quick Time Event
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct QteState {
     /// Participantes del QTE (player_id, nickname)
     pub participants: Vec<(Uuid, String)>,
@@ -150,16 +140,12 @@ pub struct QteState {
     /// Datos del swap de cada participante: player_id -> (set_index, card_index)
     #[serde(skip)]
     pub swap_data: std::collections::HashMap<Uuid, (usize, usize)>,
-    /// Momento en que inició el QTE
-    #[serde(skip)]
-    pub started_at: Instant,
     /// Duración del QTE en milisegundos (ej: 3000ms)
     pub duration_ms: u64,
 }
 
 /// Estado completo del juego
 #[derive(Debug, Clone, Serialize)]
-#[allow(dead_code)]
 pub struct GameState {
     pub lobby_id: String,
     pub players: Vec<PlayerState>,
@@ -170,12 +156,8 @@ pub struct GameState {
     pub rankings: Vec<Uuid>,
     /// QTE activo (si existe)
     pub active_qte: Option<QteState>,
-    /// Momento en que inició el juego
-    #[serde(skip)]
-    pub started_at: Instant,
 }
 
-#[allow(dead_code)]
 impl GameState {
     pub fn new(lobby_id: String, players: Vec<PlayerState>, center_cards: Vec<Card>) -> Self {
         Self {
@@ -184,13 +166,7 @@ impl GameState {
             center_cards,
             rankings: Vec::new(),
             active_qte: None,
-            started_at: Instant::now(),
         }
-    }
-
-    /// Encuentra un jugador por su ID
-    pub fn find_player(&self, player_id: &Uuid) -> Option<&PlayerState> {
-        self.players.iter().find(|p| p.id == *player_id)
     }
 
     /// Encuentra un jugador por su ID (mutable)
@@ -210,13 +186,6 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_card_creation() {
-        let card = Card::new(0, 5);
-        assert_eq!(card.id, 0);
-        assert_eq!(card.clothing_type, 5);
-    }
 
     #[test]
     fn test_clothing_names() {
@@ -252,13 +221,13 @@ mod tests {
 
         assert!(!player.is_set_complete(0), "con un hueco no está completo");
         assert_eq!(player.count_completed_sets(), 5);
-        assert!(!player.all_sets_complete());
+        assert_ne!(player.count_completed_sets(), 6);
         assert!(player.owes_card());
 
         player.sets[0][2] = Some(Card::new(9, 7));   // cogió otra igual
         player.owed_slot = None;
         assert!(player.is_set_complete(0));
-        assert!(player.all_sets_complete());
+        assert_eq!(player.count_completed_sets(), 6);
     }
 
     #[test]
@@ -294,6 +263,6 @@ mod tests {
         assert!(!player.is_set_complete(3)); // Incompleto
 
         assert_eq!(player.count_completed_sets(), 2);
-        assert!(!player.all_sets_complete());
+        assert_ne!(player.count_completed_sets(), 6);
     }
 }

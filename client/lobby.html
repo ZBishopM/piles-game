@@ -2659,12 +2659,6 @@ function returnToLobby() {
 }
 
 // ─── Utilidades ───────────────────────────────────────────────────────────
-function isSetComplete(set) {
-    if (!set || set.length !== 4) return false;
-    return set.every(c => c.clothing_type === set[0].clothing_type);
-}
-
-
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
