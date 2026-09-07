@@ -30,12 +30,28 @@ los problemas de sincronización.
 
 ## 🎮 Mecánicas / bugs conocidos
 
-- [ ] **Subir el bloqueo por perder a 3 s** (ahora son 2). Es
-      `STUN_DURATION` en `server/src/game/lobby.rs`; el cliente ya pinta la
-      barra con la duración que le manda el servidor, así que no hace falta
-      tocar nada más. Probar en beta antes: 3 s en una partida donde los sets
-      se encuentran en segundos es bastante castigo, y es justo lo que
-      convierte "ceder la carta" en una opción real.
+- [x] **Bloqueo por perder subido a 3 s** — `STUN_DURATION` en
+      `server/src/game/lobby.rs`. El cliente pinta la barra con la duración
+      que le manda el servidor, así que se cambia en un sitio.
+- [ ] **Logros de Piles en Session Manager**. La tubería ya funciona entera:
+      `/api/piles/claim` crea una partida sintética que dispara
+      `match_finished.pb.js`, que desbloquea logros. Lo que falta es que
+      existan: el catálogo tiene la entrada "Piles" pero **cero logros**,
+      porque `GEMINI_API_KEY` no está puesta en producción y
+      `game_created.pb.js` se saltó la generación. Además el hook solo mira
+      los que están en `status = "approved"`.
+      - Rápido, sin tocar código: proponer unos cuantos desde
+        `/games/{id}` y aprobarlos en el panel de superusuario. Con el DSL
+        actual dan para: primera victoria, N victorias, racha, y partidas
+        rápidas (`wins_on_game`, `current_streak_wins`,
+        `match_duration_minutes`…).
+      - Lo interesante sería que fueran **de Piles de verdad** (ganar N
+        peleas, completar un set sin intercambiar, terminar sin perder
+        ninguna pelea), y eso no se puede hoy: el claim solo manda
+        `placement` y `points`, así que esos datos ni siquiera salen del
+        juego. Haría falta mandarlos y ampliar el juego de variables del
+        DSL (`src/lib/core/achievement-generator.ts` y `achievements.ts` en
+        session-manager).
 - [ ] **Soltar una carta al centro sin coger otra a cambio**: dejar un hueco
       en tu set, que cualquiera puede coger, y no poder soltar otra hasta
       haber cogido una. Hoy el intercambio es siempre 1↔1 y el centro tiene

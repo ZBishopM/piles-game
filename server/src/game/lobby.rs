@@ -34,7 +34,10 @@ pub struct LobbyPlayer {
 }
 
 /// Cuánto dura el bloqueo tras perder una pelea.
-pub const STUN_DURATION: Duration = Duration::from_secs(2);
+/// 3 s en una partida donde un set se completa en segundos es un castigo de
+/// verdad, y es lo que hace que ceder la carta sea una opción real en vez de
+/// algo que nadie pulsa nunca.
+pub const STUN_DURATION: Duration = Duration::from_secs(3);
 
 /// Representa un lobby de juego
 #[derive(Debug, Clone, Serialize, Deserialize)]
