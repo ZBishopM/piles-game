@@ -31,6 +31,15 @@ pub enum ClientMessage {
         my_card_index: usize,
         center_card_index: usize,
     },
+    /// Soltar una carta al centro sin coger nada a cambio. Deja un hueco en
+    /// el set hasta que se coja otra, y cualquiera puede llevarse la soltada.
+    DropCard {
+        my_card_index: usize,
+    },
+    /// Coger una carta del centro para tapar el hueco que dejó DropCard.
+    TakeCard {
+        center_card_index: usize,
+    },
     /// Voltear un set para que otros lo vean
     FlipSet {
         set_index: usize,
@@ -73,7 +82,8 @@ pub enum ServerMessage {
     },
     /// El juego ha comenzado
     GameStart {
-        your_sets: Vec<Vec<CardInfo>>,
+        /// Un hueco puede venir vacío (`null`) si el jugador debe una carta.
+        your_sets: Vec<Vec<Option<CardInfo>>>,
         center_cards: Vec<CardInfo>,
         current_set: usize,
         players: Vec<String>,
@@ -97,7 +107,7 @@ pub enum ServerMessage {
     SwapSuccess {
         player: String,
         set_index: usize,
-        your_new_set: Option<Vec<CardInfo>>,
+        your_new_set: Option<Vec<Option<CardInfo>>>,
         center_cards: Vec<CardInfo>,
     },
     /// Intercambio fallido
@@ -174,6 +184,11 @@ pub struct CardInfo {
     pub id: u32,
     pub clothing_type: u8,
     pub name: String,
+}
+
+/// Un set tal y como lo ve su dueño: 4 huecos, alguno posiblemente vacío.
+pub fn set_to_info(set: &[Option<Card>; 4]) -> Vec<Option<CardInfo>> {
+    set.iter().map(|slot| slot.map(CardInfo::from)).collect()
 }
 
 impl From<Card> for CardInfo {

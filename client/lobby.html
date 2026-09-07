@@ -297,6 +297,41 @@
             margin-bottom: 14px;
             min-width: 33.333vw;
         }
+        /* El centro ya no son siempre 4: cada carta soltada añade una más,
+           así que la fila se reparte y baja de línea en vez de encoger. */
+        #centerCards {
+            grid-template-columns: repeat(auto-fill, minmax(clamp(60px, 21vw, 110px), 1fr));
+        }
+
+        /* Hueco que deja una carta soltada, hasta que se coge otra */
+        .card.card-empty {
+            background: none;
+            border: 2px dashed #4a5a9a;
+            box-shadow: none;
+            cursor: default;
+        }
+        .card.card-empty:hover { transform: none; box-shadow: none; }
+
+        /* Botón de soltar, solo visible con una carta tuya seleccionada */
+        #dropBtn {
+            display: none;
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px dashed #4a5a9a;
+            border-radius: 8px;
+            background: rgba(74,90,154,0.12);
+            color: #ccc;
+            font-size: 0.9rem;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #dropBtn.active { display: block; }
+        #dropBtn:hover { border-color: var(--accent); color: #fff; }
+
+        /* Debes una carta: el centro es lo único con lo que puedes actuar */
+        .owing #yourCards .card { opacity: 0.5; pointer-events: none; }
+        .owing #centerCards .card { outline: 2px solid var(--accent); }
 
         .card {
             /* Relación exacta de una celda de cards.webp ((3188/16) x
@@ -918,6 +953,9 @@
     <!-- Cuenta atrás del bloqueo por perder una pelea -->
     <div id="stunBar"><div id="stunBarFill"></div></div>
 
+    <!-- Soltar la carta elegida al centro sin coger nada a cambio -->
+    <button id="dropBtn" onclick="dropSelectedCard()">⬇ Soltar al centro</button>
+
     <!-- Centro -->
     <p class="section-label">Cartas del Centro</p>
     <div class="card-row" id="centerCards"></div>
@@ -1241,6 +1279,8 @@ function handleMsg(msg) {
             // se decide comparando el texto del servidor —ese acoplamiento ya
             // rompió esto una vez—, sino por si venías de una pelea.
             pendingSwap = null;
+            pendingDrop = null;
+            pendingTake = null;
             document.querySelectorAll('.card-pending')
                 .forEach(el => el.classList.remove('card-pending'));
             if (!qtePlayers.includes(currentNickname) && !isStunned() && msg.reason) {
@@ -1611,6 +1651,8 @@ function onGameStart(msg) {
     selection = null;
     // Una partida nueva no arrastra bloqueos ni intercambios a medias.
     pendingSwap = null;
+    pendingDrop = null;
+    pendingTake = null;
     clearStun();
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
@@ -1678,6 +1720,14 @@ function renderYourCards() {
     div.innerHTML = '';
     const set = allSets[currentSetIndex] || [];
     set.forEach((card, i) => {
+        // Un hueco vacío es una carta soltada que aún no se ha repuesto.
+        if (!card) {
+            const gap = document.createElement('div');
+            gap.className = 'card card-empty';
+            gap.title = 'Coge una carta del centro para tapar este hueco';
+            div.appendChild(gap);
+            return;
+        }
         const el = buildCard(card);
         if (selection && selection.source === 'player' && selection.index === i) {
             el.classList.add('selected');
@@ -1686,6 +1736,7 @@ function renderYourCards() {
         div.appendChild(el);
     });
     updateSetNav();
+    updateOwingUi();
 }
 
 function renderPlayersProgress(progress) {
@@ -1829,6 +1880,15 @@ function onCenterCardClick(index) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta y el tablero apagado ya
     // explican por qué no pasa nada.
     if (qteBlockedCenterIndex !== null || isStunned()) return;
+
+    // Debiendo una carta, un click en el centro solo puede significar una
+    // cosa: cogerla para tapar el hueco.
+    if (owesCard()) {
+        pendingTake = { centerIndex: index, card: centerCards[index] };
+        send({ type: 'take_card', center_card_index: index });
+        return;
+    }
+
     if (selection && selection.source === 'player') {
         // Ya hay una carta del jugador seleccionada → hacer swap
         doSwap(selection.index, index);
@@ -1847,12 +1907,16 @@ function onCenterCardClick(index) {
  *  y entonces la carta vuela desde el centro en disputa hasta tu set. */
 function onSwapSuccess(msg) {
     const before = pendingSwap;
-    const wonFight = !before && qteWonSlot !== null;
+    const drop = pendingDrop;
+    const take = pendingTake;
+    const wonFight = !before && !drop && !take && qteWonSlot !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
-    const fromMine = before ? cardRectAt('yourCards', before.myCardIndex) : null;
+    const fromMine = before ? cardRectAt('yourCards', before.myCardIndex)
+                   : (drop ? cardRectAt('yourCards', drop.index) : null);
     const fromCenter = before
         ? cardRectAt('centerCards', before.centerCardIndex)
+        : take ? cardRectAt('centerCards', take.centerIndex)
         : (wonFight ? cardRectAt('centerCards', qteWonSlot.index) : null);
 
     const oldSet = (allSets[msg.set_index] || []).slice();
@@ -1877,8 +1941,17 @@ function onSwapSuccess(msg) {
             flyCard(qteWonSlot.card, fromCenter, 'yourCards', slot);
         }
         qteWonSlot = null;
+    } else if (drop) {
+        // Soltada: la carta sale de tu set y se va al final del centro.
+        flyCard(drop.card, fromMine, 'centerCards', centerCards.length - 1);
+    } else if (take) {
+        // Cogida: del centro al hueco que había quedado libre.
+        const slot = findChangedSlot(oldSet, msg.your_new_set);
+        if (slot !== -1) flyCard(take.card, fromCenter, 'yourCards', slot);
     }
     pendingSwap = null;
+    pendingDrop = null;
+    pendingTake = null;
 }
 
 /** Primer hueco cuya carta cambió, comparando por id. El servidor manda los
@@ -1891,15 +1964,51 @@ function findChangedSlot(oldCards, newCards) {
     return -1;
 }
 
+// ─── Soltar y coger ───────────────────────────────────────────────────────
+// Soltar deja un hueco en tu set y añade la carta al centro, donde cualquiera
+// puede cogerla. Hasta taparlo no se puede soltar otra, ni intercambiar, ni
+// mostrar sets — el servidor lo comprueba igualmente.
+let pendingDrop = null;
+let pendingTake = null;
+
+/** ¿Hay algún hueco sin tapar en alguno de mis sets? */
+function owesCard() {
+    return allSets.some(set => (set || []).some(card => !card));
+}
+
+function dropSelectedCard() {
+    if (!selection || selection.source !== 'player') return;
+    if (owesCard() || isStunned() || qteBlockedCenterIndex !== null) return;
+    const index = selection.index;
+    pendingDrop = { index, card: (allSets[currentSetIndex] || [])[index] };
+    send({ type: 'drop_card', my_card_index: index });
+    clearSelection();
+}
+
+/** Refleja en el tablero si debes una carta: tus cartas se apagan, el centro
+ *  se resalta, y el botón de soltar desaparece. */
+function updateOwingUi() {
+    const owing = owesCard();
+    document.getElementById('gameScreen')?.classList.toggle('owing', owing);
+    const drop = document.getElementById('dropBtn');
+    if (drop) {
+        drop.classList.toggle('active',
+            !owing && !!selection && selection.source === 'player' && !isStunned());
+    }
+    const flip = document.getElementById('flipBtn');
+    if (flip) flip.disabled = owing;
+}
+
 /** Intercambio enviado y aún sin confirmar. Guarda los índices y las cartas
  *  porque el servidor solo devuelve los arrays enteros: sin esto no habría
  *  forma de saber qué carta se movió y adónde para animarla. */
 let pendingSwap = null;
 
 function doSwap(myCardIndex, centerCardIndex) {
-    // Carta en disputa o bloqueado por haber perdido: no se intenta siquiera.
-    // La etiqueta PELEADA y el tablero apagado ya lo explican.
-    if (qteBlockedCenterIndex !== null || isStunned()) return;
+    // Carta en disputa, bloqueado por perder, o debiendo una carta: no se
+    // intenta siquiera. La etiqueta PELEADA, el tablero apagado y el hueco
+    // en el set ya lo explican.
+    if (qteBlockedCenterIndex !== null || isStunned() || owesCard()) return;
 
     pendingSwap = {
         myCardIndex,
@@ -1946,6 +2055,7 @@ function updateSwapHint(html) {
     const el = document.getElementById('swapHint');
     el.innerHTML = html;
     el.classList.toggle('selected', selection !== null);
+    updateOwingUi();
 }
 
 // ─── Cambio de set ────────────────────────────────────────────────────────
@@ -2533,7 +2643,10 @@ function returnToLobby() {
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
     pendingSwap = null;
+    pendingDrop = null;
+    pendingTake = null;
     clearStun();
+    document.getElementById('gameScreen')?.classList.remove('owing');
     document.getElementById('fxLayer').innerHTML = '';
     // Red de seguridad: si algo quedó de la partida anterior, no debe
     // aparecer flotando encima de la siguiente.

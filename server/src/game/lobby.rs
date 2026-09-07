@@ -171,7 +171,7 @@ impl Lobby {
         self.game_state = Some(GameState::new(
             self.id.clone(),
             player_states,
-            center_cards
+            center_cards.to_vec()
         ));
 
         self.status = LobbyStatus::Playing;

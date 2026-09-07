@@ -72,8 +72,9 @@ pub fn get_clothing_name(clothing_type: u8) -> &'static str {
 pub struct PlayerState {
     pub id: Uuid,
     pub nickname: String,
-    /// 6 sets de 4 cartas cada uno
-    pub sets: [[Card; 4]; 6],
+    /// 6 sets de 4 huecos. Un hueco puede estar vacío: al soltar una carta
+    /// al centro se queda ahí el sitio libre hasta que el jugador coge otra.
+    pub sets: [[Option<Card>; 4]; 6],
     /// Set que está viendo actualmente (0-5)
     pub current_set_index: usize,
     /// Sets que el jugador ha volteado (visibles para todos)
@@ -85,6 +86,10 @@ pub struct PlayerState {
     pub finished_at: Option<Instant>,
     /// Posición final (1, 2, o 3)
     pub finished_position: Option<u8>,
+    /// Hueco que quedó libre al soltar una carta, `(set, carta)`. Mientras
+    /// haya deuda no se puede soltar otra, ni intercambiar, ni mostrar sets:
+    /// lo único que se puede hacer es coger una carta del centro.
+    pub owed_slot: Option<(usize, usize)>,
 }
 
 #[allow(dead_code)]
@@ -93,13 +98,19 @@ impl PlayerState {
         Self {
             id,
             nickname,
-            sets,
+            sets: sets.map(|set| set.map(Some)),
             current_set_index: 0,
             flipped_sets: [false; 6],
             is_verifying: false,
             finished_at: None,
             finished_position: None,
+            owed_slot: None,
         }
+    }
+
+    /// ¿Le falta una carta por coger?
+    pub fn owes_card(&self) -> bool {
+        self.owed_slot.is_some()
     }
 
     /// Verifica si un set específico está completo (4 cartas idénticas)
@@ -108,9 +119,11 @@ impl PlayerState {
             return false;
         }
 
+        // Un set con un hueco libre no puede estar completo, por muy iguales
+        // que sean las otras tres.
         let set = &self.sets[set_index];
-        let first_type = set[0].clothing_type;
-        set.iter().all(|card| card.clothing_type == first_type)
+        let Some(first) = set[0] else { return false };
+        set.iter().all(|slot| matches!(slot, Some(c) if c.clothing_type == first.clothing_type))
     }
 
     /// Cuenta cuántos sets están completos
@@ -150,8 +163,9 @@ pub struct QteState {
 pub struct GameState {
     pub lobby_id: String,
     pub players: Vec<PlayerState>,
-    /// Siempre 4 cartas en el centro
-    pub center_cards: [Card; 4],
+    /// El centro empieza con 4 pero crece: al soltar una carta se añade aquí
+    /// y cualquiera puede cogerla. Cada deuda pendiente es una carta de más.
+    pub center_cards: Vec<Card>,
     /// IDs de jugadores que han terminado (en orden)
     pub rankings: Vec<Uuid>,
     /// QTE activo (si existe)
@@ -163,7 +177,7 @@ pub struct GameState {
 
 #[allow(dead_code)]
 impl GameState {
-    pub fn new(lobby_id: String, players: Vec<PlayerState>, center_cards: [Card; 4]) -> Self {
+    pub fn new(lobby_id: String, players: Vec<PlayerState>, center_cards: Vec<Card>) -> Self {
         Self {
             lobby_id,
             players,
@@ -219,6 +233,42 @@ mod tests {
         // siempre sobra alguna. Si alguien recorta la lista, esto avisa.
         assert_eq!(CLOTHING_NAMES.len(), 50);
         assert!(TOTAL_CLOTHING_TYPES > 49);
+    }
+
+    // Soltar una carta deja un hueco. Mientras esté ahí el set no puede
+    // darse por completo, aunque las otras tres sean iguales — si no, se
+    // podría "completar" un set teniendo solo 3 cartas.
+    #[test]
+    fn a_set_with_a_hole_is_never_complete() {
+        let full = [Card::new(0, 7), Card::new(1, 7), Card::new(2, 7), Card::new(3, 7)];
+        let sets = [full, full, full, full, full, full];
+        let mut player = PlayerState::new(Uuid::new_v4(), "Ana".to_string(), sets);
+        assert!(player.is_set_complete(0));
+        assert_eq!(player.count_completed_sets(), 6);
+        assert!(!player.owes_card());
+
+        player.sets[0][2] = None;   // soltó una carta
+        player.owed_slot = Some((0, 2));
+
+        assert!(!player.is_set_complete(0), "con un hueco no está completo");
+        assert_eq!(player.count_completed_sets(), 5);
+        assert!(!player.all_sets_complete());
+        assert!(player.owes_card());
+
+        player.sets[0][2] = Some(Card::new(9, 7));   // cogió otra igual
+        player.owed_slot = None;
+        assert!(player.is_set_complete(0));
+        assert!(player.all_sets_complete());
+    }
+
+    #[test]
+    fn a_hole_in_the_first_slot_also_blocks_completion() {
+        // El primer hueco es el que define el tipo del set, así que si el
+        // vacío cae ahí hay que tratarlo aparte.
+        let full = [Card::new(0, 3), Card::new(1, 3), Card::new(2, 3), Card::new(3, 3)];
+        let mut player = PlayerState::new(Uuid::new_v4(), "Ana".to_string(), [full; 6]);
+        player.sets[0][0] = None;
+        assert!(!player.is_set_complete(0));
     }
 
     #[test]

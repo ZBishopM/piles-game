@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
-    LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION,
+    LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
 };
 
 /// Tipo para enviar mensajes a un cliente específico
@@ -238,6 +238,18 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
 }
 
+/// Centro y progreso tal y como hay que mandarlos al cliente.
+fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>) {
+    let Some(gs) = lobby.game_state.as_ref() else { return (vec![], vec![]) };
+    let center = gs.center_cards.iter().map(|&c| CardInfo::from(c)).collect();
+    let progress = gs.players.iter().map(|p| PlayerProgress {
+        nickname: p.nickname.clone(),
+        completed_sets: p.count_completed_sets(),
+        finished: p.finished_position.is_some(),
+    }).collect();
+    (center, progress)
+}
+
 /// Maneja un mensaje del cliente y envía respuestas vía broadcast
 async fn handle_client_message(
     msg: ClientMessage,
@@ -325,8 +337,8 @@ async fn handle_client_message(
                                     if let Some(game_state) = &lobby.game_state {
                                         // Enviar estado del juego a cada jugador (cada uno ve sus propias cartas)
                                         for player_state in &game_state.players {
-                                            let your_sets: Vec<Vec<CardInfo>> = player_state.sets.iter()
-                                                .map(|set| set.iter().map(|&card| CardInfo::from(card)).collect())
+                                            let your_sets: Vec<Vec<Option<CardInfo>>> = player_state.sets.iter()
+                                                .map(set_to_info)
                                                 .collect();
 
                                             let center_cards: Vec<CardInfo> = game_state.center_cards.iter()
@@ -404,7 +416,7 @@ async fn handle_client_message(
 
                         player.current_set_index = set_index;
                         player.sets[set_index].iter()
-                            .map(|&card| CardInfo::from(card))
+                            .filter_map(|slot| slot.map(CardInfo::from))
                             .collect::<Vec<CardInfo>>()
                     };
 
@@ -437,7 +449,11 @@ async fn handle_client_message(
                 }
             };
 
-            if my_card_index >= 4 || center_card_index >= 4 {
+            // Tu set siempre son 4 huecos, pero el centro crece con cada
+            // carta soltada: acotarlo a 4 dejaba las soltadas inalcanzables
+            // para el intercambio normal, que es justo como se supone que
+            // otro jugador se las lleva.
+            if my_card_index >= 4 {
                 state.send_to_player(&player_id, ServerMessage::Error {
                     message: "Índice de carta inválido".to_string(),
                 }).await;
@@ -464,6 +480,15 @@ async fn handle_client_message(
                         return;
                     }
                 };
+                // Contra la longitud real del centro, que varía: sin esto un
+                // índice inventado indexaría fuera del Vec y tiraría el
+                // servidor, y este mensaje llega de un cliente cualquiera.
+                if center_card_index >= game_state.center_cards.len() {
+                    state.send_to_player(&player_id, ServerMessage::Error {
+                        message: "Índice de carta inválido".to_string(),
+                    }).await;
+                    return;
+                }
                 if game_state.active_qte.is_some() {
                     state.send_to_player(&player_id, ServerMessage::Error {
                         message: "Carta peleada".to_string(),
@@ -488,6 +513,10 @@ async fn handle_client_message(
                         return;
                     }
                 };
+                // Debiendo una carta lo único permitido es cogerla.
+                if game_state.players[player_idx].owes_card() {
+                    return;
+                }
                 if game_state.players[player_idx].is_verifying {
                     state.send_to_player(&player_id, ServerMessage::Error {
                         message: "No puedes intercambiar cartas durante la verificación".to_string(),
@@ -656,6 +685,112 @@ async fn handle_client_message(
             }
         }
 
+        // ── Soltar una carta al centro sin coger nada a cambio ──
+        // Deja un hueco en tu set. Hasta que lo tapes cogiendo otra carta no
+        // puedes soltar más, ni intercambiar, ni mostrar sets: lo único que
+        // puedes hacer es coger. Se comprueba aquí, no solo en el cliente.
+        ClientMessage::DropCard { my_card_index } => {
+            let lobby_id = match current_lobby.as_ref() {
+                Some(id) => id.clone(),
+                None => return,
+            };
+            if my_card_index >= 4 { return; }
+
+            let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            if let Some(left) = lobby.stun_remaining(&player_id) {
+                state.send_to_player(&player_id, ServerMessage::Stunned {
+                    ms: left.as_millis() as u64,
+                }).await;
+                return;
+            }
+
+            let result = {
+                let Some(game_state) = lobby.game_state.as_mut() else { return };
+                if game_state.active_qte.is_some() { return; }
+                let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
+                let player = &mut game_state.players[idx];
+                if player.is_verifying || player.owes_card() { return; }
+
+                let set_index = player.current_set_index;
+                let Some(card) = player.sets[set_index][my_card_index].take() else { return };
+                player.owed_slot = Some((set_index, my_card_index));
+                game_state.center_cards.push(card);
+
+                (set_index, set_to_info(&game_state.players[idx].sets[set_index]))
+            };
+
+            let (set_index, new_set) = result;
+            let (new_center, players_progress) = snapshot(&lobby);
+            let nickname = lobby.players.iter()
+                .find(|p| p.id == player_id)
+                .map(|p| p.nickname.clone())
+                .unwrap_or_default();
+            state.lobby_manager.update_lobby(lobby).await;
+
+            state.send_to_player(&player_id, ServerMessage::SwapSuccess {
+                player: nickname,
+                set_index,
+                your_new_set: Some(new_set),
+                center_cards: new_center.clone(),
+            }).await;
+            state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
+                center_cards: new_center,
+                players_progress,
+            }).await;
+        }
+
+        // ── Coger una carta del centro para tapar el hueco ──
+        ClientMessage::TakeCard { center_card_index } => {
+            let lobby_id = match current_lobby.as_ref() {
+                Some(id) => id.clone(),
+                None => return,
+            };
+
+            let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            if let Some(left) = lobby.stun_remaining(&player_id) {
+                state.send_to_player(&player_id, ServerMessage::Stunned {
+                    ms: left.as_millis() as u64,
+                }).await;
+                return;
+            }
+
+            let result = {
+                let Some(game_state) = lobby.game_state.as_mut() else { return };
+                if game_state.active_qte.is_some() { return; }
+                if center_card_index >= game_state.center_cards.len() { return; }
+                let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
+                // Solo se coge para tapar una deuda; si no debes nada, el
+                // intercambio normal (1↔1) sigue siendo el único camino.
+                let Some((set_index, card_index)) = game_state.players[idx].owed_slot else { return };
+
+                let card = game_state.center_cards.remove(center_card_index);
+                let player = &mut game_state.players[idx];
+                player.sets[set_index][card_index] = Some(card);
+                player.owed_slot = None;
+
+                (set_index, set_to_info(&game_state.players[idx].sets[set_index]))
+            };
+
+            let (set_index, new_set) = result;
+            let (new_center, players_progress) = snapshot(&lobby);
+            let nickname = lobby.players.iter()
+                .find(|p| p.id == player_id)
+                .map(|p| p.nickname.clone())
+                .unwrap_or_default();
+            state.lobby_manager.update_lobby(lobby).await;
+
+            state.send_to_player(&player_id, ServerMessage::SwapSuccess {
+                player: nickname,
+                set_index,
+                your_new_set: Some(new_set),
+                center_cards: new_center.clone(),
+            }).await;
+            state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
+                center_cards: new_center,
+                players_progress,
+            }).await;
+        }
+
         ClientMessage::FlipSet { set_index } => {
             if let Some(ref lobby_id) = *current_lobby {
                 if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
@@ -687,6 +822,12 @@ async fn handle_client_message(
                             }
                         };
 
+                        // Con una carta a deber no se muestra nada: el set
+                        // tiene un hueco y no puede estar completo.
+                        if game_state.players[player_idx].owes_card() {
+                            return;
+                        }
+
                         // Alternar el estado del set
                         let new_flipped = !game_state.players[player_idx].flipped_sets[set_index];
                         game_state.players[player_idx].flipped_sets[set_index] = new_flipped;
@@ -695,7 +836,9 @@ async fn handle_client_message(
 
                         // Si está volteado: enviar la primera carta; si no: lista vacía
                         let cards: Vec<CardInfo> = if new_flipped {
-                            vec![CardInfo::from(game_state.players[player_idx].sets[set_index][0])]
+                            game_state.players[player_idx].sets[set_index][0]
+                                .map(|c| vec![CardInfo::from(c)])
+                                .unwrap_or_default()
                         } else {
                             vec![]
                         };
@@ -796,8 +939,13 @@ async fn handle_client_message(
                     if let Some(w_idx) = game_state.players.iter().position(|p| p.id == winner_id) {
                         let my_card = game_state.players[w_idx].sets[winner_set][winner_card];
                         let center_card = game_state.center_cards[center_card_index];
-                        game_state.players[w_idx].sets[winner_set][winner_card] = center_card;
-                        game_state.center_cards[center_card_index] = my_card;
+                        game_state.players[w_idx].sets[winner_set][winner_card] = Some(center_card);
+                        // Un hueco vacío no debería llegar hasta aquí (no se
+                        // puede intercambiar debiendo una carta), pero si
+                        // pasara, el centro no se queda con un agujero.
+                        if let Some(card) = my_card {
+                            game_state.center_cards[center_card_index] = card;
+                        }
                     }
 
                     let new_center: Vec<CardInfo> = game_state.center_cards.iter()
@@ -808,9 +956,9 @@ async fn handle_client_message(
                             completed_sets: p.count_completed_sets(),
                             finished: p.finished_position.is_some(),
                         }).collect();
-                    let winner_new_set: Vec<CardInfo> = game_state.players.iter()
+                    let winner_new_set: Vec<Option<CardInfo>> = game_state.players.iter()
                         .find(|p| p.id == winner_id)
-                        .map(|p| p.sets[winner_set].iter().map(|&c| CardInfo::from(c)).collect())
+                        .map(|p| set_to_info(&p.sets[winner_set]))
                         .unwrap_or_default();
 
                     Some((winner_id, winner_nickname, winner_set, winner_new_set,
@@ -863,16 +1011,21 @@ async fn run_verification(
     lobby_id: String,
     player_id: Uuid,
     player_nickname: String,
-    sets: [[Card; 4]; 6],
+    sets: [[Option<Card>; 4]; 6],
 ) {
     let mut failed_sets: Vec<usize> = Vec::new();
 
     for set_idx in 0..6 {
         sleep(Duration::from_millis(1000)).await;
 
+        // Un set con un hueco sin tapar no puede ser válido.
         let set = sets[set_idx];
-        let is_valid = set.iter().all(|c| c.clothing_type == set[0].clothing_type);
-        let cards: Vec<CardInfo> = set.iter().map(|&c| CardInfo::from(c)).collect();
+        let is_valid = match set[0] {
+            Some(first) => set.iter()
+                .all(|slot| matches!(slot, Some(c) if c.clothing_type == first.clothing_type)),
+            None => false,
+        };
+        let cards: Vec<CardInfo> = set.iter().filter_map(|slot| slot.map(CardInfo::from)).collect();
 
         state.broadcast_to_lobby(&lobby_id, ServerMessage::SetVerificationResult {
             player: player_nickname.clone(),
@@ -1026,13 +1179,21 @@ async fn execute_delayed_swap(
                     None => return,
                 };
 
+                // 300 ms después el centro puede haber encogido (alguien
+                // tapó su hueco), así que se vuelve a comprobar.
+                match game_state.center_cards.get(center_card_index).copied() {
+                  None => None,
+                  Some(center_card) => {
                 let my_card = game_state.players[player_idx].sets[player_set_index][my_card_index];
-                let center_card = game_state.center_cards[center_card_index];
-                game_state.players[player_idx].sets[player_set_index][my_card_index] = center_card;
-                game_state.center_cards[center_card_index] = my_card;
+                game_state.players[player_idx].sets[player_set_index][my_card_index] = Some(center_card);
+                // Debiendo una carta no se puede intercambiar, así que el
+                // hueco siempre está lleno aquí; la guarda evita dejar el
+                // centro con un agujero si esa regla cambiara.
+                if let Some(card) = my_card {
+                    game_state.center_cards[center_card_index] = card;
+                }
 
-                let new_set: Vec<CardInfo> = game_state.players[player_idx].sets[player_set_index].iter()
-                    .map(|&c| CardInfo::from(c)).collect();
+                let new_set = set_to_info(&game_state.players[player_idx].sets[player_set_index]);
                 let new_center: Vec<CardInfo> = game_state.center_cards.iter()
                     .map(|&c| CardInfo::from(c)).collect();
                 let players_progress: Vec<PlayerProgress> = game_state.players.iter()
@@ -1043,6 +1204,8 @@ async fn execute_delayed_swap(
                     }).collect();
 
                 Some((new_set, new_center, players_progress))
+                  }
+                }
             }
         };
 
@@ -1121,8 +1284,10 @@ async fn run_qte(
             if let Some(w_idx) = game_state.players.iter().position(|p| p.id == winner.player_id) {
                 let my_card = game_state.players[w_idx].sets[winner.set_index][winner.card_index];
                 let center_card = game_state.center_cards[center_card_index];
-                game_state.players[w_idx].sets[winner.set_index][winner.card_index] = center_card;
-                game_state.center_cards[center_card_index] = my_card;
+                game_state.players[w_idx].sets[winner.set_index][winner.card_index] = Some(center_card);
+                if let Some(card) = my_card {
+                    game_state.center_cards[center_card_index] = card;
+                }
             }
 
             let new_center: Vec<CardInfo> = game_state.center_cards.iter()
@@ -1133,9 +1298,9 @@ async fn run_qte(
                     completed_sets: p.count_completed_sets(),
                     finished: p.finished_position.is_some(),
                 }).collect();
-            let winner_new_set: Vec<CardInfo> = game_state.players.iter()
+            let winner_new_set: Vec<Option<CardInfo>> = game_state.players.iter()
                 .find(|p| p.id == winner.player_id)
-                .map(|p| p.sets[winner.set_index].iter().map(|&c| CardInfo::from(c)).collect())
+                .map(|p| set_to_info(&p.sets[winner.set_index]))
                 .unwrap_or_default();
 
             (winner, loser, winner_new_set, new_center, players_progress)

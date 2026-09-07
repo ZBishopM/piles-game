@@ -52,21 +52,15 @@ los problemas de sincronización.
         juego. Haría falta mandarlos y ampliar el juego de variables del
         DSL (`src/lib/core/achievement-generator.ts` y `achievements.ts` en
         session-manager).
-- [ ] **Soltar una carta al centro sin coger otra a cambio**: dejar un hueco
-      en tu set, que cualquiera puede coger, y no poder soltar otra hasta
-      haber cogido una. Hoy el intercambio es siempre 1↔1 y el centro tiene
-      exactamente 4 cartas; esto rompe las dos cosas:
-      - el centro pasa a tener un número variable de cartas (¿tope?, ¿se
-        apilan?), y `GameState.center_cards` es un `[Card; 4]` fijo
-      - tu set queda temporalmente con 3 cartas, así que
-        `is_set_complete` / `count_completed_sets` y la verificación tienen
-        que aceptar sets incompletos sin darlos por fallidos
-      - hace falta estado nuevo por jugador ("debe" una carta) y bloquear
-        soltar otra hasta saldarlo
-      - decidir qué pasa si nadie coge la carta soltada, y si se puede
-        recuperar la propia
-      Es un cambio de reglas, no un retoque: conviene diseñarlo antes de
-      tocar código.
+- [x] **Soltar una carta al centro sin coger otra a cambio** — hecho.
+      Dejas un hueco en tu set y la carta se añade al centro, donde cualquiera
+      puede llevársela con un intercambio normal. Hasta que tapes el hueco
+      cogiendo otra no puedes soltar más, ni intercambiar, ni mostrar sets
+      (comprobado en el servidor, no solo en el cliente). Tu propia carta
+      soltada también puedes recuperarla, si nadie se te adelanta.
+      Implicó: `sets` pasa a `[[Option<Card>; 4]; 6]` y `center_cards` a un
+      `Vec` que crece; `is_set_complete` y la verificación rechazan sets con
+      hueco; mensajes `drop_card` / `take_card`.
 - [ ] **Desconexión en partida activa**: ahora mismo cancela la partida entera
       para todos. Lo suyo sería que el resto pudiera seguir jugando sin quien
       se fue. Requiere reconstruir el estado de juego sin ese jugador.
