@@ -629,8 +629,11 @@
 
         /* Resultado: sin frases. Gana el número que brilla. */
         .qte-player-score.won .qte-count { color: var(--success); text-shadow: 0 0 12px rgba(40,167,69,0.7); }
+        /* `border` completo, no solo `border-color`: la caja base no tiene
+           borde (solo la de "is-me"), así que un border-color suelto no
+           pintaba nada en el marcador del ganador. */
+        .qte-player-score.won { border: 2px solid var(--success); }
         .qte-player-score.lost { opacity: 0.4; }
-        .qte-player-score.won { border-color: var(--success); }
 
         /* Bloqueo tras perder: el tablero se apaga y no responde. Ese apagón
            ES el mensaje de "has perdido" — no hay ningún texto. */
