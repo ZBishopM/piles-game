@@ -188,6 +188,7 @@
             .tut-row .card { width: 46px; }
         }
 
+
         /* ── LOBBY: QR para compartir ── */
         .lobby-qr {
             width: 168px;
@@ -796,6 +797,47 @@
         .rank-pos { font-size: 1.4rem; width: 36px; }
         .rank-name { flex: 1; text-align: left; padding-left: 10px; }
         .rank-points { color: var(--warning); font-weight: bold; }
+
+        /* ── TABLERO EN MÓVIL ──
+           Las pantallas de entrada ya tenían su media query; el tablero no,
+           y es la única pantalla que se juega de verdad desde el teléfono.
+           El orden del DOM ya es vertical (centro → tus sets → oponentes), así
+           que aquí solo se aprieta el espacio y se agrandan los objetivos
+           táctiles. */
+        @media (max-width: 768px) {
+            #gameScreen { padding: 8px; }
+            .game-header { padding: 8px 10px; margin-bottom: 8px; font-size: 0.78rem; }
+            #swapHint { padding: 6px 10px; margin-bottom: 8px; font-size: 0.78rem; }
+            .section-label { font-size: 0.68rem; margin-bottom: 4px; }
+            /* min-width en vw forzaba scroll horizontal en pantallas
+               estrechas; el grid ya se reparte solo. */
+            .card-row { gap: 6px; margin-bottom: 10px; min-width: 0; }
+            /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
+            .set-btn { min-height: 44px; padding: 10px 4px; }
+            #flipBtn { min-height: 44px; padding: 10px 12px; }
+            .opponent-set-slot { width: 40px; height: 62px; }
+            /* Fijo abajo a la derecha tapaba las últimas cartas y el panel de
+               oponentes. En el flujo, al final del tablero, no tapa nada y es
+               más fácil de acertar. */
+            #verifyBtn {
+                position: static;
+                display: block;
+                width: 100%;
+                margin-top: 12px;
+                box-shadow: none;
+            }
+        }
+
+        /* Sin puntero un :hover se queda pegado tras tocar: la carta se
+           quedaba levantada y el botón iluminado hasta tocar otra cosa. Se
+           anula donde no hay hover de verdad, en vez de reescribir los
+           estados como eventos táctiles. */
+        @media (hover: none) {
+            .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+            .set-btn:not(.active):hover { border-color: #2a2a5a; color: #888; }
+            #flipBtn:not(.is-flipped):hover { background: rgba(74,90,154,0.15); color: #ccc; }
+            #verifyBtn:hover:not(:disabled) { background: #1a1a2e; }
+        }
     </style>
 </head>
 <body>
@@ -1052,6 +1094,14 @@ let qteBlockedCenterIndex = null;
 let pingInterval = null;
 let closedIntentionally = false;
 
+// Reconexión: el overlay ya traía un botón "Reconectar", pero había que
+// encontrarlo y pulsarlo. La partida sigue viva en el servidor y volver es lo
+// único que quiere el jugador, así que se reintenta solo. El botón se queda
+// como "ahora mismo, sin esperar".
+let reconnectAttempt = 0;
+let reconnectTimer = null;
+const RECONNECT_MAX_DELAY = 15000;
+
 // ─── WebSocket ────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
     // Restaurar nickname guardado y guardarlo automáticamente al editar
@@ -1173,6 +1223,8 @@ function connectWs() {
 
     ws.onopen = () => {
         st.textContent = '✅ Conectado al servidor';
+        clearTimeout(reconnectTimer);
+        reconnectAttempt = 0;
         document.getElementById('reconnectOverlay').style.display = 'none';
         // Ping cada 25s para mantener la conexión viva
         clearInterval(pingInterval);
@@ -1201,10 +1253,7 @@ function connectWs() {
             // Mostrar overlay de reconexión
             const overlay = document.getElementById('reconnectOverlay');
             overlay.style.display = 'flex';
-            document.getElementById('reconnectMsg').textContent =
-                currentLobbyId
-                    ? 'La conexión con el servidor se interrumpió. Reconecta para volver a la sala.'
-                    : 'La conexión con el servidor se interrumpió.';
+            scheduleReconnect();
         }
     };
 
@@ -1215,7 +1264,23 @@ function connectWs() {
     };
 }
 
+/** Backoff 1s, 2s, 4s, 8s y luego cada 15s, sin límite de intentos: mientras
+ *  la sala exista merece la pena seguir probando, y el servidor recicla las
+ *  vacías a los 30 min de todas formas. */
+function scheduleReconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectAttempt++;
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), RECONNECT_MAX_DELAY);
+    const where = currentLobbyId ? ' para volver a la sala' : '';
+    document.getElementById('reconnectMsg').textContent =
+        `Se perdió la conexión. Reintentando${where}… (intento ${reconnectAttempt})`;
+    reconnectTimer = setTimeout(connectWs, delay);
+}
+
+/** El botón del overlay: reintentar ya, sin esperar al backoff. */
 function reconnect() {
+    clearTimeout(reconnectTimer);
+    reconnectAttempt = 0;
     connectWs();
 }
 

@@ -64,13 +64,15 @@ los problemas de sincronización.
 - [ ] **Desconexión en partida activa**: ahora mismo cancela la partida entera
       para todos. Lo suyo sería que el resto pudiera seguir jugando sin quien
       se fue. Requiere reconstruir el estado de juego sin ese jugador.
-- [ ] **Reconexión automática**: al caerse la conexión aparece un overlay con
-      botón *Reconectar*. Volver a la sala ya funciona (y sobrevive a un F5),
-      pero hay que pulsar el botón; falta reintentar solo, con backoff.
-- [ ] **Anti-cheat del QTE**: no hay ningún límite de clicks por segundo, así
-      que un autoclicker gana siempre.
+- [x] **Reconexión automática** — hecho. Al caerse la conexión el cliente
+      reintenta solo con backoff (1s, 2s, 4s, 8s y luego cada 15s, sin límite
+      de intentos) y el overlay dice por qué intento va. El botón
+      *Reconectar* se queda como "ahora mismo, sin esperar".
 - [ ] `ListLobbies`: el servidor lo implementa y el cliente lo ignora
-      (`case 'lobby_list': break`). Falta la pantalla de salas abiertas.
+      (`case 'lobby_list': break`). **Decisión pendiente**: entrar por código y
+      por QR ya cubre meterse en una sala, así que la pantalla de salas
+      abiertas resuelve un problema que no ha aparecido. Lo razonable es
+      borrar las dos mitades; si se quiere la pantalla, es UI nueva.
 - [ ] Reanudar partida en curso tras reconectar (hoy se pierde el estado del
       tablero; solo se recupera la sala).
 
@@ -78,12 +80,20 @@ los problemas de sincronización.
 
 ## 📱 Responsive / móvil
 
-- [ ] Media queries para el **tablero** (`#gameScreen`) en < 768px. Las
-      pantallas de entrada (home, perfil, tutorial, hospedar, unirse) ya las
-      tienen; el tablero es lo que falta.
-- [ ] Sustituir estados `:hover` por eventos táctiles
-- [ ] Layout vertical en móvil (centro arriba, set propio abajo, oponentes
-      colapsables)
+- [x] Media queries para el **tablero** (`#gameScreen`) en < 768px — hecho.
+      Se aprieta el espacio (cabecera, hint, etiquetas, huecos del grid), los
+      objetivos táctiles suben a 44 px de alto (`.set-btn`, `#flipBtn`), y el
+      botón de verificar deja de estar fijo abajo a la derecha tapando las
+      últimas cartas: pasa al flujo, al final del tablero y a todo el ancho.
+      También se quita el `min-width` en `vw` de `.card-row`, que forzaba
+      scroll horizontal en pantallas estrechas.
+- [x] `:hover` en táctil — hecho con `@media (hover: none)`, que anula el
+      hover donde no hay puntero. Un toque dejaba la carta levantada y el
+      botón iluminado hasta tocar otra cosa. Sale más barato que reescribir
+      los estados como eventos táctiles, y no toca el ratón.
+- [x] Layout vertical en móvil — ya lo era: el orden del DOM es centro → tus
+      sets → oponentes. Lo que faltaba era el tamaño, no el orden. Los
+      oponentes colapsables se quedan fuera hasta que estorben de verdad.
 
 ---
 
