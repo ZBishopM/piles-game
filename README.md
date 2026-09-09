@@ -14,13 +14,17 @@ No hay base de datos: el servidor no tiene ninguna dependencia externa y el esta
 ## 📋 Requisitos previos
 
 - **Rust** (stable) con Cargo
+- **[nushell](https://www.nushell.sh/)** — la consola de este proyecto en local
 - Navegador web moderno
+
+Los bloques marcados `nu` se ejecutan en tu máquina. Los marcados `bash` se
+ejecutan en el VPS, cuya consola es bash (ver `DEPLOY.md`).
 
 ## 🛠️ Correr en local
 
 El binario sirve el frontend estático desde `./client` **relativo al directorio de trabajo**, así que hay que lanzarlo desde la raíz del repo, no desde `server/`:
 
-```bash
+```nu
 cd d:/2026-projects/piles-game
 cargo run --manifest-path server/Cargo.toml
 ```
@@ -58,21 +62,21 @@ piles-game/
 
 ## 🧪 Testing
 
-```bash
+```nu
 cd server
 cargo test
 ```
 
 Smoke test manual:
-```bash
-curl http://localhost:3000/health   # → OK
+```nu
+http get http://localhost:3000/health   # → OK
 ```
 
 ## 🐛 Troubleshooting
 
 - **404 en `/lobby.html` o cualquier estático**: casi siempre significa que lanzaste el binario desde `server/` en vez de la raíz del repo — `ServeDir::new("client")` resuelve relativo al cwd.
 - **El servidor no inicia**: verifica que el puerto 3000 esté disponible.
-- **Error de compilación de Rust**: `rustup update`, luego `cargo clean && cargo build`.
+- **Error de compilación de Rust**: `rustup update`, luego `cargo clean` y `cargo build`. En nu cada línea corre solo si la anterior fue bien, así que basta con ponerlas seguidas.
 
 ## 📝 Backlog
 

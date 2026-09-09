@@ -4,6 +4,11 @@
 > más abajo son alternativas para montarlo en otro sitio desde cero; describen
 > Caddy y Docker, que **no** es lo que corre hoy.
 
+**Dos consolas, dos máquinas.** Los bloques marcados `nu` se ejecutan en tu
+máquina, cuya consola es [nushell](https://www.nushell.sh/). Los marcados
+`bash` se ejecutan dentro del VPS, cuya consola es bash — allí no hay nu.
+Cada bloque dice en cuál de las dos va.
+
 ## Cómo está montado ahora
 
 Dos entornos aislados en el mismo VPS (`agapornis`, 167.233.88.83, usuario
@@ -42,29 +47,45 @@ la hoja de sprites (tablero en blanco los primeros segundos) se detectó ahí
 antes de que lo viera ningún jugador. Además reiniciar producción corta las
 partidas en curso, así que cada despliegue evitable cuesta partidas reales.
 
-```bash
-# 1. desarrollar sobre la rama beta
+**1. Desarrollar sobre la rama beta** — en tu máquina:
+
+```nu
 git checkout beta
 git commit -am "..."
 git push origin beta
+```
 
-# 2. desplegar en beta
-ssh bicho@167.233.88.83
+**2. Desplegar en beta** — dentro del VPS, tras `ssh bicho@167.233.88.83`:
+
+```bash
 cd ~/piles-beta && git pull --ff-only
-#    solo si cambió algo de server/:
+# solo si cambió algo de server/:
 cd server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
 pm2 restart piles-beta
-#    si solo cambió client/, no hace falta ni compilar ni reiniciar
+# si solo cambió client/, no hace falta ni compilar ni reiniciar
+```
 
-# 3. probar en https://beta.piles.danassistantassistant.website
+**3. Probar** en https://beta.piles.danassistantassistant.website
 
-# 4. promover a producción
-git checkout master && git merge beta --ff-only && git push origin master
+**4. Promover a producción** — en tu máquina. Cada línea corre solo si la
+anterior fue bien, así que un merge fallido detiene el push:
 
-# 5. comprobar que no hay nadie jugando ANTES de reiniciar
+```nu
+git checkout master
+git merge beta --ff-only
+git push origin master
+```
+
+**5. Comprobar que no hay nadie jugando ANTES de reiniciar** — desde tu
+máquina:
+
+```nu
 ssh bicho@167.233.88.83 "ss -tn state established '( sport = :3000 )'"
+```
 
-# 6. desplegar en producción
+**6. Desplegar en producción** — dentro del VPS:
+
+```bash
 cd /var/www/piles-game && git pull --ff-only
 cd server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
 pm2 restart piles-game
@@ -122,8 +143,8 @@ cd ~/piles-game
 ```
 
 O copia la carpeta manualmente con `scp` desde Windows:
-```bash
-# Desde Windows (PowerShell)
+```nu
+# Desde tu máquina
 scp -r D:\2026-projects\piles-game usuario@ip-arch:~/piles-game
 ```
 
@@ -274,14 +295,18 @@ ss -tn state established '( sport = :3000 )'
   O compila en tu máquina local y sube solo el binario (ver sección "compilar localmente").
 
 **Compilar en Windows y subir solo el binario al VPS Linux**
-```bash
-# En Windows (cross-compile para Linux)
+```nu
+# En tu máquina (cross-compile para Linux)
 rustup target add x86_64-unknown-linux-gnu
 cargo build --release --target x86_64-unknown-linux-gnu
 
 # Subir binario + client/ al VPS
 scp server/target/x86_64-unknown-linux-gnu/release/piles-server root@<IP>:/opt/piles-game/
 scp -r client/ root@<IP>:/opt/piles-game/
-# Ejecutar en el VPS:
-# cd /opt/piles-game && ./piles-server
+```
+
+Y ya dentro del VPS:
+
+```bash
+cd /opt/piles-game && ./piles-server
 ```
