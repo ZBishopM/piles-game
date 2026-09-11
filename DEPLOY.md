@@ -285,14 +285,12 @@ ss -tn state established '( sport = :3000 )'
   ```
 
 **Error al compilar en el VPS (poca RAM)**
-- Rust puede consumir hasta 1.5GB compilando. Si el VPS tiene solo 1GB, añade swap:
-  ```bash
-  fallocate -l 2G /swapfile
-  chmod 600 /swapfile
-  mkswap /swapfile
-  swapon /swapfile
-  ```
-  O compila en tu máquina local y sube solo el binario (ver sección "compilar localmente").
+- Rust puede consumir hasta 1,5 GB compilando. En `agapornis` esto se resuelve
+  con `nice -n 19 … -j 1`, como dice el flujo de arriba — **no añadas swap**:
+  la máquina no tiene y es compartida, así que tocar eso afecta al correo y a
+  los demás servicios.
+- Si aun así no compila, compila en tu máquina y sube solo el binario (ver
+  justo debajo).
 
 **Compilar en Windows y subir solo el binario al VPS Linux**
 ```nu
