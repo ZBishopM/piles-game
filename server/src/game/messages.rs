@@ -20,6 +20,15 @@ pub enum ClientMessage {
     QuickMatch {
         nickname: String,
     },
+    /// Añadir un bot a la sala. Solo antes de empezar.
+    AddBot {
+        #[serde(default)]
+        difficulty: crate::bot::Difficulty,
+    },
+    /// Echar un bot de la sala.
+    RemoveBot {
+        player_id: String,
+    },
     /// Unirse a un lobby existente
     JoinLobby {
         lobby_id: String,
@@ -248,6 +257,9 @@ pub struct PlayerInfo {
     pub id: String,
     pub nickname: String,
     pub is_ready: bool,
+    /// Para marcarlo en la sala y para poder ofrecer echarlo.
+    #[serde(default)]
+    pub is_bot: bool,
 }
 
 /// Información de un lobby

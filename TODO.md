@@ -21,10 +21,39 @@ los problemas de sincronización.
       verdad peleando
 
 ### Flujo completo
-- [ ] Partida entera a 2 jugadores: intercambios → QTE → verificación → fin
+- [ ] Partida entera a 2 **personas**: intercambios → pelea → verificación →
+      fin. Entre bots ya corre sola (ver `D:/Temp/bot-e2e.mjs` como referencia
+      del arnés), pero con personas sigue sin comprobarse.
 - [ ] Partida a 3+ para ver los rankings (1º, 2º, 3º)
 - [ ] Desconexión a mitad de partida (hoy se cancela la partida y todos
       vuelven a la sala; falta decidir si eso es lo que queremos)
+
+---
+
+## 🤖 Afinar los bots
+
+Los cuatro mandos están en `Difficulty::knobs()` (`server/src/bot.rs`). Son
+números, no lógica: tocarlos no puede romper nada.
+
+| Mando | Fácil | Normal | Difícil |
+|---|---|---|---|
+| Pensar entre jugadas | 2,5 s | 1,2 s | 0,5 s |
+| Pulsar en pelea (±25 % jitter) | 320 ms | 180 ms | 110 ms |
+| Elige la carta buena | 50 % | 80 % | 95 % |
+| Se pelea una carta que te ve coger | 10 % | 35 % | 70 % |
+
+- [ ] Jugar contra los tres niveles y ajustar. Lo que hay es una primera
+      aproximación, no algo medido con gente.
+- [ ] El bot apunta al set con más cartas iguales y suelta lo que no encaja.
+      No mira lo que han revelado los demás ni lo que hay en el centro para
+      decidir qué set perseguir — se podría, si resulta demasiado tonto.
+
+**Ojo si se toca el bucle del bot**: hay dos relojes separados y no es un
+descuido. `think` es la dificultad; `watch` (80 ms fijos) es mirar si alguien va
+a por una carta para disputársela. La ventana de conflicto son 300 ms, así que
+comprobándolo al ritmo de `think` (500 ms en difícil) casi nunca cae dentro:
+con un solo reloj, dos bots en difícil jugaban partidas enteras sin pelearse una
+sola carta.
 
 ---
 
@@ -61,20 +90,43 @@ los problemas de sincronización.
       del centro, no al intercambiar. Las cartas se identifican por id y no
       por posición: el centro cambia de tamaño constantemente y un índice
       dejaría de apuntar a la misma carta.
-- [ ] **Desconexión en partida activa**: ahora mismo cancela la partida entera
-      para todos. Lo suyo sería que el resto pudiera seguir jugando sin quien
-      se fue. Requiere reconstruir el estado de juego sin ese jugador.
+- [x] **Desconexión en partida activa** — hecho, y convertido en mecánica. Se
+      le espera 30 s (`GRACE_PERIOD`) con su sitio y sus cartas intactos
+      mientras los demás siguen jugando; si vuelve, recupera el tablero. Si no
+      vuelve, la partida se redimensiona a un jugador menos retirando **prendas
+      enteras** (`deck::retire_types_on_leave`) en vez de borrar sus 24 cartas
+      sueltas, que es lo que antes dejaba ~20 prendas imposibles de completar.
+      Solo se cancela si no quedan dos personas.
+      Nota: `owed_slot` guarda una sola deuda, así que cada superviviente puede
+      absorber un hueco como máximo y normalmente se retiran menos de las 6
+      prendas que sobran. Es seguro (sobrar sets solo da holgura). Recortar
+      exacto pide convertir `owed_slot` en lista.
 - [x] **Reconexión automática** — hecho. Al caerse la conexión el cliente
       reintenta solo con backoff (1s, 2s, 4s, 8s y luego cada 15s, sin límite
       de intentos) y el overlay dice por qué intento va. El botón
       *Reconectar* se queda como "ahora mismo, sin esperar".
-- [ ] `ListLobbies`: el servidor lo implementa y el cliente lo ignora
-      (`case 'lobby_list': break`). **Decisión pendiente**: entrar por código y
-      por QR ya cubre meterse en una sala, así que la pantalla de salas
-      abiertas resuelve un problema que no ha aparecido. Lo razonable es
-      borrar las dos mitades; si se quiere la pantalla, es UI nueva.
-- [ ] Reanudar partida en curso tras reconectar (hoy se pierde el estado del
-      tablero; solo se recupera la sala).
+- [x] `ListLobbies` — construido en vez de borrado. Las salas llevan
+      `is_public` (público por defecto, con interruptor al crearla), así que
+      `list_available_lobbies` ya no anuncia la sala que compartes por QR con
+      tus amigos — que es lo que habría pasado en cuanto el cliente empezara a
+      enseñar la lista. El `case 'lobby_list': break` ya hace algo.
+- [x] **Partida rápida** — entra en la sala pública **más llena** (repartir
+      gente entre salas medio vacías es como nadie llega nunca a 2), y si no
+      hay ninguna abre una y espera. No mete bots por su cuenta: si sigues solo
+      a los 12 s, pregunta.
+- [x] **Bots** — `server/src/bot.rs`. Se añaden desde la sala, hasta llenarla,
+      con dificultad fácil/normal/difícil. Cuatro mandos: tiempo de pensar,
+      ritmo de pulsación en las peleas (con jitter, que un ritmo exacto suena a
+      metrónomo), calidad de la elección de carta, y ganas de pelear. Para
+      pelear leen `take_intents`, donde el servidor ya apunta quién va a por
+      qué dentro de la ventana de 300 ms, así que la pelea sale por el mismo
+      camino que entre dos personas.
+      No hicieron falta dependencias nuevas ni tocar la lógica del juego:
+      `handle_client_message` nunca necesitó un socket, así que un bot registra
+      su canal en `state.connections` y la llama directamente.
+- [x] Reanudar partida en curso tras reconectar — hecho con el mecanismo de
+      espera de arriba: al volver se reenvía el tablero entero, no solo la
+      sala.
 
 ---
 
@@ -158,6 +210,13 @@ Los resultados que se guardan van a Session Manager, no aquí.
 ---
 
 ## ✅ Hecho
+
+- **Los logs del servidor se ven** (2026-09-10). `tracing_subscriber::fmt::init()`
+  a secas y sin `RUST_LOG` puesta dejaba **todos** los `tracing::info!` fuera:
+  quién entra, quién se cae, qué prendas se retiran. En el VPS pm2 recoge
+  stdout, así que se veían los `println!` y ninguna traza — justo las que hacen
+  falta para entender un incidente. Ahora el nivel por defecto es `info`, y
+  `RUST_LOG` sigue mandando si está puesta.
 
 - **Peso e impacto en las cartas** (2026-09-10). La carta se inclina hacia el
   puntero, se levanta al pasar por encima y se hunde al pulsarla; al aterrizar

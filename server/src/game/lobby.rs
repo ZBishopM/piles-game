@@ -44,6 +44,11 @@ pub struct LobbyPlayer {
     /// jugando y él tiene `GRACE_PERIOD` para volver.
     #[serde(skip)]
     pub disconnected_at: Option<Instant>,
+    /// Es un bot. Para el resto del servidor da igual —juega por el mismo
+    /// camino que una persona—, pero hace falta para poder echarlo, para
+    /// enseñarlo marcado y para no tratarlo como alguien a quien esperar si se
+    /// le "cae" la conexión.
+    pub is_bot: bool,
 }
 
 /// Cuánto dura el bloqueo tras perder una pelea.
@@ -117,6 +122,7 @@ impl Lobby {
             is_ready: false,
             stunned_until: None,
             disconnected_at: None,
+            is_bot: false,
         });
         self.empty_since = None;
 

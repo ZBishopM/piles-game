@@ -10,6 +10,7 @@ use tower_http::cors::{CorsLayer, Any};
 use tower_http::services::ServeDir;
 use tracing_subscriber;
 
+mod bot;
 mod game;
 mod websocket;
 
@@ -18,8 +19,18 @@ use websocket::{ws_handler, AppState};
 
 #[tokio::main]
 async fn main() {
-    // Inicializar logger
-    tracing_subscriber::fmt::init();
+    // Logger. Por defecto a `info`: con `fmt::init()` a secas y sin RUST_LOG
+    // puesta, todos los `tracing::info!` del servidor quedaban invisibles —
+    // quién entra, quién se cae, qué prendas se retiran al abandonar alguien.
+    // En el VPS pm2 recoge stdout, así que se veían los `println!` y ninguna
+    // de las trazas, justo las que hacen falta para entender un incidente.
+    // RUST_LOG sigue mandando si está puesta.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info".into()),
+        )
+        .init();
 
     // Leer puerto del entorno (útil para Fly.io, Railway, etc.)
     let port: u16 = std::env::var("PORT")

@@ -25,7 +25,9 @@ type ClientSender = mpsc::UnboundedSender<ServerMessage>;
 /// en la que otro puede ir a por la misma.
 #[derive(Debug, Clone)]
 pub struct TakeIntent {
-    player_id: Uuid,
+    /// `pub(crate)` para que un bot pueda ver que alguien va a por una carta y
+    /// decidir si se la pelea. Es el mismo camino que usan dos personas.
+    pub(crate) player_id: Uuid,
     nickname: String,
     timestamp: Instant,
 }
@@ -226,6 +228,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         id: p.id.to_string(),
                         nickname: p.nickname.clone(),
                         is_ready: p.is_ready,
+                        is_bot: p.is_bot,
                     }).collect();
                     let ready_count = lobby.ready_count();
                     let max_players = lobby.max_players;
@@ -260,7 +263,9 @@ fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>) 
 }
 
 /// Maneja un mensaje del cliente y envía respuestas vía broadcast
-async fn handle_client_message(
+/// `pub(crate)` porque los bots la llaman directamente: no tienen socket, pero
+/// esta función nunca lo necesitó — le basta el id, la sala y el estado.
+pub(crate) async fn handle_client_message(
     msg: ClientMessage,
     player_id: Uuid,
     current_lobby: &mut Option<String>,
@@ -291,6 +296,7 @@ async fn handle_client_message(
                                     id: p.id.to_string(),
                                     nickname: p.nickname.clone(),
                                     is_ready: p.is_ready,
+                                    is_bot: p.is_bot,
                                 }).collect();
                             state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                                 lobby_id: lobby_id.clone(),
@@ -334,6 +340,7 @@ async fn handle_client_message(
                             id: p.id.to_string(),
                             nickname: p.nickname.clone(),
                             is_ready: p.is_ready,
+                            is_bot: p.is_bot,
                         }).collect();
                         let (center, _) = snapshot(&lobby);
                         state.lobby_manager.update_lobby(lobby).await;
@@ -371,6 +378,7 @@ async fn handle_client_message(
                         id: p.id.to_string(),
                         nickname: p.nickname.clone(),
                         is_ready: p.is_ready,
+                        is_bot: p.is_bot,
                     }).collect();
 
                     // Enviar confirmación al jugador que se unió
@@ -387,6 +395,37 @@ async fn handle_client_message(
                     state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
                 }
             }
+        }
+
+        ClientMessage::AddBot { difficulty } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            // Solo en la sala: meter un bot en mitad de una partida sería
+            // repartirle cartas que ya están en manos de otros.
+            if lobby.status != LobbyStatus::Waiting || lobby.is_full() {
+                state.send_to_player(&player_id, ServerMessage::Error {
+                    message: "No se pueden añadir bots ahora".to_string(),
+                }).await;
+                return;
+            }
+            if crate::bot::spawn_bot(state, &lobby_id, difficulty).await.is_some() {
+                send_lobby_update(state, &lobby_id).await;
+            }
+        }
+
+        ClientMessage::RemoveBot { player_id: bot } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Some(bot_id) = Uuid::parse_str(&bot).ok() else { return };
+            let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            if lobby.status != LobbyStatus::Waiting {
+                return;
+            }
+            // Solo bots: este mensaje no sirve para expulsar a personas.
+            if !lobby.players.iter().any(|p| p.id == bot_id && p.is_bot) {
+                return;
+            }
+            crate::bot::remove_bot(state, &lobby_id, bot_id).await;
+            send_lobby_update(state, &lobby_id).await;
         }
 
         ClientMessage::ListLobbies => {
@@ -927,6 +966,7 @@ async fn run_verification(
                             id: p.id.to_string(),
                             nickname: p.nickname.clone(),
                             is_ready: false,
+                            is_bot: p.is_bot,
                         }).collect();
                         let max_players = lobby.max_players;
                         state.lobby_manager.update_lobby(lobby).await;
@@ -1077,6 +1117,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
         id: p.id.to_string(),
         nickname: p.nickname.clone(),
         is_ready: false,
+        is_bot: p.is_bot,
     }).collect();
     let max_players = lobby.max_players;
     state.lobby_manager.update_lobby(lobby).await;
@@ -1370,6 +1411,7 @@ async fn send_lobby_update(state: &AppState, lobby_id: &str) {
             id: p.id.to_string(),
             nickname: p.nickname.clone(),
             is_ready: p.is_ready,
+            is_bot: p.is_bot,
         }).collect();
 
         let update_msg = ServerMessage::LobbyUpdate {

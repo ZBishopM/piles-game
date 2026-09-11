@@ -797,6 +797,33 @@
             100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
         }
 
+        /* ── BOTS ── */
+        #botControls { margin: 12px 0; }
+        #botControls[hidden] { display: none; }
+        .kick-bot {
+            margin-left: 8px;
+            width: 28px;
+            height: 28px;
+            flex-shrink: 0;
+            border: 1px solid #2a2a5a;
+            border-radius: 6px;
+            background: #0f3460;
+            color: #aaa;
+            cursor: pointer;
+            line-height: 1;
+        }
+        .kick-bot:hover { border-color: var(--danger); color: var(--danger); }
+        #quickBotOffer {
+            margin: 12px 0;
+            padding: 12px;
+            border: 1px solid #4a5a9a;
+            border-radius: 10px;
+            background: rgba(74,90,154,0.12);
+            text-align: center;
+        }
+        #quickBotOffer[hidden] { display: none; }
+        #quickBotOffer p { color: #aaa; font-size: 0.88rem; margin-bottom: 10px; }
+
         /* ── SALAS ABIERTAS ── */
         #lobbyList { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
         .lobby-empty { color: #888; font-size: 0.85rem; text-align: center; margin: 8px 0; }
@@ -994,6 +1021,9 @@
             /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
             .set-btn { min-height: 44px; padding: 10px 4px; }
             #flipBtn { min-height: 44px; padding: 10px 12px; }
+            /* La ✕ de quitar un bot es diminuta en ratón; con el pulgar hay
+               que poder acertarla sin tocar la fila de al lado. */
+            .kick-bot { width: 44px; height: 44px; }
             .opponent-set-slot { width: 40px; height: 62px; }
             /* Fijo abajo a la derecha tapaba las últimas cartas y el panel de
                oponentes. En el flujo, al final del tablero, no tapa nada y es
@@ -1160,6 +1190,27 @@
 
     <h3 style="margin:0 0 8px;color:#eee">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
     <ul class="player-list" id="playerList"></ul>
+
+    <!-- Oferta de bots tras una partida rápida en la que no aparece nadie.
+         Se pregunta, no se rellena por su cuenta. -->
+    <div id="quickBotOffer" hidden>
+        <p>Nadie más por aquí ahora mismo.</p>
+        <button class="btn btn-primary" onclick="acceptBotsOffer()">🤖 Jugar contra bots</button>
+        <button class="btn btn-secondary" onclick="cancelQuickMatchOffer()">Seguir esperando</button>
+    </div>
+
+    <!-- Bots: para jugar solo, o para rellenar mientras llega gente. -->
+    <div id="botControls">
+        <div class="seg-group" id="botDiffGroup">
+            <button type="button" class="seg-btn" data-diff="easy"
+                    onclick="setBotDifficulty('easy')">Fácil</button>
+            <button type="button" class="seg-btn active" data-diff="normal"
+                    onclick="setBotDifficulty('normal')">Normal</button>
+            <button type="button" class="seg-btn" data-diff="hard"
+                    onclick="setBotDifficulty('hard')">Difícil</button>
+        </div>
+        <button class="btn btn-secondary" onclick="addBot()">🤖 Añadir bot</button>
+    </div>
 
     <button id="readyBtn" onclick="toggleReady()">Marcar como Listo ✓</button>
     <p id="readyCount"></p>
@@ -1706,11 +1757,58 @@ function createLobby() {
 function quickMatch() {
     const nickname = requireNickname();
     if (!nickname) return;
+    cameFromQuickMatch = true;
     send({ type: 'quick_match', nickname });
 }
 
+let cameFromQuickMatch = false;
+
 function refreshLobbies() {
     send({ type: 'list_lobbies' });
+}
+
+// ─── Bots ─────────────────────────────────────────────────────────────────
+let botDifficulty = 'normal';
+
+function setBotDifficulty(d) {
+    botDifficulty = d;
+    document.querySelectorAll('#botDiffGroup .seg-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.diff === d);
+    });
+}
+
+function addBot() {
+    send({ type: 'add_bot', difficulty: botDifficulty });
+}
+
+function removeBot(playerId) {
+    send({ type: 'remove_bot', player_id: playerId });
+}
+
+/** Tras entrar por partida rápida: si sigues solo, se ofrece jugar contra
+ *  bots. Se pregunta en vez de rellenar solo, porque quien pide partida
+ *  rápida normalmente quiere gente. */
+let quickMatchOfferTimer = null;
+
+function armQuickMatchOffer() {
+    clearTimeout(quickMatchOfferTimer);
+    quickMatchOfferTimer = setTimeout(() => {
+        const count = parseInt(document.getElementById('playerCount').textContent || '0');
+        const offer = document.getElementById('quickBotOffer');
+        if (count <= 1 && offer) offer.hidden = false;
+    }, 12000);
+}
+
+function cancelQuickMatchOffer() {
+    clearTimeout(quickMatchOfferTimer);
+    const offer = document.getElementById('quickBotOffer');
+    if (offer) offer.hidden = true;
+}
+
+function acceptBotsOffer() {
+    cancelQuickMatchOffer();
+    // Hasta 3 rivales: suficiente para una partida movida sin esperar mucho.
+    for (let i = 0; i < 3; i++) addBot();
 }
 
 function renderLobbyList(lobbies) {
@@ -1973,9 +2071,22 @@ function onLobbyUpdate(msg) {
         const li = document.createElement('li');
         li.className = 'player-item' + (p.is_ready ? ' ready' : '');
         const you = p.id === currentPlayerId ? ' <em>(Tú)</em>' : '';
-        li.innerHTML = `<span>${p.nickname}${you}</span><span class="ready-status">${p.is_ready ? '✅ Listo' : '⏳'}</span>`;
+        // A los bots se les puede echar; a las personas no desde aquí.
+        const kick = p.is_bot
+            ? `<button type="button" class="kick-bot" title="Quitar este bot"
+                       onclick="removeBot('${p.id}')">✕</button>`
+            : '';
+        li.innerHTML = `<span>${p.nickname}${you}</span>`
+            + `<span class="ready-status">${p.is_ready ? '✅ Listo' : '⏳'}</span>${kick}`;
         list.appendChild(li);
     });
+    // Solo tiene sentido ofrecer bots mientras quepa alguien más.
+    const room = msg.players.length < msg.max_players;
+    document.getElementById('botControls')?.toggleAttribute('hidden', !room);
+
+    // Llegó alguien: ya no hace falta ofrecer bots.
+    if (msg.players.length > 1) cancelQuickMatchOffer();
+    else if (cameFromQuickMatch) armQuickMatchOffer();
 
     // No redirigir automáticamente si estamos viendo resultados de la partida terminada
     if (!gameOver && !document.getElementById('lobbyScreen').classList.contains('active')) {
