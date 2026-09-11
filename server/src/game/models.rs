@@ -111,6 +111,12 @@ pub struct PlayerState {
     /// haya deuda no se puede soltar otra, ni intercambiar, ni mostrar sets:
     /// lo único que se puede hacer es coger una carta del centro.
     pub owed_slot: Option<(usize, usize)>,
+    /// Desde cuándo debe esa carta. Pasado `DEBT_DEADLINE` el servidor le
+    /// asigna una del centro al azar: si no, con varios jugadores soltando y
+    /// sin prisa por coger, el centro se queda permanentemente con 7 u 8
+    /// cartas y nadie puede leer la mesa.
+    #[serde(skip)]
+    pub owed_since: Option<Instant>,
     /// Eslabones encadenados ahora mismo. El servidor es el único que lo
     /// calcula: si el cliente llevara la cuenta, el multiplicador sería un
     /// número que se puede inventar.
@@ -136,6 +142,7 @@ impl PlayerState {
             finished_at: None,
             finished_position: None,
             owed_slot: None,
+            owed_since: None,
             combo: 0,
             combo_expires_at: None,
             best_combo: 0,

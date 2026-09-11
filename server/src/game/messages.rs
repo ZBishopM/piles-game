@@ -102,10 +102,16 @@ pub enum ServerMessage {
         current_set: usize,
         players: Vec<String>,
     },
-    /// Confirmación de cambio de set
+    /// Confirmación de cambio de set.
+    ///
+    /// `Option` por hueco, igual que `GameStart.your_sets`. Antes era
+    /// `Vec<CardInfo>` y se construía con `filter_map`, que se comía el hueco:
+    /// el set volvía con 3 cartas y sin ningún nulo, el cliente dejaba de
+    /// verse en deuda y ya no podía coger la carta ni soltar otra — la partida
+    /// se quedaba bloqueada sin forma de salir.
     SetSwitched {
         set_index: usize,
-        cards: Vec<CardInfo>,
+        cards: Vec<Option<CardInfo>>,
     },
     /// Dos jugadores van a por la misma carta del centro: empieza la pelea.
     SwapConflict {
@@ -175,6 +181,18 @@ pub enum ServerMessage {
     Stunned {
         ms: u64,
     },
+    /// Acabas de soltar una carta: tienes `ms` para coger otra antes de que el
+    /// servidor te asigne una al azar. El cliente solo pinta la cuenta atrás;
+    /// quien la aplica es el servidor.
+    DebtStarted {
+        ms: u64,
+    },
+    /// Se agotó el plazo y se te ha asignado esta carta. Va aparte del
+    /// `SwapSuccess` porque una carta que aparece sola y sin explicación se
+    /// lee como un fallo, no como una regla.
+    DebtForced {
+        card: CardInfo,
+    },
     /// Tu racha, solo para ti. Igual que con el bloqueo, la ventana la manda
     /// el servidor y el cliente solo anima la barra: así el multiplicador no
     /// es un número que el cliente pueda inventarse.
@@ -239,6 +257,46 @@ pub struct CardInfo {
 /// Un set tal y como lo ve su dueño: 4 huecos, alguno posiblemente vacío.
 pub fn set_to_info(set: &[Option<Card>; 4]) -> Vec<Option<CardInfo>> {
     set.iter().map(|slot| slot.map(CardInfo::from)).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // El bug que bloqueaba la partida: al cambiar de set con una carta soltada,
+    // la respuesta se construía con `filter_map` y el hueco desaparecía. El set
+    // volvía con 3 cartas y sin ningún nulo, el cliente dejaba de verse en
+    // deuda —`owesCard()` busca nulos— y ya no podía ni coger del centro ni
+    // soltar otra, porque el servidor sí seguía sabiendo que debía una.
+    #[test]
+    fn a_hole_survives_the_trip_to_the_client() {
+        let mut set = [
+            Some(Card::new(0, 7)),
+            Some(Card::new(1, 7)),
+            Some(Card::new(2, 7)),
+            Some(Card::new(3, 7)),
+        ];
+        set[2] = None;   // soltó esta
+
+        let sent = set_to_info(&set);
+
+        assert_eq!(sent.len(), 4, "el set viaja con sus 4 huecos, no con 3 cartas");
+        assert!(sent[2].is_none(), "el hueco tiene que llegar como null");
+        assert_eq!(sent.iter().filter(|s| s.is_some()).count(), 3);
+    }
+
+    #[test]
+    fn a_full_set_travels_with_no_holes() {
+        let set = [
+            Some(Card::new(0, 1)),
+            Some(Card::new(1, 1)),
+            Some(Card::new(2, 1)),
+            Some(Card::new(3, 1)),
+        ];
+        let sent = set_to_info(&set);
+        assert_eq!(sent.len(), 4);
+        assert!(sent.iter().all(|s| s.is_some()));
+    }
 }
 
 impl From<Card> for CardInfo {

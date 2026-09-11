@@ -63,6 +63,19 @@ pub struct LobbyPlayer {
 /// (ver `break_combo` en websocket.rs).
 pub const STUN_DURATION: Duration = Duration::from_secs(3);
 
+/// Cuánto puedes tener una carta soltada sin coger otra.
+///
+/// Al agotarse, el servidor te asigna una del centro al azar. Existe porque el
+/// hueco no cuesta nada mientras no lo tapes: con varios jugadores —y sobre
+/// todo con bots— soltando y sin prisa, el centro se quedaba fijo en 7 u 8
+/// cartas y dejaba de poder leerse. Además empuja al ritmo que queremos:
+/// sueltas y coges, no sueltas y piensas.
+///
+/// La cuenta se pausa mientras estás bloqueado por perder una pelea: perder ya
+/// cuesta la carta y tres segundos parado, y encima una carta al azar sería un
+/// tercer castigo por el mismo error.
+pub const DEBT_DEADLINE: Duration = Duration::from_secs(3);
+
 /// Representa un lobby de juego
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Lobby {

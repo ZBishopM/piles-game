@@ -16,7 +16,7 @@ use crate::game::{
     COMBO_WINDOW, COMBO_LINKS_TAKE, COMBO_LINKS_FIGHT_WON, COMBO_LINKS_SET_DONE,
     get_clothing_name,
 };
-use crate::game::lobby::GRACE_PERIOD;
+use crate::game::lobby::{DEBT_DEADLINE, GRACE_PERIOD};
 
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
@@ -531,10 +531,18 @@ pub(crate) async fn handle_client_message(
                             }
                         };
 
+                        // Debiendo una carta no se cambia de set: el hueco está
+                        // en el set que dejas atrás y se te queda fuera de la
+                        // vista, que es justo el lío del que venía el bloqueo.
+                        // Lo único que puedes hacer mientras debes es coger.
+                        if player.owes_card() {
+                            return;
+                        }
+
+                        // Con el mismo helper que GameStart y SwapSuccess: el
+                        // hueco tiene que viajar como `null`, no desaparecer.
                         player.current_set_index = set_index;
-                        player.sets[set_index].iter()
-                            .filter_map(|slot| slot.map(CardInfo::from))
-                            .collect::<Vec<CardInfo>>()
+                        set_to_info(&player.sets[set_index])
                     };
 
                     state.lobby_manager.update_lobby(lobby).await;
@@ -655,6 +663,7 @@ pub(crate) async fn handle_client_message(
                 let set_index = player.current_set_index;
                 let Some(card) = player.sets[set_index][my_card_index].take() else { return };
                 player.owed_slot = Some((set_index, my_card_index));
+                player.owed_since = Some(Instant::now());
                 game_state.center_cards.push(card);
 
                 (set_index, set_to_info(&game_state.players[idx].sets[set_index]))
@@ -674,10 +683,15 @@ pub(crate) async fn handle_client_message(
                 your_new_set: Some(new_set),
                 center_cards: new_center.clone(),
             }).await;
+            state.send_to_player(&player_id, ServerMessage::DebtStarted {
+                ms: DEBT_DEADLINE.as_millis() as u64,
+            }).await;
             state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
                 center_cards: new_center,
                 players_progress,
             }).await;
+
+            tokio::spawn(run_debt_deadline(state.clone(), lobby_id, player_id));
         }
 
         // ── Coger una carta del centro para tapar el hueco ──
@@ -1103,6 +1117,98 @@ async fn enter_new_lobby(
     }
 }
 
+/// Vigila la deuda de un jugador y, si se le pasa el plazo, le asigna una carta.
+///
+/// Se reprograma en vez de disparar a ciegas: mientras esté bloqueado por haber
+/// perdido una pelea el reloj no corre, y mientras haya una pelea en marcha
+/// tampoco —la carta en disputa es justo la que se está resolviendo—. Si la
+/// deuda se salda antes, la tarea se va sin hacer nada.
+async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
+    let mut wait = DEBT_DEADLINE;
+    loop {
+        sleep(wait).await;
+
+        let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+        if lobby.status != LobbyStatus::Playing {
+            return;
+        }
+        // Bloqueado: el plazo se reanuda cuando pueda volver a jugar.
+        if let Some(left) = lobby.stun_remaining(&player_id) {
+            wait = left + DEBT_DEADLINE;
+            continue;
+        }
+        {
+            let Some(gs) = lobby.game_state.as_ref() else { return };
+            if gs.active_qte.is_some() {
+                wait = Duration::from_millis(500);
+                continue;
+            }
+            let Some(p) = gs.players.iter().find(|p| p.id == player_id) else { return };
+            // Ya la tapó: nada que forzar.
+            if !p.owes_card() {
+                return;
+            }
+            // Soltó otra carta después: manda el plazo de esa deuda.
+            match p.owed_since {
+                Some(since) if since.elapsed() >= DEBT_DEADLINE => {}
+                Some(since) => {
+                    wait = DEBT_DEADLINE.saturating_sub(since.elapsed());
+                    continue;
+                }
+                None => return,
+            }
+        }
+
+        let forced = {
+            let Some(gs) = lobby.game_state.as_mut() else { return };
+            if gs.center_cards.is_empty() {
+                return;   // nada que asignar; se reintentará al soltar alguien
+            }
+            let pick = {
+                use rand::Rng;
+                let n = gs.center_cards.len();
+                gs.center_cards[rand::thread_rng().gen_range(0..n)]
+            };
+            // Por el mismo camino que una cogida normal, para que el combo, el
+            // set completado y el aviso se comporten igual.
+            take_card_into_slot(gs, player_id, pick.id).map(|taken| (pick, taken))
+        };
+        let Some((card, (set_index, new_set, completed))) = forced else { return };
+
+        let combo_msg = {
+            let Some(gs) = lobby.game_state.as_mut() else { return };
+            gs.find_player_mut(&player_id).map(|p| p.owed_since = None);
+            award_combo(gs, &player_id, COMBO_LINKS_TAKE, completed)
+        };
+
+        let (new_center, players_progress) = snapshot(&lobby);
+        let nickname = lobby.players.iter()
+            .find(|p| p.id == player_id)
+            .map(|p| p.nickname.clone())
+            .unwrap_or_default();
+        state.lobby_manager.update_lobby(lobby).await;
+
+        tracing::info!("⏱️ a {} se le acabó el plazo: carta {} asignada", nickname, card.id);
+        state.send_to_player(&player_id, ServerMessage::DebtForced {
+            card: CardInfo::from(card),
+        }).await;
+        state.send_to_player(&player_id, ServerMessage::SwapSuccess {
+            player: nickname,
+            set_index,
+            your_new_set: Some(new_set),
+            center_cards: new_center.clone(),
+        }).await;
+        if let Some(msg) = combo_msg {
+            state.send_to_player(&player_id, msg).await;
+        }
+        state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
+            center_cards: new_center,
+            players_progress,
+        }).await;
+        return;
+    }
+}
+
 /// Corta la partida y devuelve a todos a la sala. Es el único caso que queda
 /// en el que una desconexión cancela: cuando no quedan dos personas.
 async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
@@ -1235,6 +1341,7 @@ fn take_card_into_slot(
     let card = game_state.center_cards.remove(idx);
     game_state.players[p].sets[set_index][card_index] = Some(card);
     game_state.players[p].owed_slot = None;
+    game_state.players[p].owed_since = None;
     let completed = !was_complete && game_state.players[p].is_set_complete(set_index);
     Some((set_index, set_to_info(&game_state.players[p].sets[set_index]), completed))
 }

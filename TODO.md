@@ -216,6 +216,35 @@ Los resultados que se guardan van a Session Manager, no aquí.
 
 ## ✅ Hecho
 
+- **Cuatro fallos salidos de jugar en beta** (2026-09-11).
+  - *Soltar una carta y cambiar de set bloqueaba la partida.* La respuesta a
+    `SwitchSet` se construía con `filter_map` y **se comía el hueco**: el set
+    volvía con 3 cartas y sin ningún nulo, así que `owesCard()` en el cliente
+    decía que no debías nada y el centro dejaba de responder — mientras el
+    servidor sí seguía sabiendo que debías, con lo que tampoco podías soltar.
+    Ahora viaja con `set_to_info()`, igual que `GameStart` y `SwapSuccess`, y
+    además **no se puede cambiar de set mientras debes una carta**.
+  - *Plazo de 3 s para tapar el hueco* (`DEBT_DEADLINE`). Si se agota, el
+    servidor asigna una carta del centro al azar. El hueco no costaba nada
+    mientras no lo taparas, y con varios jugadores el centro se quedaba fijo en
+    7 u 8 cartas. La cuenta se **pausa mientras estás bloqueado** por perder una
+    pelea: eso ya cuesta la carta y 3 s parado, y una carta al azar encima sería
+    un tercer castigo por el mismo error.
+  - *El centro ya no mueve la interfaz en móvil.* Tiene altura fija y se
+    desplaza por dentro; antes, al añadirse una fila, empujaba hacia abajo las
+    cartas y los botones y el toque caía donde no era. También cubre el centro
+    enorme que deja alguien al abandonar.
+  - *Bots que no cerraban sets.* Van al set cuya prenda **está en el centro** en
+    vez de al que más cartas iguales tiene —perseguían sets imposibles—, y al
+    coger prefieren la que cierra el set, luego una que ya tengan en él, y solo
+    después la que más lleven en la mano; antes, si no estaba la que quería,
+    cogía la primera del centro y se pasaba la partida cambiando basura por
+    basura. Además tapan el hueco con un reflejo de 250 ms en lugar de esperar
+    un ciclo entero, que es lo que más despeja el centro.
+    (Se probó también "soltar la carta más rara del set" y se descartó: en un
+    set de 4, las que no son mayoritarias son siempre igual de raras, así que
+    elegía exactamente la misma que el código que ya había.)
+
 - **Los logs del servidor se ven** (2026-09-10). `tracing_subscriber::fmt::init()`
   a secas y sin `RUST_LOG` puesta dejaba **todos** los `tracing::info!` fuera:
   quién entra, quién se cae, qué prendas se retiran. En el VPS pm2 recoge

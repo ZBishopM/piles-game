@@ -681,6 +681,20 @@
         }
         #stunBar.active { display: block; }
         #stunBarFill { height: 100%; background: var(--danger); transition: width 0.1s linear; }
+
+        /* Misma barra, otro color: roja es "no puedes hacer nada", ámbar es
+           "date prisa". La transición la fija el JS con la duración que manda
+           el servidor. */
+        #debtBar {
+            display: none;
+            height: 6px;
+            border-radius: 3px;
+            background: #2a2a5a;
+            overflow: hidden;
+            margin: 0 0 10px;
+        }
+        #debtBar.active { display: block; }
+        #debtBarFill { height: 100%; width: 100%; background: var(--warning); }
         .stunned #centerCards,
         .stunned #yourCards {
             opacity: 0.35;
@@ -1018,6 +1032,22 @@
             /* min-width en vw forzaba scroll horizontal en pantallas
                estrechas; el grid ya se reparte solo. */
             .card-row { gap: 6px; margin-bottom: 10px; min-width: 0; }
+            /* El centro tiene ALTURA FIJA. Antes crecía al añadirse una fila y
+               empujaba hacia abajo todo lo demás —tus cartas, los botones de
+               set, revelar—, así que en mitad de una partida el toque caía en
+               otra cosa: soltabas una carta que no querías o revelabas un set
+               sin pretenderlo. Con alto fijo la mesa no se mueve nunca, pase lo
+               que pase con el número de cartas; si no caben, se desplaza dentro
+               de su propio hueco. Esto también cubre el caso de que alguien
+               abandone y el centro se vaya a ~28 cartas.
+               `overscroll-behavior` evita que al llegar al final arrastre la
+               página entera. */
+            #centerCards {
+                height: 40vh;
+                overflow-y: auto;
+                align-content: start;
+                overscroll-behavior: contain;
+            }
             /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
             .set-btn { min-height: 44px; padding: 10px 4px; }
             #flipBtn { min-height: 44px; padding: 10px 12px; }
@@ -1231,6 +1261,9 @@
 
     <!-- Cuenta atrás del bloqueo por perder una pelea -->
     <div id="stunBar"><div id="stunBarFill"></div></div>
+
+    <!-- Plazo para tapar el hueco. Si se agota, el servidor asigna una carta. -->
+    <div id="debtBar"><div id="debtBarFill"></div></div>
 
     <!-- Racha. La ventana la manda el servidor; aquí solo se anima la barra,
          igual que con el bloqueo de arriba. -->
@@ -1618,6 +1651,16 @@ function handleMsg(msg) {
 
         case 'combo_update':
             renderCombo(msg);
+            break;
+
+        case 'debt_started':
+            startDebtCountdown(msg.ms);
+            break;
+
+        case 'debt_forced':
+            // El SwapSuccess que viene detrás coloca la carta; esto solo dice
+            // por qué apareció sola.
+            onDebtForced(msg.card);
             break;
 
         case 'player_disconnected':
@@ -2103,6 +2146,7 @@ function onGameStart(msg) {
     pendingDrop = null;
     pendingTake = null;
     clearStun();
+    clearDebtCountdown();
     resetCombo();
     clearGraceNotices();
     myFlippedSets = Array(6).fill(false);
@@ -2138,12 +2182,16 @@ function buildSetNav() {
 }
 
 function updateSetNav() {
+    const owing = owesCard();
     document.querySelectorAll('.set-btn').forEach((btn, i) => {
         const flipped = myFlippedSets[i];
         btn.className = 'set-btn'
             + (i === currentSetIndex ? ' active' : '')
             + (flipped ? ' flipped' : '');
         btn.querySelector('.set-eye').textContent = flipped ? '👁' : '';
+        // Se repinta aquí y no solo en updateOwingUi porque esta función
+        // reescribe className en cada render y las dos tienen que coincidir.
+        btn.disabled = owing;
     });
     document.getElementById('setLabel').textContent = `Set ${currentSetIndex + 1} / 6`;
     updateFlipBtn();
@@ -2426,6 +2474,41 @@ function clearGraceNotices() {
     document.querySelectorAll('[data-grace]').forEach(el => el.remove());
 }
 
+// ─── Plazo para tapar el hueco ────────────────────────────────────────────
+// Soltar una carta y no coger otra sale gratis mientras no haya plazo, y con
+// varios jugadores el centro se queda fijo en 7 u 8 cartas. El servidor da 3 s
+// y luego asigna una al azar; aquí solo se pinta la cuenta atrás, con la
+// duración que él manda — igual que la barra del bloqueo.
+
+let debtTimer = null;
+
+function startDebtCountdown(ms) {
+    const bar = document.getElementById('debtBar');
+    const fill = document.getElementById('debtBarFill');
+    if (!bar || !fill) return;
+    clearTimeout(debtTimer);
+
+    bar.classList.add('active');
+    fill.style.transition = 'none';
+    fill.style.width = '100%';
+    void fill.offsetWidth;   // sin reflow el navegador agrupa los dos cambios
+    fill.style.transition = `width ${ms}ms linear`;
+    fill.style.width = '0%';
+
+    debtTimer = setTimeout(() => bar.classList.remove('active'), ms);
+}
+
+function clearDebtCountdown() {
+    clearTimeout(debtTimer);
+    document.getElementById('debtBar')?.classList.remove('active');
+}
+
+function onDebtForced(card) {
+    clearDebtCountdown();
+    updateSwapHint(`⏱️ Se acabó el tiempo: te tocó ${card.name}`);
+    resetSwapHintLater(2500);
+}
+
 // ─── Racha ────────────────────────────────────────────────────────────────
 // El servidor es quien la calcula; aquí solo se pinta. La barra se vacía sola
 // con la ventana que él manda, igual que la del bloqueo — así el cliente nunca
@@ -2625,6 +2708,13 @@ function updateOwingUi() {
     if (hint) hint.innerHTML = owing ? OWING_HINT : DEFAULT_SWAP_HINT;
     const flip = document.getElementById('flipBtn');
     if (flip) flip.disabled = owing;
+    // Los botones de set se apagan mientras debes, para que se vea que no es
+    // que no respondan: es que ahora solo se puede coger del centro.
+    document.querySelectorAll('.set-btn').forEach(b => { b.disabled = owing; });
+    // Deuda saldada: fuera la cuenta atrás, la hayas tapado tú o te la hayan
+    // tapado. Se hace aquí porque es el único sitio por el que pasan todos los
+    // caminos que cambian el estado de deuda.
+    if (!owing) clearDebtCountdown();
 }
 
 const DEFAULT_SWAP_HINT = `Toca una carta tuya para soltarla al centro`;
@@ -2654,6 +2744,9 @@ function updateSwapHint(html) {
 // ─── Cambio de set ────────────────────────────────────────────────────────
 function switchSet(index) {
     if (index === currentSetIndex) return;
+    // Debiendo una carta no se cambia de set: el hueco se quedaría en un set
+    // que no estás viendo. El servidor también lo rechaza.
+    if (owesCard()) return;
     currentSetIndex = index;
     clearSelection();
     send({ type: 'switch_set', set_index: index });
