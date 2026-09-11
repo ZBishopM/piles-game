@@ -10,6 +10,14 @@ use std::time::{Duration, Instant};
 /// Cuánto sobrevive un lobby vacío antes de reciclarse.
 const EMPTY_LOBBY_TTL: Duration = Duration::from_secs(30 * 60);
 
+/// Cuánto se le espera a quien se le cae la conexión en plena partida.
+///
+/// Durante este rato su sitio y sus cartas siguen en la mesa y los demás
+/// juegan igual. Al agotarse, la partida se redimensiona a un jugador menos
+/// retirando prendas enteras (`deck::retire_types_on_leave`) en vez de borrar
+/// sus cartas sueltas, que era lo que dejaba la partida sin solución.
+pub const GRACE_PERIOD: Duration = Duration::from_secs(30);
+
 /// Estado de un lobby
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LobbyStatus {
@@ -31,12 +39,23 @@ pub struct LobbyPlayer {
     /// Se comprueba en el servidor, así que no basta con tocar el cliente.
     #[serde(skip)]
     pub stunned_until: Option<Instant>,
+    /// Desde cuándo se le cayó la conexión en plena partida. Mientras esté
+    /// puesto, su sitio y sus cartas siguen ahí: los demás pueden seguir
+    /// jugando y él tiene `GRACE_PERIOD` para volver.
+    #[serde(skip)]
+    pub disconnected_at: Option<Instant>,
 }
 
 /// Cuánto dura el bloqueo tras perder una pelea.
+///
 /// 3 s en una partida donde un set se completa en segundos es un castigo de
-/// verdad, y es lo que hace que ceder la carta sea una opción real en vez de
-/// algo que nadie pulsa nunca.
+/// verdad. Ya no hay forma de escaquearse: ceder la carta se quitó, porque
+/// rendirse era justo la manera segura de proteger una racha, y pelear es lo
+/// que queremos que se haga.
+///
+/// Es más corto que `COMBO_WINDOW` (4 s) a propósito: el bloqueo no debe
+/// comerse la racha por sí solo, así que perder la corta por regla explícita
+/// (ver `break_combo` en websocket.rs).
 pub const STUN_DURATION: Duration = Duration::from_secs(3);
 
 /// Representa un lobby de juego
@@ -87,6 +106,7 @@ impl Lobby {
             nickname,
             is_ready: false,
             stunned_until: None,
+            disconnected_at: None,
         });
         self.empty_since = None;
 
@@ -197,6 +217,60 @@ impl Lobby {
             .find(|p| p.id == *player_id)?
             .stunned_until?;
         until.checked_duration_since(Instant::now())
+    }
+
+    /// Se le cayó la conexión en plena partida. No se le quita el sitio ni las
+    /// cartas: los demás siguen jugando y él tiene `GRACE_PERIOD` para volver.
+    /// Devuelve su nickname, para poder avisar a la mesa.
+    pub fn mark_disconnected(&mut self, player_id: &Uuid) -> Option<String> {
+        let p = self.players.iter_mut().find(|p| p.id == *player_id)?;
+        p.disconnected_at = Some(Instant::now());
+        p.is_ready = false;
+        Some(p.nickname.clone())
+    }
+
+    /// Vuelve dentro de la ventana: recupera su asiento **y sus cartas**.
+    ///
+    /// Hay que reasignar el id porque la identidad de un jugador es el uuid de
+    /// su socket, y al reconectar el socket es otro. Antes esto pasaba por
+    /// `remove_player` + `add_player`, que es justo lo que le borraba las
+    /// cartas. Devuelve el id viejo, que es el que hay que limpiar de las
+    /// conexiones.
+    pub fn rebind_disconnected(&mut self, nickname: &str, new_id: Uuid) -> Option<Uuid> {
+        let p = self.players.iter_mut()
+            .find(|p| p.nickname == nickname && p.disconnected_at.is_some())?;
+        let old_id = p.id;
+        p.id = new_id;
+        p.disconnected_at = None;
+
+        if let Some(game) = &mut self.game_state {
+            if let Some(ps) = game.players.iter_mut().find(|ps| ps.id == old_id) {
+                ps.id = new_id;
+            }
+            // Si estaba en una pelea, su identidad también vive ahí.
+            if let Some(qte) = &mut game.active_qte {
+                for (id, _) in qte.participants.iter_mut() {
+                    if *id == old_id { *id = new_id; }
+                }
+                if let Some(clicks) = qte.clicks.remove(&old_id) {
+                    qte.clicks.insert(new_id, clicks);
+                }
+            }
+        }
+        Some(old_id)
+    }
+
+    /// Quiénes han agotado la ventana y ya no vuelven.
+    pub fn expired_disconnects(&self, grace: Duration) -> Vec<Uuid> {
+        self.players.iter()
+            .filter(|p| p.disconnected_at.map_or(false, |t| t.elapsed() >= grace))
+            .map(|p| p.id)
+            .collect()
+    }
+
+    /// Cuántos siguen con conexión. Por debajo de 2 no hay partida posible.
+    pub fn connected_count(&self) -> usize {
+        self.players.iter().filter(|p| p.disconnected_at.is_none()).count()
     }
 
     /// Cuenta cuántos jugadores están listos
@@ -421,6 +495,71 @@ mod tests {
         // Que no entre en pánico ni bloquee a nadie por un id que no existe.
         lobby.stun_player(&Uuid::new_v4());
         assert!(lobby.stun_remaining(&Uuid::new_v4()).is_none());
+    }
+
+    // Lo que motivó todo el mecanismo de abandono: al caerse la conexión en
+    // plena partida, el jugador NO pierde sus cartas. Antes se le quitaba del
+    // game_state y con él sus 24 cartas, y como cada prenda tiene exactamente
+    // 4, eso dejaba ~20 prendas imposibles de completar para los que seguían.
+    #[test]
+    fn a_disconnect_keeps_the_seat_and_the_cards() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let ana = Uuid::new_v4();
+        let beto = Uuid::new_v4();
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+        lobby.add_player(beto, "Beto".to_string()).unwrap();
+        lobby.set_player_ready(&ana, true).unwrap();
+        lobby.set_player_ready(&beto, true).unwrap();
+        lobby.start_game().unwrap();
+
+        let cards_before = lobby.game_state.as_ref().unwrap()
+            .players.iter().find(|p| p.id == ana).unwrap().sets;
+
+        assert_eq!(lobby.mark_disconnected(&ana).as_deref(), Some("Ana"));
+        assert_eq!(lobby.connected_count(), 1, "Ana ya no cuenta como conectada");
+        assert_eq!(lobby.players.len(), 2, "pero su sitio sigue ahí");
+        assert!(lobby.game_state.is_some(), "la partida no se cancela");
+
+        // Vuelve con otro socket, así que con otro uuid.
+        let ana_again = Uuid::new_v4();
+        let old = lobby.rebind_disconnected("Ana", ana_again).expect("recupera su sitio");
+        assert_eq!(old, ana);
+        assert_eq!(lobby.connected_count(), 2);
+
+        let ps = lobby.game_state.as_ref().unwrap()
+            .players.iter().find(|p| p.id == ana_again)
+            .expect("el PlayerState se reasigna al uuid nuevo");
+        assert_eq!(ps.sets, cards_before, "sus cartas siguen siendo las mismas");
+        assert!(!lobby.players.iter().any(|p| p.id == ana), "el uuid viejo no se queda");
+    }
+
+    #[test]
+    fn the_grace_window_only_expires_for_whoever_is_actually_gone() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let ana = Uuid::new_v4();
+        let beto = Uuid::new_v4();
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+        lobby.add_player(beto, "Beto".to_string()).unwrap();
+
+        lobby.mark_disconnected(&ana);
+
+        // Recién caída, todavía se le espera.
+        assert!(lobby.expired_disconnects(GRACE_PERIOD).is_empty());
+        // Y con ventana cero ya se le da por ido, pero solo a ella.
+        let expired = lobby.expired_disconnects(Duration::from_secs(0));
+        assert_eq!(expired, vec![ana]);
+    }
+
+    #[test]
+    fn rebinding_needs_a_disconnected_seat() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let ana = Uuid::new_v4();
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+
+        // Ana está conectada: nadie puede apropiarse de su sitio.
+        assert!(lobby.rebind_disconnected("Ana", Uuid::new_v4()).is_none());
+        // Y un nombre que no existe tampoco.
+        assert!(lobby.rebind_disconnected("Nadie", Uuid::new_v4()).is_none());
     }
 
     #[test]

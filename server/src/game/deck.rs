@@ -1,6 +1,7 @@
-use super::models::{Card, TOTAL_CLOTHING_TYPES};
+use super::models::{Card, GameState, PlayerState, TOTAL_CLOTHING_TYPES};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
+use uuid::Uuid;
 
 /// Calcula el número total de sets necesarios según el número de jugadores
 /// Fórmula: total_sets = 13 + ((num_players - 2) * 6)
@@ -103,9 +104,311 @@ pub fn distribute_cards(deck: Vec<Card>, num_players: u8) -> (Vec<[[Card; 4]; 6]
     (player_sets, center_cards)
 }
 
+/// Qué pasó cuando alguien abandonó la partida a medias.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RetireOutcome {
+    /// Prendas que salen de la partida entera, con sus 4 cartas.
+    pub retired_types: Vec<u8>,
+    /// Cartas del que se fue que siguen en juego y han ido al centro.
+    pub returned_to_center: usize,
+    /// Huecos abiertos a jugadores que seguían jugando.
+    pub holes_punched: usize,
+}
+
+/// Posiciones `(set, hueco)` donde ese jugador tiene cartas de esa prenda.
+fn slots_of_type(p: &PlayerState, clothing_type: u8) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for (s, set) in p.sets.iter().enumerate() {
+        for (c, slot) in set.iter().enumerate() {
+            if matches!(slot, Some(card) if card.clothing_type == clothing_type) {
+                out.push((s, c));
+            }
+        }
+    }
+    out
+}
+
+/// ¿Se puede retirar esta prenda sin hacer daño?
+///
+/// Se comprueba dos veces —al puntuar y otra vez justo antes de retirar—
+/// porque retirar una prenda abre huecos y cambia quién puede recibir el
+/// siguiente: puntuar una sola vez al principio dejaría pasar un segundo
+/// hueco a la misma persona.
+fn is_safe_to_retire(game: &GameState, clothing_type: u8, punched: &[Uuid]) -> Option<usize> {
+    let mut cost = 0usize;
+    for p in &game.players {
+        let slots = slots_of_type(p, clothing_type);
+        if slots.is_empty() {
+            continue;
+        }
+        // Nunca deshacer un set ya completo: es lo más cruel que te puede
+        // pasar por culpa de la conexión de otro.
+        if slots.iter().any(|(s, _)| p.is_set_complete(*s)) {
+            return None;
+        }
+        // `owed_slot` guarda UN hueco, así que no se puede abrir un segundo a
+        // la misma persona ni pisar una deuda que ya tenía.
+        if slots.len() > 1 || punched.contains(&p.id) {
+            return None;
+        }
+        cost += slots.len();
+    }
+    Some(cost)
+}
+
+/// Alguien se fue y no volvió: la partida se redimensiona a un jugador menos.
+///
+/// La cuenta cuadra sola: un jugador lleva 24 cartas y pasar de `n` a `n-1`
+/// jugadores son justo 6 sets = 24 cartas menos. Lo que estaba mal antes no
+/// era cuántas cartas se quitaban sino **cuáles**: borrar las 24 sueltas del
+/// que se iba rompía ~20 prendas distintas, y como cada prenda tiene
+/// exactamente 4 cartas, una prenda a la que le falta una ya no se puede
+/// completar nunca. Por eso aquí se retiran **prendas enteras**.
+///
+/// Retirar menos de 6 es inofensivo: sobran sets, y sobrar solo da holgura.
+/// Por eso el algoritmo es codicioso y sin caso de fallo.
+pub fn retire_types_on_leave(game: &mut GameState, leaver: &Uuid) -> RetireOutcome {
+    let Some(pos) = game.players.iter().position(|p| p.id == *leaver) else {
+        return RetireOutcome::default();
+    };
+    let gone = game.players.remove(pos);
+    let leaver_cards: Vec<Card> = gone.sets.iter().flatten().filter_map(|slot| *slot).collect();
+
+    let give_back_everything = |game: &mut GameState, cards: Vec<Card>| {
+        let n = cards.len();
+        game.center_cards.extend(cards);
+        RetireOutcome { retired_types: Vec::new(), returned_to_center: n, holes_punched: 0 }
+    };
+
+    // Con menos de dos ya no hay partida que redimensionar; cancelar o no lo
+    // decide quien llama.
+    let remaining = game.players.len();
+    if remaining < 2 {
+        return give_back_everything(game, leaver_cards);
+    }
+
+    // Prendas que hay ahora, contando las del que se fue: todavía no han ido
+    // a ningún sitio.
+    let mut in_play: Vec<u8> = game.players.iter()
+        .flat_map(|p| p.sets.iter().flatten().filter_map(|slot| *slot))
+        .map(|c| c.clothing_type)
+        .chain(game.center_cards.iter().map(|c| c.clothing_type))
+        .chain(leaver_cards.iter().map(|c| c.clothing_type))
+        .collect();
+    in_play.sort_unstable();
+    in_play.dedup();
+
+    let target = calculate_total_sets(remaining as u8) as usize;
+    let to_retire = in_play.len().saturating_sub(target);
+    if to_retire == 0 {
+        return give_back_everything(game, leaver_cards);
+    }
+
+    // Quien ya debía una carta no puede recibir otro hueco.
+    let mut punched: Vec<Uuid> = game.players.iter()
+        .filter(|p| p.owes_card())
+        .map(|p| p.id)
+        .collect();
+
+    // Coste 0 = esa prenda solo vive en la mano del que se fue y en el centro,
+    // así que retirarla no la nota nadie. Se ordena por coste, y el número de
+    // prenda desempata para que el resultado sea determinista.
+    let mut scored: Vec<(usize, u8)> = in_play.iter()
+        .filter_map(|&t| is_safe_to_retire(game, t, &punched).map(|cost| (cost, t)))
+        .collect();
+    scored.sort_unstable();
+
+    let mut outcome = RetireOutcome::default();
+    for (_, t) in scored {
+        if outcome.retired_types.len() >= to_retire {
+            break;
+        }
+        // Revalidar: los huecos abiertos hasta ahora cambian quién puede
+        // recibir el siguiente.
+        if is_safe_to_retire(game, t, &punched).is_none() {
+            continue;
+        }
+
+        for p in game.players.iter_mut() {
+            for (s, c) in slots_of_type(p, t) {
+                p.sets[s][c] = None;
+                p.owed_slot = Some((s, c));
+                outcome.holes_punched += 1;
+                punched.push(p.id);
+            }
+        }
+        game.center_cards.retain(|c| c.clothing_type != t);
+        outcome.retired_types.push(t);
+    }
+
+    // Lo que llevaba y no se ha retirado vuelve al centro: toda prenda que
+    // siga en juego tiene que conservar sus 4 cartas, o deja de completarse.
+    let kept: Vec<Card> = leaver_cards.into_iter()
+        .filter(|c| !outcome.retired_types.contains(&c.clothing_type))
+        .collect();
+    outcome.returned_to_center = kept.len();
+    game.center_cards.extend(kept);
+
+    outcome
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Abandonar la partida ──────────────────────────────────────────────
+
+    /// Reparte una partida de verdad y devuelve su GameState.
+    fn a_game(num_players: u8) -> GameState {
+        let deck = generate_deck(num_players);
+        let (sets, center) = distribute_cards(deck, num_players);
+        let players: Vec<PlayerState> = sets.into_iter().enumerate()
+            .map(|(i, s)| PlayerState::new(Uuid::new_v4(), format!("P{i}"), s))
+            .collect();
+        GameState::new("TEST".to_string(), players, center.to_vec())
+    }
+
+    /// Todas las cartas que siguen en juego, en manos o en el centro.
+    fn cards_in_play(game: &GameState) -> Vec<Card> {
+        game.players.iter()
+            .flat_map(|p| p.sets.iter().flatten().filter_map(|slot| *slot))
+            .chain(game.center_cards.iter().copied())
+            .collect()
+    }
+
+    /// La invariante que el bug original rompía: cada prenda que siga viva
+    /// tiene que conservar sus 4 cartas, o no se puede completar nunca.
+    fn every_live_type_is_whole(game: &GameState) {
+        let cards = cards_in_play(game);
+        let mut types: Vec<u8> = cards.iter().map(|c| c.clothing_type).collect();
+        types.sort_unstable();
+        types.dedup();
+        for t in types {
+            let n = cards.iter().filter(|c| c.clothing_type == t).count();
+            assert_eq!(n, 4, "la prenda {t} se quedó con {n} cartas y ya no se puede completar");
+        }
+    }
+
+    #[test]
+    fn leaving_keeps_every_surviving_type_completable() {
+        let mut game = a_game(4);
+        let leaver = game.players[1].id;
+
+        retire_types_on_leave(&mut game, &leaver);
+
+        assert_eq!(game.players.len(), 3);
+        every_live_type_is_whole(&game);
+    }
+
+    // Recortar de 25 prendas a las 19 de una partida a 3 querría retirar 6,
+    // pero `owed_slot` solo guarda UN hueco por jugador: con 3 supervivientes
+    // solo se pueden retirar las prendas que no tiene nadie (coste 0) más, como
+    // mucho, una por jugador. Así que normalmente se retiran menos de 6, y eso
+    // es correcto: sobrar sets solo da holgura. Lo que nunca puede pasar es
+    // pasarse de recorte y dejar la partida sin resolver.
+    #[test]
+    fn leaving_trims_towards_the_smaller_deck_without_overtrimming() {
+        let mut game = a_game(4);
+        let leaver = game.players[0].id;
+        let before = {
+            let mut t: Vec<u8> = cards_in_play(&game).iter().map(|c| c.clothing_type).collect();
+            t.sort_unstable(); t.dedup(); t.len()
+        };
+
+        let out = retire_types_on_leave(&mut game, &leaver);
+
+        let mut types: Vec<u8> = cards_in_play(&game).iter().map(|c| c.clothing_type).collect();
+        types.sort_unstable();
+        types.dedup();
+
+        let target = calculate_total_sets(3) as usize;
+        assert!(out.retired_types.len() <= 6, "nunca más de las 6 que sobran");
+        assert!(types.len() <= before, "no puede haber más prendas que antes");
+        assert!(types.len() >= target, "pasarse de recorte dejaría la partida sin resolver");
+        // Lo que de verdad importa: los 3 que siguen necesitan 18 sets y tiene
+        // que haber al menos eso.
+        assert!(types.len() >= 3 * 6, "los que siguen tienen que poder acabar");
+    }
+
+    #[test]
+    fn a_completed_set_is_never_dismantled() {
+        let mut game = a_game(3);
+        // Regalarle a P1 un set completo de una prenda que también está en la
+        // mano del que se va, para que sea justo la candidata más barata.
+        let leaver = game.players[0].id;
+        let victim_type = game.players[0].sets[0][0].unwrap().clothing_type;
+        let full = [
+            Some(Card::new(900, victim_type)), Some(Card::new(901, victim_type)),
+            Some(Card::new(902, victim_type)), Some(Card::new(903, victim_type)),
+        ];
+        game.players[1].sets[0] = full;
+        // Por id y no por índice: al sacar al que se va, el vector se recoloca.
+        let victim = game.players[1].id;
+        assert!(game.players[1].is_set_complete(0));
+
+        retire_types_on_leave(&mut game, &leaver);
+
+        let victim = game.players.iter().find(|p| p.id == victim).expect("sigue jugando");
+        assert!(victim.is_set_complete(0), "no se puede deshacer un set ya hecho");
+        assert!(victim.sets[0].iter().all(|s| s.is_some()));
+    }
+
+    #[test]
+    fn nobody_ends_up_owing_two_cards() {
+        // owed_slot solo guarda un hueco, así que abrir dos a la misma persona
+        // perdería uno y la dejaría con un agujero que nunca podría tapar.
+        let mut game = a_game(5);
+        let leaver = game.players[4].id;
+
+        let out = retire_types_on_leave(&mut game, &leaver);
+
+        // Cada hueco abierto corresponde a un jugador distinto.
+        let owing = game.players.iter().filter(|p| p.owes_card()).count();
+        assert_eq!(owing, out.holes_punched, "algún jugador recibió más de un hueco");
+        every_live_type_is_whole(&game);
+    }
+
+    #[test]
+    fn someone_who_already_owed_a_card_is_left_alone() {
+        let mut game = a_game(4);
+        let leaver = game.players[3].id;
+        game.players[0].sets[2][1] = None;
+        game.players[0].owed_slot = Some((2, 1));
+        let debt_before = game.players[0].owed_slot;
+
+        retire_types_on_leave(&mut game, &leaver);
+
+        assert_eq!(game.players[0].owed_slot, debt_before,
+                   "no se le puede pisar una deuda que ya tenía");
+    }
+
+    #[test]
+    fn dropping_below_two_players_just_returns_the_cards() {
+        // Con un solo superviviente no hay nada que redimensionar; cancelar o
+        // no es decisión de quien llama, aquí solo no se pierde ninguna carta.
+        let mut game = a_game(2);
+        let before = cards_in_play(&game).len();
+        let leaver = game.players[0].id;
+
+        let out = retire_types_on_leave(&mut game, &leaver);
+
+        assert_eq!(game.players.len(), 1);
+        assert!(out.retired_types.is_empty());
+        assert_eq!(cards_in_play(&game).len(), before, "no desaparece ninguna carta");
+        every_live_type_is_whole(&game);
+    }
+
+    #[test]
+    fn an_unknown_leaver_changes_nothing() {
+        let mut game = a_game(3);
+        let before = cards_in_play(&game).len();
+
+        let out = retire_types_on_leave(&mut game, &Uuid::new_v4());
+
+        assert_eq!(out, RetireOutcome::default());
+        assert_eq!(game.players.len(), 3);
+        assert_eq!(cards_in_play(&game).len(), before);
+    }
 
     #[test]
     fn test_calculate_total_sets() {
