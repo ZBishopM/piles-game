@@ -53,39 +53,32 @@ números, no lógica: tocarlos no puede romper nada.
       No mira lo que han revelado los demás ni lo que hay en el centro para
       decidir qué set perseguir — se podría, si resulta demasiado tonto.
 
-- [ ] **Nadie cierra un set, y puede que no sea culpa del bot** (2026-09-11).
-      Medido: tres partidas (8 min y dos de 3 min, 3 bots difíciles + un humano
-      jugando) y **cero sets cerrados por nadie**, humano incluido. La mesa se
-      mueve —570 actualizaciones en 8 minutos, sin parones—, lo que falla es el
-      cierre.
+- [ ] **Los bots cierran sets, pero demasiado pocos** (2026-09-11). Cerraron uno
+      en 2 de 5 partidas medidas; antes, ninguno en 3. Para ganar hacen falta 6,
+      así que siguen sin terminar una partida. La mesa ya no se para.
 
-      Lo que dice la traza: los bots se plantan en **tres iguales el 63 % de la
-      partida** y no pasan de ahí. Nunca se vio un cuatro. No es que jueguen mal
-      de camino: llegan a la última carta y ahí se quedan.
+      **Arreglado, y era la causa de que no cerraran ninguno**: esperaban cartas
+      que tenían ellos mismos. Las cartas caen en el hueco del que soltaste, así
+      que dos copias de la misma prenda en sets distintos no se juntan jamás —hay
+      que soltar la descolgada al centro y recogerla ya en el set bueno. Medido
+      antes del arreglo: **88 de 132 esperas eran esto**, y en las peores el bot
+      tenía las cuatro copias repartidas esperando una quinta.
 
-      Descartado ya, comprobando el código: el mazo tiene exactamente 4 copias
-      por prenda; `take_card_into_slot` mete la carta en el hueco del que
-      soltaste, no en otro set; `is_set_complete` en el servidor y `set_is_done`
-      en el bot piden lo mismo.
+      **No es el reparto.** Entre personas las partidas sí terminan. Descartado
+      además leyendo el código: el mazo tiene exactamente 4 copias por prenda,
+      `take_card_into_slot` mete la carta en el hueco del que soltaste, y
+      `is_set_complete` y `set_is_done` piden lo mismo.
 
-      La sospecha es el **reparto**. Con 4 jugadores hay 25 prendas y hacen falta
-      24 completas (6 por cabeza): sobra **una sola prenda, 4 cartas**, y son las
-      únicas que circulan libres. Para cerrar tu cuarta copia tiene que pasar por
-      un centro de 4 cartas justo cuando tú tienes el hueco abierto en ese set.
-      Con todos plantados en tres, cada uno guarda como basura la cuarta copia
-      que otro necesita.
+      **Lo que queda**: las cuartas copias que otro necesita siguen muertas en
+      los cinco sets que el bot no toca nunca, porque solo suelta del set al que
+      apunta. Soltar del set *peor* se probó **dos veces** para eso —suelto, y
+      con compromiso de destino— y midió peor las dos: la segunda dejó la mesa
+      parada en 20 actualizaciones. No repetirlo sin una idea distinta detrás.
 
-      Probado y revertido, sin efecto: soltar del set *peor* en vez del mejor
-      (para liberar esas copias muertas), primero suelto —250 cambios de set en
-      3 minutos, el bot se pasaba la partida yendo y viniendo— y luego con
-      compromiso de destino, que quitó el vaivén pero siguió sin cerrar nada.
-
-      Antes de tocar más el bot, la pregunta es de diseño: **¿cuánto debería
-      sobrar?** `calculate_total_sets` da `13 + (n-2)*6`, que deja siempre un set
-      de sobra sea cual sea el número de jugadores. Subirlo a dos o tres sets de
-      sobra daría holgura real al centro. Es una decisión de juego, no de código.
-      Falta también saber si entre personas las partidas sí terminan: si acaban,
-      el problema es solo del bot; si tampoco, es del reparto.
+      Ojo con cualquier arreglo que haga al bot cambiar de set: cambiar de set no
+      mueve ninguna carta, así que un bot dando vueltas entre sets parece ocupado
+      y para la mesa entera sin que salte ningún error. Por eso `SwitchSet` no
+      cuenta como avance para el contador de espera.
 
 **Ojo si se toca el bucle del bot**: hay dos relojes separados y no es un
 descuido. `think` es la dificultad; `watch` (80 ms fijos) es mirar si alguien va
@@ -93,6 +86,32 @@ a por una carta para disputársela. La ventana de conflicto son 300 ms, así que
 comprobándolo al ritmo de `think` (500 ms en difícil) casi nunca cae dentro:
 con un solo reloj, dos bots en difícil jugaban partidas enteras sin pelearse una
 sola carta.
+
+---
+
+## 💡 Ideas por probar
+
+- [ ] **Romper los plantes con el combo** (idea de 2026-09-11, por probar).
+      Pasa también entre personas: llega un momento en que todos esperan a que
+      otro suelte por fin la carta que les falta, y nadie suelta. La partida no
+      se bloquea, pero se hace lenta justo al final, que es cuando debería
+      apretar.
+
+      La idea: si alguien aguanta un combo por encima de cierto multiplicador
+      durante cierto tiempo, **bloquea un segundo a los demás**. No es un castigo
+      al que espera, es un premio al que está jugando rápido: mientras los demás
+      están bloqueados, el que va lanzado tiene la mesa para él y puede coger lo
+      que necesita sin que se lo disputen. Rompe el plante desde arriba, sin
+      obligar a nadie a soltar.
+
+      Por decidir antes de escribir nada: a partir de qué multiplicador, cuánto
+      hay que aguantarlo, y si el bloqueo se repite mientras dure la racha o es
+      una sola vez. Hay que probarlo jugando: puede ser justo lo que le falta al
+      final de la partida, o puede ser insufrible para el que lo recibe.
+
+      La maquinaria ya está: `Stunned { ms }` con su bloqueo en el cliente,
+      `ComboUpdate` con multiplicador y ventana, y `is_on_fire()` que ya se
+      difunde a todos.
 
 ---
 

@@ -108,6 +108,22 @@ struct Bot {
     flipped: [bool; 6],
     /// La verificación se pide una sola vez.
     verification_sent: bool,
+    /// Prenda que acaba de soltar para desatascarse. No se vuelve a coger en el
+    /// hueco que ha abierto: volvería al set del que la sacó.
+    freed: Option<u8>,
+    /// Viaje a por una copia propia descolgada: `(prenda, set destino)`.
+    ///
+    /// Cambiar de set cuesta un turno, y si al turno siguiente se recalcula el
+    /// objetivo el bot vuelve a apuntar a otro lado y no llega a soltar nunca.
+    /// Cambiar de set no mueve ninguna carta, así que la mesa se queda quieta
+    /// del todo: medido, 47 actualizaciones y parón el resto de la partida.
+    freeing: Option<(u8, usize)>,
+    /// Prenda que acaba de dejar en el centro y a por la que va: `(prenda, set)`.
+    ///
+    /// Sin esto el objetivo se recalcula cada turno mientras vuelve, y para
+    /// cuando llega ya se la ha llevado otro. Soltar la copia propia y no
+    /// recuperarla es peor que no haberla soltado.
+    chasing: Option<(u8, usize)>,
 }
 
 impl Bot {
@@ -147,6 +163,24 @@ impl Bot {
         })
     }
 
+    /// Una copia de `t` tirada en otro set, si la hay: `(set, hueco)`.
+    ///
+    /// Las cartas caen en el hueco del que soltaste, así que dos copias de la
+    /// misma prenda en sets distintos **no se pueden juntar nunca**. La única
+    /// forma es soltar la descolgada al centro y volver a cogerla ya en el set
+    /// bueno. Sin esto el bot espera una carta que tiene él mismo.
+    fn stray_copy(&self, t: u8, target: usize) -> Option<(usize, usize)> {
+        (0..self.sets.len())
+            .filter(|&i| i != target && !self.set_is_done(i))
+            .find_map(|i| {
+                let set = self.sets.get(i)?;
+                let j = (0..set.len()).find(|&j| {
+                    set[j].as_ref().is_some_and(|c| c.clothing_type == t)
+                })?;
+                Some((i, j))
+            })
+    }
+
     /// ¿Hay en el centro alguna carta de esta prenda?
     fn center_has(&self, clothing_type: u8) -> bool {
         self.center.iter().any(|c| c.clothing_type == clothing_type)
@@ -178,7 +212,7 @@ impl Bot {
     }
 
     /// Qué hacer ahora. `None` = esperar.
-    fn decide(&self, rng: &mut impl Rng) -> Option<ClientMessage> {
+    fn decide(&mut self, rng: &mut impl Rng) -> Option<ClientMessage> {
         if !self.playing || self.stunned() || self.fighting {
             return None;
         }
@@ -198,18 +232,55 @@ impl Bot {
 
         let well = rng.gen_bool(self.knobs.good_choice);
 
+        // Un viaje a por una copia propia se termina. Recalcular el objetivo a
+        // mitad de camino deja al bot cambiando de set sin soltar nunca, y eso
+        // no mueve ninguna carta: la mesa entera se para.
+        if let Some((t, target)) = self.freeing {
+            if !self.owes() {
+                match self.stray_copy(t, target) {
+                    Some((set, card)) if set == self.current_set => {
+                        self.freeing = None;
+                        self.freed = Some(t);
+                        self.chasing = Some((t, target));
+                        return Some(ClientMessage::DropCard { my_card_index: card });
+                    }
+                    Some((set, _)) => {
+                        return Some(ClientMessage::SwitchSet { set_index: set });
+                    }
+                    // Ya no queda descolgada: alguien la peleó, o se resolvió.
+                    None => self.freeing = None,
+                }
+            }
+        }
+
         // Debiendo una carta no se puede hacer nada más que coger del centro.
         if let Some(hole_set) = self.hole() {
             if self.center.is_empty() {
                 return None;
             }
+            // La prenda que acaba de soltar para desatascarse no se vuelve a
+            // coger aquí: iría al hueco que acaba de abrir, o sea al mismo set
+            // del que la sacó, y habría dado la vuelta entera para nada.
+            let freed = self.freed.take();
+            let center: Vec<CardInfo> = match freed {
+                Some(t) => {
+                    let sin = |c: &&CardInfo| c.clothing_type != t;
+                    let filtrado: Vec<CardInfo> =
+                        self.center.iter().filter(sin).cloned().collect();
+                    // Si en el centro solo estaba eso, mejor coger que quedarse
+                    // debiendo: a los 3 s el servidor asigna una cualquiera.
+                    if filtrado.is_empty() { self.center.clone() } else { filtrado }
+                }
+                None => self.center.clone(),
+            };
+            let center = &center;
             let pick = if well {
                 let want = self.modal(hole_set).map(|(t, _)| t);
                 // 1) la prenda que cierra este set;
-                want.and_then(|t| self.center.iter().find(|c| c.clothing_type == t))
+                want.and_then(|t| center.iter().find(|c| c.clothing_type == t))
                     // 2) si no está, algo que ya tenga en ESE set, que es donde
                     //    va a caer la carta;
-                    .or_else(|| self.center.iter().find(|c| {
+                    .or_else(|| center.iter().find(|c| {
                         self.sets.get(hole_set).is_some_and(|s| {
                             s.iter().flatten().any(|h| h.clothing_type == c.clothing_type)
                         })
@@ -217,15 +288,23 @@ impl Bot {
                     // 3) y si tampoco, lo que más tenga en la mano: al menos no
                     //    empeora. Coger la primera del centro era lo que le
                     //    hacía dar vueltas cambiando basura por basura.
-                    .or_else(|| self.center.iter()
+                    .or_else(|| center.iter()
                         .max_by_key(|c| self.count_in_hand(c.clothing_type)))
             } else {
-                self.center.get(rng.gen_range(0..self.center.len()))
+                center.get(rng.gen_range(0..center.len()))
             };
             return pick.map(|c| ClientMessage::TakeCard { card_id: c.id });
         }
 
-        let target = self.best_set()?;
+        // Volviendo a por la carta que acaba de liberar, el objetivo no se
+        // discute: recalcularlo cada turno era llegar tarde siempre.
+        let target = match self.chasing {
+            Some((t, s)) if self.center_has(t) && !self.set_is_done(s) => s,
+            _ => {
+                self.chasing = None;
+                self.best_set()?
+            }
+        };
 
         // Soltar solo si la prenda que cierra este set ESTÁ ya en el centro.
         //
@@ -237,6 +316,22 @@ impl Bot {
         // Esperar para siempre bloquearía la mesa —si nadie suelta, el centro
         // no cambia—, de eso se encarga `force_drop` desde el bucle.
         if well && !self.modal(target).is_some_and(|(t, _)| self.center_has(t)) {
+            // Antes de esperar: puede que la carta que falta la tenga él mismo
+            // descolgada en otro set. Entonces no va a salir jamás y esperar es
+            // esperar para siempre — medido: dos de cada tres esperas eran esto,
+            // y en las peores el bot tenía las CUATRO copias repartidas y seguía
+            // esperando una quinta que no existe. Hay que soltarla para poder
+            // recogerla ya en el set bueno.
+            if let Some((t, _)) = self.modal(target) {
+                if let Some((set, card)) = self.stray_copy(t, target) {
+                    if set != self.current_set {
+                        self.freeing = Some((t, target));
+                        return Some(ClientMessage::SwitchSet { set_index: set });
+                    }
+                    self.freed = Some(t);
+                    return Some(ClientMessage::DropCard { my_card_index: card });
+                }
+            }
             return None;
         }
 
@@ -319,6 +414,9 @@ mod tests {
             last_intent: None,
             flipped: [false; 6],
             verification_sent: false,
+            freed: None,
+            freeing: None,
+            chasing: None,
         }
     }
 
@@ -357,7 +455,7 @@ mod tests {
             vec![Some(card(0, 6)), Some(card(1, 6)), Some(card(2, 5)), Some(card(3, 7))],
             mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
         ];
-        let bot = bot_with(sets, vec![card(99, 6)]);
+        let mut bot = bot_with(sets, vec![card(99, 6)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             Some(ClientMessage::DropCard { my_card_index }) => {
@@ -375,7 +473,7 @@ mod tests {
             full(3, 10), full(4, 20), full(5, 30), full(6, 40), full(8, 50),
         ];
         sets[0][3] = None;
-        let bot = bot_with(sets, vec![card(90, 9), card(91, 5), card(92, 4)]);
+        let mut bot = bot_with(sets, vec![card(90, 9), card(91, 5), card(92, 4)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             Some(ClientMessage::TakeCard { card_id }) => assert_eq!(card_id, 91),
@@ -392,12 +490,94 @@ mod tests {
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), None],
             full(7, 10), full(7, 20), full(4, 30), full(6, 40), full(8, 50),
         ];
-        let bot = bot_with(sets, vec![card(90, 9), card(91, 7)]);
+        let mut bot = bot_with(sets, vec![card(90, 9), card(91, 7)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             // El 7 lo lleva 8 veces en la mano; el 9, ninguna.
             Some(ClientMessage::TakeCard { card_id }) => assert_eq!(card_id, 91),
             other => panic!("esperaba coger la menos mala, fue {other:?}"),
+        }
+    }
+
+    // El motivo medido de que los bots no cerraran NUNCA un set: esperaban una
+    // carta que tenían ellos mismos descolgada en otro set. Las cartas caen en
+    // el hueco del que soltaste, así que dos copias en sets distintos no se
+    // juntan jamás y la espera no termina nunca.
+    #[test]
+    fn it_frees_the_copy_it_is_hoarding_in_another_set() {
+        // Tres 5 en el set 0 y el cuarto tirado en el set 2: tiene la prenda
+        // entera y aun así no puede cerrar.
+        let sets = vec![
+            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            mixed(10),
+            vec![Some(card(20, 5)), Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
+            mixed(30), mixed(40), mixed(50),
+        ];
+        // Ni un 5 en el centro, y no va a salir: los tiene todos él.
+        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let mut rng = rand::thread_rng();
+
+        // Primero hay que ir al set donde está la copia descolgada.
+        match bot.decide(&mut rng) {
+            Some(ClientMessage::SwitchSet { set_index }) => assert_eq!(set_index, 2),
+            other => panic!("esperaba ir a por su propia copia, fue {other:?}"),
+        }
+
+        // Y una vez allí, soltarla: es la única forma de volver a cogerla en el
+        // set bueno.
+        bot.current_set = 2;
+        match bot.decide(&mut rng) {
+            Some(ClientMessage::DropCard { my_card_index }) => assert_eq!(my_card_index, 0),
+            other => panic!("tenía que soltar el 5 descolgado, fue {other:?}"),
+        }
+        assert_eq!(bot.freed, Some(5));
+    }
+
+    // El viaje tiene que terminar. Si al turno siguiente se recalcula el
+    // objetivo, el bot se queda cambiando de set eternamente — y cambiar de set
+    // no mueve ninguna carta, así que la mesa entera se para.
+    #[test]
+    fn the_trip_for_its_own_copy_always_ends_in_a_drop() {
+        let sets = vec![
+            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            mixed(10),
+            vec![Some(card(20, 5)), Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
+            mixed(30), mixed(40), mixed(50),
+        ];
+        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let mut rng = rand::thread_rng();
+
+        // Se le deja decidir varias veces obedeciendo los cambios de set, como
+        // hace el bucle de verdad. Tiene que acabar soltando, no dar vueltas.
+        let mut dropped = false;
+        for _ in 0..6 {
+            match bot.decide(&mut rng) {
+                Some(ClientMessage::SwitchSet { set_index }) => bot.current_set = set_index,
+                Some(ClientMessage::DropCard { .. }) => { dropped = true; break }
+                other => panic!("ni suelta ni se cambia: {other:?}"),
+            }
+        }
+        assert!(dropped, "se quedó cambiando de set sin soltar nunca");
+    }
+
+    #[test]
+    fn it_does_not_grab_straight_back_what_it_just_freed() {
+        // El hueco recién abierto está en el set del que la sacó, así que
+        // recogerla ahí sería deshacer el viaje entero.
+        let sets = vec![
+            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            mixed(10),
+            vec![None, Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
+            mixed(30), mixed(40), mixed(50),
+        ];
+        let mut bot = bot_with(sets, vec![card(90, 5), card(91, 21)]);
+        bot.freed = Some(5);
+        let mut rng = rand::thread_rng();
+        match bot.decide(&mut rng) {
+            Some(ClientMessage::TakeCard { card_id }) => {
+                assert_eq!(card_id, 91, "volvió a coger la que acababa de liberar");
+            }
+            other => panic!("esperaba coger otra cosa, fue {other:?}"),
         }
     }
 
@@ -411,7 +591,7 @@ mod tests {
             mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
         ];
         // Ni un 5 en el centro: soltar ahora no puede mejorar nada.
-        let bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
         assert!(bot.decide(&mut rng).is_none(), "no debería soltar sin ganar nada");
     }
@@ -425,9 +605,9 @@ mod tests {
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
             mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
         ];
-        let bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
-        assert!(matches!(bot.force_drop(&mut rng), Some(ClientMessage::DropCard { .. })));
+        assert!(bot.force_drop(&mut rng).is_some(), "la mesa se quedaría parada");
     }
 
     #[test]
@@ -436,7 +616,7 @@ mod tests {
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
             mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
         ];
-        let bot = bot_with(sets, vec![card(90, 5)]);
+        let mut bot = bot_with(sets, vec![card(90, 5)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             Some(ClientMessage::DropCard { my_card_index }) => assert_eq!(my_card_index, 3),
@@ -453,7 +633,7 @@ mod tests {
             vec![Some(card(100 + i * 4, 1)), Some(card(101 + i * 4, 2)),
                  Some(card(102 + i * 4, 3)), Some(card(103 + i * 4, 4))]
         }));
-        let bot = bot_with(sets, vec![card(90, 9)]);
+        let mut bot = bot_with(sets, vec![card(90, 9)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             Some(ClientMessage::FlipSet { set_index }) => assert_eq!(set_index, 0),
@@ -467,7 +647,7 @@ mod tests {
         // servidor rechaza voltear.
         let mut sets = vec![full(5, 0)];
         sets.extend((1..6).map(|_| vec![Some(card(200, 1)), Some(card(201, 1)), None, Some(card(203, 1))]));
-        let bot = bot_with(sets, vec![card(90, 1)]);
+        let mut bot = bot_with(sets, vec![card(90, 1)]);
         let mut rng = rand::thread_rng();
         assert!(matches!(bot.decide(&mut rng), Some(ClientMessage::TakeCard { .. })));
     }
@@ -598,6 +778,9 @@ async fn run(
         last_intent: None,
         flipped: [false; 6],
         verification_sent: false,
+        freed: None,
+        freeing: None,
+        chasing: None,
     };
 
     // Dos relojes distintos a propósito.
@@ -628,7 +811,16 @@ async fn run(
                 let action = {
                     let mut rng = rand::thread_rng();
                     match bot.decide(&mut rng) {
-                        Some(a) => { idle = 0; Some(a) }
+                        // Solo cuenta como avance lo que mueve una carta.
+                        // Cambiar de set no mueve nada, así que un bot dando
+                        // vueltas entre sets parecía ocupado y nunca llegaba a
+                        // `force_drop`: la mesa se quedaba parada del todo.
+                        Some(a) => {
+                            if !matches!(a, ClientMessage::SwitchSet { .. }) {
+                                idle = 0;
+                            }
+                            Some(a)
+                        }
                         // Esperando a que salga su prenda. Si lleva demasiado
                         // esperando, suelta igual: con todos esperando nadie
                         // suelta, el centro no cambia y la mesa se para.
@@ -707,6 +899,9 @@ async fn apply(
             bot.flipped = [false; 6];
             bot.verification_sent = false;
             bot.last_intent = None;
+            bot.freed = None;
+            bot.freeing = None;
+            bot.chasing = None;
         }
         // Solo interesan los propios: es lo que dice si ya enseñó ese set.
         ServerMessage::SetFlipped { player, set_index, .. } => {
