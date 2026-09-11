@@ -9,6 +9,16 @@ pub enum ClientMessage {
     CreateLobby {
         nickname: String,
         max_players: u8,
+        /// Si aparece en la lista de salas abiertas. `serde(default)` para que
+        /// un cliente viejo (pestaña sin recargar tras un despliegue) siga
+        /// funcionando en vez de que el mensaje entero no se pueda parsear;
+        /// `false` por defecto es lo prudente: nunca abre una sala sin querer.
+        #[serde(default)]
+        is_public: bool,
+    },
+    /// Entrar en la sala pública más llena, o abrir una si no hay ninguna.
+    QuickMatch {
+        nickname: String,
     },
     /// Unirse a un lobby existente
     JoinLobby {
@@ -173,6 +183,29 @@ pub enum ServerMessage {
     GameOver {
         rankings: Vec<RankingEntry>,
         your_total_points: Option<u32>,
+    },
+    /// A alguien se le cayó la conexión en plena partida. Los demás siguen
+    /// jugando; este solo avisa de que se le está esperando y cuánto.
+    PlayerDisconnected {
+        nickname: String,
+        seconds: u64,
+    },
+    /// Se agotó la espera y la partida se redimensiona a un jugador menos.
+    /// `retired` son las prendas que salen del juego entero.
+    PlayerLeft {
+        nickname: String,
+        retired: Vec<String>,
+    },
+    /// Reenvío del estado propio sin reiniciar nada del cliente.
+    ///
+    /// Hace falta aparte de `GameStart` porque `GameStart` significa "partida
+    /// nueva" y el cliente aprovecha para limpiar racha, sets volteados y
+    /// movimientos a medias. Aquí el jugador sigue en la misma partida: puede
+    /// haberle quedado un hueco por una prenda retirada, y perder la racha por
+    /// eso sería castigarle por la conexión de otro.
+    SetsResynced {
+        your_sets: Vec<Vec<Option<CardInfo>>>,
+        center_cards: Vec<CardInfo>,
     },
     /// Partida cancelada (un jugador se desconectó)
     GameCancelled {

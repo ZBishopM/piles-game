@@ -797,6 +797,27 @@
             100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
         }
 
+        /* ── SALAS ABIERTAS ── */
+        #lobbyList { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+        .lobby-empty { color: #888; font-size: 0.85rem; text-align: center; margin: 8px 0; }
+        .lobby-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+            padding: 12px 14px;
+            min-height: 44px;      /* objetivo táctil */
+            border: 2px solid #2a2a5a;
+            border-radius: 8px;
+            background: #0f3460;
+            color: #eee;
+            cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .lobby-row:hover { border-color: var(--accent); }
+        .lr-code { font-family: monospace; font-size: 1.05rem; letter-spacing: 0.12em; }
+        .lr-count { font-size: 0.8rem; color: #aaa; }
+
         /* ── RACHA ──
            El multiplicador se lee de un vistazo o no sirve de nada: número
            grande, color por tramo, y una barra que se vacía sola para que se
@@ -1022,8 +1043,9 @@
 
     <div class="home-actions">
         <button class="btn btn-secondary" onclick="openTutorial()">❓ Cómo jugar</button>
-        <button class="btn btn-primary" onclick="showScreen('hostScreen')">🎲 Crear sala</button>
-        <button class="btn btn-secondary" onclick="showScreen('joinScreen')">🔗 Unirse</button>
+        <button class="btn btn-primary" onclick="quickMatch()">⚡ Partida rápida</button>
+        <button class="btn btn-secondary" onclick="showScreen('hostScreen')">🎲 Crear sala</button>
+        <button class="btn btn-secondary" onclick="openJoinScreen()">🔗 Unirse</button>
     </div>
 
     <p id="connStatus">⏳ Conectando...</p>
@@ -1086,6 +1108,17 @@
         <input type="hidden" id="maxPlayers" value="4">
     </div>
 
+    <div class="form-group">
+        <label>¿Quién puede entrar?</label>
+        <div class="seg-group" id="visibilityGroup">
+            <button type="button" class="seg-btn active" data-public="1"
+                    onclick="setVisibility(true)">🌍 Cualquiera</button>
+            <button type="button" class="seg-btn" data-public="0"
+                    onclick="setVisibility(false)">🔒 Solo con código</button>
+        </div>
+        <small id="visibilityHint">Sale en la lista de salas abiertas.</small>
+    </div>
+
     <button class="btn btn-primary" onclick="createLobby()">Empezar</button>
 </div>
 
@@ -1108,6 +1141,10 @@
         <video id="scanVideo" playsinline muted autoplay></video>
     </div>
     <p id="scanError" hidden></p>
+
+    <div class="divider">— salas abiertas —</div>
+    <button class="btn btn-secondary" onclick="refreshLobbies()">🔄 Actualizar</button>
+    <div id="lobbyList"></div>
 </div>
 
 <!-- ════ LOBBY ════ -->
@@ -1463,7 +1500,9 @@ function send(obj) { ws.send(JSON.stringify(obj)); }
 // ─── Mensajes del servidor ────────────────────────────────────────────────
 function handleMsg(msg) {
     switch (msg.type) {
-        case 'lobby_list':   break; // ignorado por ahora
+        case 'lobby_list':
+            renderLobbyList(msg.lobbies);
+            break;
 
         case 'lobby_created':
             currentLobbyId = msg.lobby_id;
@@ -1528,6 +1567,25 @@ function handleMsg(msg) {
 
         case 'combo_update':
             renderCombo(msg);
+            break;
+
+        case 'player_disconnected':
+            onPlayerDisconnected(msg.nickname, msg.seconds);
+            break;
+
+        case 'player_left':
+            onPlayerLeft(msg.nickname, msg.retired);
+            break;
+
+        case 'sets_resynced':
+            // Mismo estado, reenviado: NO se toca la racha ni los sets
+            // volteados. Un hueco por una prenda retirada no es culpa tuya.
+            allSets = msg.your_sets;
+            centerCards = msg.center_cards;
+            renderYourCards();
+            renderCenterCards();
+            updateSetNav();
+            updateOwingUi();
             break;
 
         case 'game_update': {
@@ -1620,11 +1678,61 @@ function requireNickname() {
     return null;
 }
 
+// Pública por defecto, que es lo que quiere quien monta una sala para jugar
+// ya; quien la monta para sus amigos la marca privada y solo se entra con el
+// código o el QR.
+let lobbyIsPublic = true;
+
+function setVisibility(isPublic) {
+    lobbyIsPublic = isPublic;
+    document.querySelectorAll('#visibilityGroup .seg-btn').forEach(b => {
+        b.classList.toggle('active', (b.dataset.public === '1') === isPublic);
+    });
+    document.getElementById('visibilityHint').textContent = isPublic
+        ? 'Sale en la lista de salas abiertas.'
+        : 'No se anuncia: hay que pasar el código o el QR.';
+}
+
 function createLobby() {
     const nickname = requireNickname();
     if (!nickname) return;
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
-    send({ type: 'create_lobby', nickname, max_players: maxPlayers });
+    send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic });
+}
+
+/** Partida rápida: el servidor mete en la sala pública más llena, o abre una.
+ *  Si pasado un rato sigues solo, se ofrece jugar contra bots — pero se
+ *  pregunta, no se rellena por su cuenta. */
+function quickMatch() {
+    const nickname = requireNickname();
+    if (!nickname) return;
+    send({ type: 'quick_match', nickname });
+}
+
+function refreshLobbies() {
+    send({ type: 'list_lobbies' });
+}
+
+function renderLobbyList(lobbies) {
+    const div = document.getElementById('lobbyList');
+    if (!div) return;
+    div.innerHTML = '';
+    if (!lobbies.length) {
+        div.innerHTML = '<p class="lobby-empty">No hay salas abiertas ahora mismo.</p>';
+        return;
+    }
+    lobbies.forEach(l => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'lobby-row';
+        row.innerHTML = `<span class="lr-code">${l.id}</span>`
+            + `<span class="lr-count">${l.player_count}/${l.max_players}</span>`;
+        row.onclick = () => {
+            document.getElementById('lobbyCode').value = l.id;
+            joinLobby();
+        };
+        div.appendChild(row);
+    });
 }
 
 function joinLobby() {
@@ -1825,6 +1933,13 @@ function stopScanner() {
     document.getElementById('scanBtn').textContent = '📷 Escanear QR';
 }
 
+/** Abre "Unirse" y pide la lista ya, para que no haya que pulsar Actualizar
+ *  para ver lo que hay. */
+function openJoinScreen() {
+    showScreen('joinScreen');
+    refreshLobbies();
+}
+
 function leaveJoinScreen() {
     stopScanner();
     showScreen('homeScreen');
@@ -1878,6 +1993,7 @@ function onGameStart(msg) {
     pendingTake = null;
     clearStun();
     resetCombo();
+    clearGraceNotices();
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
     verificationSent = false;
@@ -2133,6 +2249,70 @@ function sparkBurst(rect, count = 10) {
         // plano): mismo motivo que la red de seguridad de flyCard.
         setTimeout(() => s.remove(), 1200);
     }
+}
+
+// ─── Alguien se cae ───────────────────────────────────────────────────────
+// Antes esto cancelaba la partida de todos. Ahora se le espera y los demás
+// siguen jugando, así que hay que decir qué está pasando: un aviso con cuenta
+// atrás mientras se le espera, y otro si al final no vuelve.
+
+let graceTimers = new Map();   // nickname -> intervalo de la cuenta atrás
+
+function graceNotif(nickname) {
+    const area = document.getElementById('verifyNotifications');
+    if (!area) return null;
+    let el = area.querySelector(`[data-grace="${CSS.escape(nickname)}"]`);
+    if (!el) {
+        el = document.createElement('div');
+        el.className = 'qte-battle-notif';
+        el.dataset.grace = nickname;
+        area.appendChild(el);
+    }
+    return el;
+}
+
+function clearGrace(nickname) {
+    const t = graceTimers.get(nickname);
+    if (t) { clearInterval(t); graceTimers.delete(nickname); }
+    document.querySelector(`[data-grace="${CSS.escape(nickname)}"]`)?.remove();
+}
+
+function onPlayerDisconnected(nickname, seconds) {
+    const el = graceNotif(nickname);
+    if (!el) return;
+    clearInterval(graceTimers.get(nickname));
+
+    let left = seconds;
+    const paint = () => {
+        el.innerHTML = `<div class="qbn-title">🔌 ${nickname}</div>`
+            + `<div style="text-align:center">se cayó · ${left}s</div>`;
+    };
+    paint();
+    graceTimers.set(nickname, setInterval(() => {
+        left -= 1;
+        if (left <= 0) { clearGrace(nickname); return; }
+        paint();
+    }, 1000));
+}
+
+function onPlayerLeft(nickname, retired) {
+    clearGrace(nickname);
+    const el = graceNotif(nickname);
+    if (!el) return;
+    // Las prendas retiradas se nombran a propósito: explica por qué de pronto
+    // hay cartas que ya no están, y lo convierte en mecánica y no en un fallo.
+    const what = retired && retired.length
+        ? `<div style="font-size:0.72rem;opacity:0.8;margin-top:4px">fuera: ${retired.join(', ')}</div>`
+        : '';
+    el.innerHTML = `<div class="qbn-title">🚪 ${nickname}</div>`
+        + `<div style="text-align:center">no volvió</div>${what}`;
+    setTimeout(() => clearGrace(nickname), 6000);
+}
+
+/** Una partida nueva no arrastra avisos de la anterior. */
+function clearGraceNotices() {
+    for (const n of [...graceTimers.keys()]) clearGrace(n);
+    document.querySelectorAll('[data-grace]').forEach(el => el.remove());
 }
 
 // ─── Racha ────────────────────────────────────────────────────────────────

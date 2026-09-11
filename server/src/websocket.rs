@@ -14,7 +14,9 @@ use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
     LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
     COMBO_WINDOW, COMBO_LINKS_TAKE, COMBO_LINKS_FIGHT_WON, COMBO_LINKS_SET_DONE,
+    get_clothing_name,
 };
+use crate::game::lobby::GRACE_PERIOD;
 
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
@@ -175,10 +177,41 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }
     send_task.abort();
 
-    // Si estaba en un lobby, eliminarlo y notificar a los demás
+    // Si estaba en un lobby, decidir qué hacer con su sitio.
     if let Some(lobby_id) = &current_lobby {
         if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
-            let was_playing = lobby.status == LobbyStatus::Playing;
+            // En plena partida NO se le quita el sitio: se le espera.
+            //
+            // Antes un solo corte de conexión cancelaba la partida de todos, y
+            // lo hacía porque quitarle el sitio le borraba las 24 cartas — con
+            // 4 cartas por prenda, eso dejaba media partida sin poder
+            // completarse. Ahora sus cartas se quedan en la mesa, los demás
+            // siguen jugando, y solo si no vuelve en GRACE_PERIOD se
+            // redimensiona la partida retirando prendas enteras.
+            if lobby.status == LobbyStatus::Playing {
+                if let Some(nickname) = lobby.mark_disconnected(&player_id) {
+                    tracing::info!(
+                        "⏳ {} ({}) se cayó en partida; {}s para volver",
+                        nickname, player_id, GRACE_PERIOD.as_secs()
+                    );
+                    let connected = lobby.connected_count();
+                    state.lobby_manager.update_lobby(lobby).await;
+
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
+                        nickname: nickname.clone(),
+                        seconds: GRACE_PERIOD.as_secs(),
+                    }).await;
+
+                    if connected < 2 {
+                        // Sin dos personas no hay partida que sostener.
+                        cancel_match(&state, lobby_id, &nickname).await;
+                    } else {
+                        tokio::spawn(run_grace_period(
+                            state.clone(), lobby_id.clone(), player_id));
+                    }
+                }
+                return;
+            }
 
             if let Some(nickname) = lobby.remove_player(&player_id) {
                 tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
@@ -187,33 +220,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     // Lobby vacío: guardarlo como Finished y limpiar intents
                     state.lobby_manager.update_lobby(lobby).await;
                     state.take_intents.write().await.remove(lobby_id);
-                } else if was_playing {
-                    // Partida en curso cancelada: resetear lobby y notificar
-                    lobby.game_state = None;
-                    lobby.status = LobbyStatus::Waiting;
-                    for p in lobby.players.iter_mut() {
-                        p.is_ready = false;
-                    }
-                    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-                        id: p.id.to_string(),
-                        nickname: p.nickname.clone(),
-                        is_ready: false,
-                    }).collect();
-                    let max_players = lobby.max_players;
-                    state.lobby_manager.update_lobby(lobby).await;
-                    state.take_intents.write().await.remove(lobby_id);
-
-                    // Avisar a los demás que la partida fue cancelada
-                    state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
-                        reason: format!("{} se desconectó", nickname),
-                    }).await;
-                    // Regresar al lobby
-                    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
-                        players: player_infos,
-                        ready_count: 0,
-                        max_players,
-                        status: "waiting".to_string(),
-                    }).await;
                 } else {
                     // En lobby normal: notificar actualización
                     let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
@@ -261,31 +267,100 @@ async fn handle_client_message(
     state: &AppState,
 ) {
     match msg {
-        ClientMessage::CreateLobby { nickname, max_players } => {
-            let lobby_id = state.lobby_manager.create_lobby(max_players).await;
+        ClientMessage::CreateLobby { nickname, max_players, is_public } => {
+            let lobby_id = state.lobby_manager.create_lobby(max_players, is_public).await;
+            enter_new_lobby(state, player_id, current_lobby, &lobby_id, nickname).await;
+        }
 
-            // Lobby recién creado: está vacío, no hay ningún sitio que reclamar.
-            let live = std::collections::HashSet::new();
-            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
-                Ok(_lobby) => {
-                    *current_lobby = Some(lobby_id.clone());
-
-                    // Enviar confirmación al creador
-                    state.send_to_player(&player_id, ServerMessage::LobbyCreated {
-                        lobby_id: lobby_id.clone(),
-                        player_id: player_id.to_string(),
-                    }).await;
-
-                    // Broadcast estado del lobby a todos (incluyendo el creador)
-                    send_lobby_update(&state, &lobby_id).await;
+        ClientMessage::QuickMatch { nickname } => {
+            // Entrar en la sala pública más llena. Si no hay ninguna, se abre
+            // una pública y se espera ahí. Los bots NO se añaden solos: el
+            // cliente pregunta primero, porque alguien que pide partida rápida
+            // normalmente quiere gente, no máquinas.
+            match state.lobby_manager.fullest_open_lobby().await {
+                Some(lobby_id) => {
+                    let live: std::collections::HashSet<Uuid> =
+                        state.connections.read().await.keys().copied().collect();
+                    match state.lobby_manager
+                        .join_lobby(&lobby_id, player_id, nickname.clone(), &live).await
+                    {
+                        Ok(lobby) => {
+                            *current_lobby = Some(lobby_id.clone());
+                            let players: Vec<PlayerInfo> = lobby.players.iter()
+                                .map(|p| PlayerInfo {
+                                    id: p.id.to_string(),
+                                    nickname: p.nickname.clone(),
+                                    is_ready: p.is_ready,
+                                }).collect();
+                            state.send_to_player(&player_id, ServerMessage::JoinedLobby {
+                                lobby_id: lobby_id.clone(),
+                                player_id: player_id.to_string(),
+                                players,
+                            }).await;
+                            send_lobby_update(state, &lobby_id).await;
+                        }
+                        Err(_) => {
+                            // Se llenó o arrancó entre la consulta y la
+                            // entrada: abrir una nueva en vez de dar error.
+                            let fresh = state.lobby_manager.create_lobby(8, true).await;
+                            enter_new_lobby(state, player_id, current_lobby, &fresh, nickname).await;
+                        }
+                    }
                 }
-                Err(e) => {
-                    state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+                None => {
+                    let fresh = state.lobby_manager.create_lobby(8, true).await;
+                    enter_new_lobby(state, player_id, current_lobby, &fresh, nickname).await;
                 }
             }
         }
 
         ClientMessage::JoinLobby { lobby_id, nickname } => {
+            // ¿Es alguien a quien estamos esperando en una partida en curso?
+            // Entonces no "entra": recupera su asiento y sus cartas. Pasar por
+            // join_lobby lo trataría como nuevo y le borraría la mano.
+            if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                if lobby.status == LobbyStatus::Playing {
+                    if let Some(old_id) = lobby.rebind_disconnected(&nickname, player_id) {
+                        *current_lobby = Some(lobby_id.clone());
+                        let resumed = lobby.game_state.as_ref()
+                            .and_then(|g| g.players.iter().find(|p| p.id == player_id))
+                            .map(|p| (
+                                p.sets.iter().map(|s| set_to_info(s)).collect::<Vec<_>>(),
+                                p.current_set_index,
+                            ));
+                        let names: Vec<String> = lobby.players.iter()
+                            .map(|p| p.nickname.clone()).collect();
+                        let infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+                            id: p.id.to_string(),
+                            nickname: p.nickname.clone(),
+                            is_ready: p.is_ready,
+                        }).collect();
+                        let (center, _) = snapshot(&lobby);
+                        state.lobby_manager.update_lobby(lobby).await;
+                        state.connections.write().await.remove(&old_id);
+
+                        tracing::info!("↩️ {} volvió a la partida {}", nickname, lobby_id);
+                        state.send_to_player(&player_id, ServerMessage::JoinedLobby {
+                            lobby_id: lobby_id.clone(),
+                            player_id: player_id.to_string(),
+                            players: infos,
+                        }).await;
+                        // El tablero entero tal y como está ahora: es lo que
+                        // faltaba para poder reanudar una partida en curso.
+                        if let Some((your_sets, current_set)) = resumed {
+                            state.send_to_player(&player_id, ServerMessage::GameStart {
+                                your_sets,
+                                center_cards: center,
+                                current_set,
+                                players: names,
+                            }).await;
+                        }
+                        send_lobby_update(&state, &lobby_id).await;
+                        return;
+                    }
+                }
+            }
+
             let live: std::collections::HashSet<Uuid> =
                 state.connections.read().await.keys().copied().collect();
             match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
@@ -955,6 +1030,144 @@ async fn execute_delayed_take(
     if let Some(msg) = combo_msg {
         state.send_to_player(&player_id, msg).await;
     }
+    state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
+        center_cards: new_center,
+        players_progress,
+    }).await;
+}
+
+/// Mete al jugador en una sala recién creada y le confirma. Lo comparten
+/// `CreateLobby` y `QuickMatch`, que hacen exactamente lo mismo una vez que la
+/// sala existe.
+async fn enter_new_lobby(
+    state: &AppState,
+    player_id: Uuid,
+    current_lobby: &mut Option<String>,
+    lobby_id: &str,
+    nickname: String,
+) {
+    // Sala recién creada: está vacía, no hay ningún sitio que reclamar.
+    let live = std::collections::HashSet::new();
+    match state.lobby_manager.join_lobby(lobby_id, player_id, nickname, &live).await {
+        Ok(_lobby) => {
+            *current_lobby = Some(lobby_id.to_string());
+            state.send_to_player(&player_id, ServerMessage::LobbyCreated {
+                lobby_id: lobby_id.to_string(),
+                player_id: player_id.to_string(),
+            }).await;
+            send_lobby_update(state, lobby_id).await;
+        }
+        Err(e) => {
+            state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+        }
+    }
+}
+
+/// Corta la partida y devuelve a todos a la sala. Es el único caso que queda
+/// en el que una desconexión cancela: cuando no quedan dos personas.
+async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
+    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    lobby.game_state = None;
+    lobby.status = LobbyStatus::Waiting;
+    lobby.players.retain(|p| p.disconnected_at.is_none());
+    for p in lobby.players.iter_mut() {
+        p.is_ready = false;
+    }
+    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+        id: p.id.to_string(),
+        nickname: p.nickname.clone(),
+        is_ready: false,
+    }).collect();
+    let max_players = lobby.max_players;
+    state.lobby_manager.update_lobby(lobby).await;
+    state.take_intents.write().await.remove(lobby_id);
+
+    state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
+        reason: format!("{because_of} se desconectó"),
+    }).await;
+    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
+        players: player_infos,
+        ready_count: 0,
+        max_players,
+        status: "waiting".to_string(),
+    }).await;
+}
+
+/// Espera a quien se cayó y, si no vuelve, redimensiona la partida.
+///
+/// Si vuelve, `rebind_disconnected` le cambia el id, así que este id ya no
+/// existe en el lobby y la tarea se va sin hacer nada — no hace falta
+/// cancelarla desde fuera.
+async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
+    sleep(GRACE_PERIOD).await;
+
+    let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+    // ¿Sigue esperándose a este mismo id?
+    if !lobby.players.iter().any(|p| p.id == player_id && p.disconnected_at.is_some()) {
+        return;
+    }
+    // La partida pudo acabar o cancelarse mientras esperábamos. Entonces no
+    // hay nada que redimensionar, pero al que no volvió hay que sacarlo igual:
+    // si se queda, sigue contando como jugador y, con `is_ready` en false,
+    // bloquea la siguiente ronda para siempre — nadie volvería a poder empezar.
+    if lobby.status != LobbyStatus::Playing || lobby.game_state.is_none() {
+        lobby.players.retain(|p| p.id != player_id);
+        let empty = lobby.players.is_empty();
+        state.lobby_manager.update_lobby(lobby).await;
+        if !empty {
+            send_lobby_update(&state, &lobby_id).await;
+        }
+        return;
+    }
+
+    let nickname = lobby.players.iter()
+        .find(|p| p.id == player_id)
+        .map(|p| p.nickname.clone())
+        .unwrap_or_default();
+
+    if lobby.connected_count() < 2 {
+        cancel_match(&state, &lobby_id, &nickname).await;
+        return;
+    }
+
+    // Retirar prendas enteras en vez de borrar sus cartas sueltas: quitar 24
+    // cartas repartidas entre ~20 prendas rompe esas 20 para siempre, porque
+    // cada prenda necesita sus 4 cartas exactas.
+    let retired: Vec<String> = {
+        let game = lobby.game_state.as_mut().expect("comprobado arriba");
+        let outcome = crate::game::deck::retire_types_on_leave(game, &player_id);
+        tracing::info!(
+            "🧺 {} no volvió: {} prendas retiradas, {} cartas al centro, {} huecos",
+            nickname, outcome.retired_types.len(),
+            outcome.returned_to_center, outcome.holes_punched
+        );
+        outcome.retired_types.iter()
+            .map(|t| get_clothing_name(*t).to_string())
+            .collect()
+    };
+    lobby.players.retain(|p| p.id != player_id);
+
+    // El estado propio de cada uno puede haber cambiado (un hueco por una
+    // prenda retirada), así que se reenvía antes del resumen común.
+    let per_player: Vec<(Uuid, Vec<Vec<Option<CardInfo>>>)> = lobby.game_state.as_ref()
+        .map(|g| g.players.iter()
+            .map(|p| (p.id, p.sets.iter().map(|s| set_to_info(s)).collect()))
+            .collect())
+        .unwrap_or_default();
+    let (new_center, players_progress) = snapshot(&lobby);
+    state.lobby_manager.update_lobby(lobby).await;
+    state.take_intents.write().await.remove(&lobby_id);
+
+    for (pid, your_sets) in per_player {
+        state.send_to_player(&pid, ServerMessage::SetsResynced {
+            your_sets,
+            center_cards: new_center.clone(),
+        }).await;
+    }
+    state.broadcast_to_lobby(&lobby_id, ServerMessage::PlayerLeft {
+        nickname,
+        retired,
+    }).await;
     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
         center_cards: new_center,
         players_progress,

@@ -65,6 +65,15 @@ pub struct Lobby {
     pub players: Vec<LobbyPlayer>,
     pub max_players: u8,
     pub status: LobbyStatus,
+    /// Si sale en la lista de salas abiertas. Las salas son públicas por
+    /// defecto; quien hospeda puede marcarla privada y entonces solo se entra
+    /// con el código o el QR.
+    ///
+    /// Hace falta de verdad: `list_available_lobbies` devolvía **todas** las
+    /// salas en espera, así que en cuanto el cliente empezara a enseñar la
+    /// lista, una sala compartida por QR entre amigos quedaría abierta a
+    /// cualquiera sin que nadie lo hubiera pedido.
+    pub is_public: bool,
     #[serde(skip)]
     pub game_state: Option<GameState>,
     /// Desde cuándo el lobby está vacío. Se mantiene reutilizable un rato
@@ -75,13 +84,14 @@ pub struct Lobby {
 }
 
 impl Lobby {
-    /// Crea un nuevo lobby
+    /// Crea un nuevo lobby. Público por defecto; `set_public` lo cambia.
     pub fn new(lobby_id: String, max_players: u8) -> Self {
         Self {
             id: lobby_id,
             players: Vec::new(),
             max_players: max_players.clamp(2, 8),
             status: LobbyStatus::Waiting,
+            is_public: true,
             game_state: None,
             empty_since: None,
         }
@@ -260,14 +270,6 @@ impl Lobby {
         Some(old_id)
     }
 
-    /// Quiénes han agotado la ventana y ya no vuelven.
-    pub fn expired_disconnects(&self, grace: Duration) -> Vec<Uuid> {
-        self.players.iter()
-            .filter(|p| p.disconnected_at.map_or(false, |t| t.elapsed() >= grace))
-            .map(|p| p.id)
-            .collect()
-    }
-
     /// Cuántos siguen con conexión. Por debajo de 2 no hay partida posible.
     pub fn connected_count(&self) -> usize {
         self.players.iter().filter(|p| p.disconnected_at.is_none()).count()
@@ -322,10 +324,11 @@ impl LobbyManager {
     }
 
     /// Crea un nuevo lobby
-    pub async fn create_lobby(&self, max_players: u8) -> String {
+    pub async fn create_lobby(&self, max_players: u8, is_public: bool) -> String {
         self.reap_stale_lobbies().await;
         let lobby_id = Self::generate_lobby_id();
-        let lobby = Lobby::new(lobby_id.clone(), max_players);
+        let mut lobby = Lobby::new(lobby_id.clone(), max_players);
+        lobby.is_public = is_public;
 
         let mut lobbies = self.lobbies.write().await;
         lobbies.insert(lobby_id.clone(), lobby);
@@ -376,13 +379,26 @@ impl LobbyManager {
         Ok(lobby.clone())
     }
 
-    /// Lista todos los lobbies disponibles (en estado Waiting y no llenos)
+    /// Salas a las que se puede entrar desde la lista pública: en espera, no
+    /// llenas y marcadas como públicas. Las privadas existen igual, solo que
+    /// hay que saber su código.
     pub async fn list_available_lobbies(&self) -> Vec<Lobby> {
         let lobbies = self.lobbies.read().await;
         lobbies.values()
-            .filter(|l| l.status == LobbyStatus::Waiting && !l.is_full())
+            .filter(|l| l.is_public && l.status == LobbyStatus::Waiting && !l.is_full())
             .cloned()
             .collect()
+    }
+
+    /// Para la partida rápida: la sala pública **más llena** a la que se pueda
+    /// entrar. Se llenan salas antes que repartir gente entre varias medio
+    /// vacías, que es como nadie llega nunca al mínimo de 2.
+    pub async fn fullest_open_lobby(&self) -> Option<String> {
+        let lobbies = self.lobbies.read().await;
+        lobbies.values()
+            .filter(|l| l.is_public && l.status == LobbyStatus::Waiting && !l.is_full())
+            .max_by_key(|l| l.players.len())
+            .map(|l| l.id.clone())
     }
 
     /// Recicla los lobbies que llevan vacíos más de `EMPTY_LOBBY_TTL`.
@@ -445,7 +461,7 @@ mod tests {
     #[tokio::test]
     async fn rejoin_reclaims_an_abandoned_seat_but_never_a_live_one() {
         let manager = LobbyManager::new();
-        let lobby_id = manager.create_lobby(4).await;
+        let lobby_id = manager.create_lobby(4, true).await;
         let ghost = Uuid::new_v4();
         let alive = Uuid::new_v4();
         let no_one = HashSet::new();
@@ -533,21 +549,43 @@ mod tests {
         assert!(!lobby.players.iter().any(|p| p.id == ana), "el uuid viejo no se queda");
     }
 
-    #[test]
-    fn the_grace_window_only_expires_for_whoever_is_actually_gone() {
-        let mut lobby = Lobby::new("TEST123".to_string(), 4);
-        let ana = Uuid::new_v4();
-        let beto = Uuid::new_v4();
-        lobby.add_player(ana, "Ana".to_string()).unwrap();
-        lobby.add_player(beto, "Beto".to_string()).unwrap();
+    // Lo que esto protege: antes `list_available_lobbies` devolvía TODAS las
+    // salas en espera, así que la sala que compartes por QR con tus amigos
+    // habría salido en la lista pública para cualquiera.
+    #[tokio::test]
+    async fn a_private_lobby_never_shows_in_the_public_list() {
+        let manager = LobbyManager::new();
+        let open = manager.create_lobby(4, true).await;
+        let secret = manager.create_lobby(4, false).await;
 
-        lobby.mark_disconnected(&ana);
+        let listed: Vec<String> = manager.list_available_lobbies().await
+            .into_iter().map(|l| l.id).collect();
 
-        // Recién caída, todavía se le espera.
-        assert!(lobby.expired_disconnects(GRACE_PERIOD).is_empty());
-        // Y con ventana cero ya se le da por ido, pero solo a ella.
-        let expired = lobby.expired_disconnects(Duration::from_secs(0));
-        assert_eq!(expired, vec![ana]);
+        assert!(listed.contains(&open));
+        assert!(!listed.contains(&secret), "una sala privada no se anuncia");
+        // Pero sigue existiendo: con el código se entra igual.
+        assert!(manager.get_lobby(&secret).await.is_some());
+    }
+
+    #[tokio::test]
+    async fn quick_match_fills_the_busiest_room_first() {
+        // Repartir gente entre salas medio vacías es como nadie llega nunca a
+        // los 2 jugadores que hacen falta para empezar.
+        let manager = LobbyManager::new();
+        let no_one = HashSet::new();
+        let quiet = manager.create_lobby(4, true).await;
+        let busy = manager.create_lobby(4, true).await;
+        manager.join_lobby(&busy, Uuid::new_v4(), "Ana".to_string(), &no_one).await.unwrap();
+        manager.join_lobby(&busy, Uuid::new_v4(), "Beto".to_string(), &no_one).await.unwrap();
+        manager.join_lobby(&quiet, Uuid::new_v4(), "Cris".to_string(), &no_one).await.unwrap();
+
+        assert_eq!(manager.fullest_open_lobby().await.as_deref(), Some(busy.as_str()));
+
+        // Y una privada nunca se ofrece para partida rápida.
+        let manager = LobbyManager::new();
+        manager.create_lobby(4, false).await;
+        assert!(manager.fullest_open_lobby().await.is_none());
+        let _ = quiet;
     }
 
     #[test]
