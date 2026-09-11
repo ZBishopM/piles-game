@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
     LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
+    COMBO_WINDOW, COMBO_LINKS_TAKE, COMBO_LINKS_FIGHT_WON, COMBO_LINKS_SET_DONE,
 };
 
 /// Tipo para enviar mensajes a un cliente específico
@@ -247,6 +248,7 @@ fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>) 
         nickname: p.nickname.clone(),
         completed_sets: p.count_completed_sets(),
         finished: p.finished_position.is_some(),
+        on_fire: p.is_on_fire(),
     }).collect();
     (center, progress)
 }
@@ -751,99 +753,6 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::QteConcede => {
-            let lobby_id = match current_lobby.as_ref() {
-                Some(id) => id.clone(),
-                None => return,
-            };
-
-            if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-                let outcome = {
-                    let game_state = match lobby.game_state.as_mut() {
-                        Some(gs) => gs,
-                        None => return,
-                    };
-                    let qte = match game_state.active_qte.as_ref() {
-                        Some(q) => q,
-                        None => return,
-                    };
-
-                    // Solo un participante puede ceder
-                    if !qte.participants.iter().any(|(id, _)| *id == player_id) {
-                        return;
-                    }
-
-                    // El ganador es el otro participante
-                    let winner_id = qte.participants.iter()
-                        .find(|(id, _)| *id != player_id)
-                        .map(|(id, _)| *id);
-                    let winner_id = match winner_id {
-                        Some(id) => id,
-                        None => return,
-                    };
-
-                    let winner_nickname = qte.participants.iter()
-                        .find(|(id, _)| *id == winner_id)
-                        .map(|(_, n)| n.clone())
-                        .unwrap_or_default();
-                    let loser_nickname = qte.participants.iter()
-                        .find(|(id, _)| *id == player_id)
-                        .map(|(_, n)| n.clone())
-                        .unwrap_or_default();
-
-                    let card_id = qte.card_id;
-                    game_state.active_qte = None;
-
-                    // El que cede pierde: la carta va al hueco del otro.
-                    let Some((winner_set, winner_new_set)) =
-                        take_card_into_slot(game_state, winner_id, card_id) else { return };
-
-                    let new_center: Vec<CardInfo> = game_state.center_cards.iter()
-                        .map(|&c| CardInfo::from(c)).collect();
-                    let players_progress: Vec<PlayerProgress> = game_state.players.iter()
-                        .map(|p| PlayerProgress {
-                            nickname: p.nickname.clone(),
-                            completed_sets: p.count_completed_sets(),
-                            finished: p.finished_position.is_some(),
-                        }).collect();
-
-                    Some((winner_id, winner_nickname, winner_set, winner_new_set,
-                          player_id, loser_nickname, new_center, players_progress))
-                };
-
-                if let Some((winner_id, winner_name, winner_set, winner_new_set,
-                              loser_id, _loser_name, new_center, players_progress)) = outcome {
-                    // Ceder también bloquea: si no, ceder sería gratis y
-                    // siempre mejor que perder peleando.
-                    lobby.stun_player(&loser_id);
-                    state.lobby_manager.update_lobby(lobby).await;
-
-                    state.broadcast_to_lobby(&lobby_id, ServerMessage::QteResolved {
-                        winner: winner_name.clone(),
-                    }).await;
-
-                    state.send_to_player(&winner_id, ServerMessage::SwapSuccess {
-                        player: winner_name,
-                        set_index: winner_set,
-                        your_new_set: Some(winner_new_set),
-                        center_cards: new_center.clone(),
-                    }).await;
-
-                    state.send_to_player(&loser_id, ServerMessage::SwapFailed {
-                        reason: "Cediste la carta".to_string(),
-                    }).await;
-                    state.send_to_player(&loser_id, ServerMessage::Stunned {
-                        ms: STUN_DURATION.as_millis() as u64,
-                    }).await;
-
-                    state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
-                        center_cards: new_center,
-                        players_progress,
-                    }).await;
-                }
-            }
-        }
-
         ClientMessage::Ping => {
             // Responder con Pong para mantener la conexión viva
             state.send_to_player(&player_id, ServerMessage::Pong).await;
@@ -899,10 +808,10 @@ async fn run_verification(
                 game_state.rankings.push(player_id);
 
                 let game_over = game_state.is_finished();
-                let rankings_snapshot: Vec<(Uuid, String)> = game_state.rankings.iter()
+                let rankings_snapshot: Vec<(Uuid, String, u32, u32)> = game_state.rankings.iter()
                     .filter_map(|pid| {
                         game_state.players.iter().find(|p| p.id == *pid)
-                            .map(|p| (*pid, p.nickname.clone()))
+                            .map(|p| (*pid, p.nickname.clone(), p.combo_points, p.best_combo))
                     })
                     .collect();
 
@@ -914,11 +823,16 @@ async fn run_verification(
                 }).await;
 
                 if game_over {
+                    // El combo suma *encima* del puesto, no lo sustituye: ganar
+                    // la carrera sigue siendo lo que más puntúa, y la racha es
+                    // el premio por jugarla deprisa.
                     let rankings: Vec<RankingEntry> = rankings_snapshot.iter().enumerate()
-                        .map(|(idx, (_, nickname))| RankingEntry {
+                        .map(|(idx, (_, nickname, combo_points, best_combo))| RankingEntry {
                             position: idx as u8 + 1,
                             nickname: nickname.clone(),
-                            points: calculate_points(idx as u8 + 1),
+                            points: calculate_points(idx as u8 + 1) + combo_points,
+                            combo_points: *combo_points,
+                            best_combo: *best_combo,
                         })
                         .collect();
 
@@ -1003,13 +917,20 @@ async fn execute_delayed_take(
     }
 
     let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
-    let taken = {
+    let (taken, combo_msg) = {
         let Some(game_state) = lobby.game_state.as_mut() else { return };
         if game_state.active_qte.is_some() { return; }
-        take_card_into_slot(game_state, player_id, card_id)
+        let taken = take_card_into_slot(game_state, player_id, card_id);
+        // Coger una carta mantiene el ritmo; si además cierra un set, suma más.
+        let combo_msg = match &taken {
+            Some((_, _, completed)) =>
+                award_combo(game_state, &player_id, COMBO_LINKS_TAKE, *completed),
+            None => None,
+        };
+        (taken, combo_msg)
     };
 
-    let Some((set_index, new_set)) = taken else {
+    let Some((set_index, new_set, _completed)) = taken else {
         // Otro se la llevó mientras esperábamos: se sigue debiendo una.
         state.send_to_player(&player_id, ServerMessage::SwapFailed {
             reason: "Esa carta ya no está".to_string(),
@@ -1017,6 +938,7 @@ async fn execute_delayed_take(
         return;
     };
 
+    // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
     let (new_center, players_progress) = snapshot(&lobby);
     let nickname = lobby.players.iter()
         .find(|p| p.id == player_id)
@@ -1030,6 +952,9 @@ async fn execute_delayed_take(
         your_new_set: Some(new_set),
         center_cards: new_center.clone(),
     }).await;
+    if let Some(msg) = combo_msg {
+        state.send_to_player(&player_id, msg).await;
+    }
     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
         center_cards: new_center,
         players_progress,
@@ -1038,19 +963,70 @@ async fn execute_delayed_take(
 
 /// Saca la carta del centro y la mete en el hueco que ese jugador debe.
 /// `None` si la carta ya no está o el jugador no debe nada.
+///
+/// El tercer valor dice si esa carta **completó** el set. Es el único sitio
+/// donde una carta entra en un hueco, así que es también el único momento en
+/// que un set puede pasar a estar completo: detectarlo aquí evita recalcularlo
+/// por todos lados.
 fn take_card_into_slot(
     game_state: &mut crate::game::models::GameState,
     player_id: Uuid,
     card_id: u32,
-) -> Option<(usize, Vec<Option<CardInfo>>)> {
+) -> Option<(usize, Vec<Option<CardInfo>>, bool)> {
     let idx = game_state.center_cards.iter().position(|c| c.id == card_id)?;
     let p = game_state.players.iter().position(|p| p.id == player_id)?;
     let (set_index, card_index) = game_state.players[p].owed_slot?;
 
+    let was_complete = game_state.players[p].is_set_complete(set_index);
     let card = game_state.center_cards.remove(idx);
     game_state.players[p].sets[set_index][card_index] = Some(card);
     game_state.players[p].owed_slot = None;
-    Some((set_index, set_to_info(&game_state.players[p].sets[set_index])))
+    let completed = !was_complete && game_state.players[p].is_set_complete(set_index);
+    Some((set_index, set_to_info(&game_state.players[p].sets[set_index]), completed))
+}
+
+/// Suma eslabones a la racha y devuelve el aviso para ese jugador.
+///
+/// `base_links` es lo que vale la jugada en sí: coger una carta o ganar una
+/// pelea. Completar un set suma aparte, porque puede pasar a la vez.
+fn award_combo(
+    game_state: &mut crate::game::models::GameState,
+    player_id: &Uuid,
+    base_links: u32,
+    completed_a_set: bool,
+) -> Option<ServerMessage> {
+    let p = game_state.find_player_mut(player_id)?;
+    let links = base_links + if completed_a_set { COMBO_LINKS_SET_DONE } else { 0 };
+    let points = p.add_combo_links(links);
+    Some(ServerMessage::ComboUpdate {
+        combo: p.combo,
+        multiplier: p.combo_multiplier(),
+        window_ms: COMBO_WINDOW.as_millis() as u64,
+        points,
+        total_points: p.combo_points,
+    })
+}
+
+/// Corta la racha (perder una pelea) y devuelve el aviso, si había algo que
+/// cortar. Perder se castiga por regla y no esperando a que venza la ventana:
+/// la ventana (4 s) dura más que el bloqueo (3 s), así que si no se cortara
+/// aquí la racha sobreviviría a la derrota.
+fn break_combo(
+    game_state: &mut crate::game::models::GameState,
+    player_id: &Uuid,
+) -> Option<ServerMessage> {
+    let p = game_state.find_player_mut(player_id)?;
+    if p.combo == 0 {
+        return None;
+    }
+    p.reset_combo();
+    Some(ServerMessage::ComboUpdate {
+        combo: 0,
+        multiplier: 1,
+        window_ms: 0,
+        points: 0,
+        total_points: p.combo_points,
+    })
 }
 
 
@@ -1099,8 +1075,16 @@ async fn run_qte(
             };
 
             // El ganador se lleva la carta a su hueco.
-            let Some((winner_set, winner_new_set)) =
+            let Some((winner_set, winner_new_set, completed)) =
                 take_card_into_slot(game_state, winner.player_id, card_id) else { return };
+
+            // Ganar una pelea es la jugada que más queremos que se busque, así
+            // que paga más eslabones que coger una carta sin disputa. Perder
+            // corta la racha: la ventana dura más que el bloqueo, así que si no
+            // se cortara aquí, perder no costaría la racha.
+            let winner_combo = award_combo(
+                game_state, &winner.player_id, COMBO_LINKS_FIGHT_WON, completed);
+            let loser_combo = break_combo(game_state, &loser.player_id);
 
             let new_center: Vec<CardInfo> = game_state.center_cards.iter()
                 .map(|&c| CardInfo::from(c)).collect();
@@ -1109,11 +1093,14 @@ async fn run_qte(
                     nickname: p.nickname.clone(),
                     completed_sets: p.count_completed_sets(),
                     finished: p.finished_position.is_some(),
+                    on_fire: p.is_on_fire(),
                 }).collect();
-            (winner, loser, winner_set, winner_new_set, new_center, players_progress)
+            (winner, loser, winner_set, winner_new_set, new_center, players_progress,
+             winner_combo, loser_combo)
         };
 
-        let (winner, loser, winner_set, winner_new_set, new_center, players_progress) = outcome;
+        let (winner, loser, winner_set, winner_new_set, new_center, players_progress,
+             winner_combo, loser_combo) = outcome;
         // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
         // mensaje de "has perdido": el tablero apagándose es el aviso.
         lobby.stun_player(&loser.player_id);
@@ -1131,6 +1118,9 @@ async fn run_qte(
             your_new_set: Some(winner_new_set),
             center_cards: new_center.clone(),
         }).await;
+        if let Some(msg) = winner_combo {
+            state.send_to_player(&winner.player_id, msg).await;
+        }
 
         // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
         state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
@@ -1139,6 +1129,9 @@ async fn run_qte(
         state.send_to_player(&loser.player_id, ServerMessage::Stunned {
             ms: STUN_DURATION.as_millis() as u64,
         }).await;
+        if let Some(msg) = loser_combo {
+            state.send_to_player(&loser.player_id, msg).await;
+        }
 
         // Todos: actualización del centro
         state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {

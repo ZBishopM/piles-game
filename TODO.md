@@ -12,13 +12,13 @@ Lo de aquí abajo tiene tests automáticos o se ha comprobado con navegadores
 reales, pero **no** con varias personas jugando a la vez, que es donde salen
 los problemas de sincronización.
 
-### QTE
+### Peleas
 - [ ] Conflicto real: dos personas tocando la misma carta del centro a la vez
       (la ventana de detección son 300 ms; con navegadores automatizados sale
       siempre, con personas reales está sin confirmar)
 - [ ] Conteo de clicks en vivo para ambos participantes
-- [ ] **Ceder** (`🏳️ Ceder la carta`) — debe cerrar el QTE al instante
-- [ ] Race condition: el QTE vence por timeout justo cuando alguien concede
+- [ ] Que la racha suba al ganar y se corte al perder, con dos personas de
+      verdad peleando
 
 ### Flujo completo
 - [ ] Partida entera a 2 jugadores: intercambios → QTE → verificación → fin
@@ -112,8 +112,35 @@ Los resultados que se guardan van a Session Manager, no aquí.
 
 ## ✨ Polish / mejoras futuras
 
-- [ ] Sonidos: tomar carta, completar set, ganar QTE, verificación
-- [ ] Animación de la carta al intercambiar (del set al centro y viceversa)
+- [ ] **Sonido**. Es la mitad que falta del impacto: lo visual ya está, y sin
+      audio la pelea sigue siendo muda. Referencia: Balatro, donde cada carta
+      tiene su golpe seco y el acierto sube de tono al encadenar.
+      - Momentos que piden sonido: soltar carta, coger carta, empezar pelea,
+        cada click durante la pelea, ganar pelea, perder (el bloqueo), set
+        completo, verificación correcta/incorrecta, fin de partida.
+      - Que el tono suba con la racha (ver el sistema de combo abajo) es lo
+        que engancha; un sonido plano repetido cansa a los diez minutos.
+      - Detalles que hay que respetar: arrancar el audio solo tras la primera
+        interacción del usuario (los navegadores bloquean el autoplay), un
+        botón de silencio que se recuerde en `localStorage`, y precargar los
+        clips para que el primer golpe no llegue tarde. Con `Audio` del
+        navegador y varios elementos reutilizables basta; no hace falta
+        meter una librería.
+- [x] **Sistema de combo** — hecho. Eslabones: coger carta +1, ganar pelea +2,
+      completar set +3. Multiplicador `1 + combo/3` con tope en x5, ventana de
+      4 s, y puntos `10 × multiplicador` por eslabón que se suman **encima** de
+      los del puesto final (ganar la carrera sigue siendo lo que más puntúa).
+      La racha se corta al vencer la ventana o al **perder una pelea** — por
+      regla explícita, porque la ventana (4 s) dura más que el bloqueo (3 s) y
+      si no se cortara, perder no costaría la racha.
+      Lo lleva el servidor entero (`PlayerState` en `models.rs`); el cliente
+      solo pinta lo que recibe en `combo_update`. `PlayerProgress.on_fire` se
+      difunde a todos a propósito: ver quién encadena es lo que da ganas de ir
+      a quitarle una carta.
+- [x] Animación de la carta al intercambiar (del set al centro y viceversa) —
+      hecha con `flyCard()` y `#fxLayer`: la carta vuela de origen a destino
+      y el hueco de destino se oculta durante el vuelo para que no se vea
+      dos veces.
 - [ ] **Drag & drop en vez de click-click**. Hoy todo es seleccionar y luego
       pulsar: carta tuya → carta del centro para intercambiar, y carta tuya →
       botón para soltar. Arrastrar diría por sí solo lo que hace cada gesto
@@ -132,6 +159,14 @@ Los resultados que se guardan van a Session Manager, no aquí.
 
 ## ✅ Hecho
 
+- **Peso e impacto en las cartas** (2026-09-10). La carta se inclina hacia el
+  puntero, se levanta al pasar por encima y se hunde al pulsarla; al aterrizar
+  se aplasta y rebota con un anillo de choque; ganar una pelea lo hace en
+  dorado, con chispas y una sacudida más fuerte; el centro destella cuando
+  mueve otro. Todo compuesto en un solo `transform` con variables CSS
+  (`--lift`, `--scale`, `--tilt-x/y`) para que las reglas no se pisen, y todo
+  apagado bajo `prefers-reduced-motion`. Falta el sonido, que es la otra mitad
+  (ver Polish).
 - Despliegue en VPS con pm2 + nginx, y entorno beta aparte (`DEPLOY.md`)
 - Arte real de las prendas desde `client/cards.webp` (50 prendas × 4 colores);
   las cartas ya no llevan texto

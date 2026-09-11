@@ -332,14 +332,41 @@
             background-size: 1600% 1300%;   /* 16 columnas x 13 filas */
             box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             cursor: pointer;
-            transition: transform 0.15s, box-shadow 0.15s, outline 0.1s;
             position: relative;
+
+            /* La carta tiene peso: se inclina hacia el cursor, se levanta al
+               pasar por encima y rebota un poco al llegar. Todo compuesto en
+               UN solo transform con variables, para que inclinación, altura y
+               escala no se pisen entre sí — si cada regla escribiera su propio
+               `transform`, la última ganaría y perderíamos las otras dos. */
+            --lift: 0px;
+            --scale: 1;
+            --tilt-x: 0deg;
+            --tilt-y: 0deg;
+            transform:
+                perspective(700px)
+                translateY(var(--lift))
+                rotateX(var(--tilt-x))
+                rotateY(var(--tilt-y))
+                scale(var(--scale));
+            /* Sobrepaso al final: es lo que hace que se sienta física y no
+               una interpolación. */
+            transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+                        box-shadow 0.18s ease,
+                        outline 0.1s;
         }
-        .card:hover { transform: translateY(-3px); box-shadow: 0 5px 12px rgba(0,0,0,0.5); }
+        .card:hover {
+            --lift: -8px;
+            --scale: 1.06;
+            box-shadow: 0 12px 22px rgba(0,0,0,0.55);
+            z-index: 2;
+        }
+        .card:active { --scale: 0.96; transition-duration: 0.06s; }
         .card.selected {
             outline: 3px solid #fff;
             box-shadow: 0 0 0 5px rgba(255,255,255,0.25);
-            transform: translateY(-4px) scale(1.04);
+            --lift: -10px;
+            --scale: 1.08;
         }
         /* Carta en disputa (QTE activo en ella) — todos los clientes la ven así */
         .card.qte-locked {
@@ -624,19 +651,6 @@
             transition: transform 0.05s, background 0.1s;
         }
         #qteClickBtn:active { transform: scale(0.96); background: #c0392b; }
-        #qteConcedeBtn {
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            border: 1px solid #555;
-            border-radius: 8px;
-            background: transparent;
-            color: #888;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        #qteConcedeBtn:hover { border-color: #e74c3c; color: #e74c3c; background: rgba(231,76,60,0.08); }
         /* Carta en disputa dentro del overlay */
         .qte-card-slot { display: flex; justify-content: center; margin-bottom: 16px; }
         .qte-card-slot .card { width: 84px; cursor: default; }
@@ -712,12 +726,154 @@
            quedarse quietas sin explicación. */
         .card.card-pending { opacity: 0.45; }
 
-        /* "Esto es lo que ha cambiado" al volver al tablero */
+        /* "Esto es lo que ha cambiado" al volver al tablero.
+           La carta no aparece y ya: golpea. Se aplasta contra el hueco, rebota
+           y suelta un anillo. El anillo va en box-shadow y no en un ::before
+           porque .card lleva overflow:hidden y recortaría cualquier hijo; la
+           sombra se dibuja fuera del borde y se libra del recorte. */
         @keyframes cardLanded {
-            0%   { transform: scale(1.12); box-shadow: 0 0 0 6px rgba(102,126,234,0.55); }
-            100% { transform: scale(1);    box-shadow: 0 0 0 0 rgba(102,126,234,0); }
+            0%   { transform: perspective(700px) scale(1.18) translateY(-6px);
+                   box-shadow: 0 0 0 0 var(--combo-color); }
+            35%  { transform: perspective(700px) scale(0.94, 1.06) translateY(0);
+                   box-shadow: 0 0 0 10px var(--combo-ring); }
+            60%  { transform: perspective(700px) scale(1.04, 0.97) translateY(0); }
+            100% { transform: perspective(700px) scale(1) translateY(0);
+                   box-shadow: 0 0 0 22px transparent; }
         }
-        .card.card-landed { animation: cardLanded 0.9s ease-out; }
+        .card.card-landed { animation: cardLanded 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
+
+        /* Carta ganada en una pelea: mismo golpe, en dorado y más grande. Es
+           el momento que más queremos que se note. */
+        @keyframes cardWon {
+            0%   { transform: perspective(700px) scale(1.35) rotate(-4deg);
+                   box-shadow: 0 0 0 0 rgba(255,193,7,0.9); }
+            40%  { transform: perspective(700px) scale(0.92, 1.1) rotate(2deg);
+                   box-shadow: 0 0 0 14px rgba(255,193,7,0.45); }
+            70%  { transform: perspective(700px) scale(1.06, 0.96) rotate(0deg); }
+            100% { transform: perspective(700px) scale(1) rotate(0deg);
+                   box-shadow: 0 0 0 30px rgba(255,193,7,0); }
+        }
+        .card.card-won { animation: cardWon 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
+
+        /* Sacudida. Corta a propósito: si dura, marea.
+           Se sacuden las FILAS de cartas, no #gameScreen: dentro del tablero
+           vive #verifyBtn en position:fixed, y un transform en un ancestro lo
+           convierte en su bloque contenedor — el botón daría un salto cada vez
+           que temblara el tablero. Las filas no contienen nada fijo. */
+        @keyframes boardShake {
+            0%, 100% { transform: translate(0, 0); }
+            20%      { transform: translate(-4px, 2px); }
+            40%      { transform: translate(4px, -2px); }
+            60%      { transform: translate(-3px, -1px); }
+            80%      { transform: translate(3px, 1px); }
+        }
+        .card-row.shake      { animation: boardShake 0.22s ease-in-out; }
+        .card-row.shake-hard { animation: boardShake 0.4s ease-in-out 2; }
+
+        /* Destello del centro cuando alguien suelta una carta: el tablero
+           cambió aunque no hayas sido tú. */
+        @keyframes centerFlash {
+            0%   { background: rgba(102,126,234,0.28); }
+            100% { background: transparent; }
+        }
+        /* Con la misma especificidad que .shake a propósito: `animation` es una
+           sola propiedad, así que entre las dos gana la última declarada — esta.
+           Con `#centerCards.flash` ganaría siempre por el id y la sacudida del
+           centro no se vería nunca, sin que se notara por qué. */
+        .card-row.flash { animation: centerFlash 0.45s ease-out; border-radius: 8px; }
+
+        /* Chispas al ganar una pelea. Viven en #fxLayer, que no recorta. */
+        .spark {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--warning);
+            box-shadow: 0 0 12px 3px rgba(255,193,7,0.85);
+            animation: sparkFly 0.6s ease-out forwards;
+        }
+        @keyframes sparkFly {
+            0%   { transform: translate(0, 0) scale(1);   opacity: 1; }
+            100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+        }
+
+        /* ── RACHA ──
+           El multiplicador se lee de un vistazo o no sirve de nada: número
+           grande, color por tramo, y una barra que se vacía sola para que se
+           note que hay prisa. El color va en una variable y lo reutilizan el
+           anillo de aterrizaje y las chispas, así todo el tablero sube de
+           temperatura a la vez. */
+        /* El color del tramo vive en #gameScreen y no en #comboBox, para que lo
+           hereden también las cartas: así el anillo de aterrizaje sube de
+           temperatura con la racha sin duplicar la tabla de colores. */
+        /* `--combo-ring` va en rgba explícito y no con color-mix(): el soporte
+           de color-mix no es universal y, donde falta, la declaración entera
+           del box-shadow se descarta y el anillo desaparece sin avisar. */
+        #gameScreen { --combo-color: var(--accent);  --combo-ring: rgba(102,126,234,0.45); }
+        #gameScreen[data-combo-tier="2"] { --combo-color: #4ecdc4; --combo-ring: rgba(78,205,196,0.45); }
+        #gameScreen[data-combo-tier="3"] { --combo-color: #ffc107; --combo-ring: rgba(255,193,7,0.45); }
+        #gameScreen[data-combo-tier="4"] { --combo-color: #ff8c42; --combo-ring: rgba(255,140,66,0.5); }
+        #gameScreen[data-combo-tier="5"] { --combo-color: #e74c3c; --combo-ring: rgba(231,76,60,0.55); }
+
+        #comboBox {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        #comboBox.active { display: flex; }
+        #comboMult {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--combo-color);
+            text-shadow: 0 0 12px var(--combo-color);
+            line-height: 1;
+        }
+        #comboCount {
+            font-size: 0.7rem;
+            color: #888;
+            letter-spacing: 0.08em;
+        }
+        #comboCount::after { content: " encadenados"; }
+        .combo-bar {
+            flex: 1;
+            height: 5px;
+            background: #16213e;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        #comboBarFill {
+            height: 100%;
+            width: 100%;
+            background: var(--combo-color);
+            /* La transición se fija en JS con la ventana que manda el
+               servidor, para que la barra y la regla no discrepen. */
+        }
+        @keyframes comboPop {
+            0%   { transform: scale(1.6); }
+            100% { transform: scale(1); }
+        }
+        #comboMult.bump { animation: comboPop 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+
+        /* Quien va encadenando se ve desde el marcador: es lo que invita a ir
+           a pelearle una carta. */
+        .player-progress-chip.on-fire {
+            border-color: var(--warning);
+            color: var(--warning);
+        }
+
+        /* Quien pide "menos movimiento" al sistema lo pide en serio: aquí se
+           queda la información (qué cambió, quién ganó) y se va el meneo. */
+        @media (prefers-reduced-motion: reduce) {
+            .card { transition: box-shadow 0.15s ease, outline 0.1s; }
+            .card.card-landed, .card.card-won { animation-duration: 0.01s; }
+            .card-row.shake, .card-row.shake-hard, .card-row.flash { animation: none; }
+            /* El multiplicador y la barra se quedan: son información, no
+               adorno. Lo que se va es el rebote del número. */
+            #comboMult.bump { animation: none; }
+            .spark { display: none; }
+            #fxLayer .card { transition: none; }
+        }
 
         /* Notificación QTE para espectadores */
         .qte-battle-notif {
@@ -797,6 +953,8 @@
         .rank-pos { font-size: 1.4rem; width: 36px; }
         .rank-name { flex: 1; text-align: left; padding-left: 10px; }
         .rank-points { color: var(--warning); font-weight: bold; }
+        /* Aporte del combo, a media voz: el puesto sigue siendo el titular. */
+        .rank-combo { font-size: 0.72rem; color: #ff8c42; margin-right: 10px; white-space: nowrap; }
 
         /* ── TABLERO EN MÓVIL ──
            Las pantallas de entrada ya tenían su media query; el tablero no,
@@ -833,7 +991,14 @@
            anula donde no hay hover de verdad, en vez de reescribir los
            estados como eventos táctiles. */
         @media (hover: none) {
-            .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+            /* Se resetean las variables, no el `transform` entero: así la
+               carta vuelve a su sitio sin desmontar el sistema de inclinación
+               ni las animaciones de aterrizaje. */
+            .card:hover {
+                --lift: 0px;
+                --scale: 1;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            }
             .set-btn:not(.active):hover { border-color: #2a2a5a; color: #888; }
             #flipBtn:not(.is-flipped):hover { background: rgba(74,90,154,0.15); color: #ccc; }
             #verifyBtn:hover:not(:disabled) { background: #1a1a2e; }
@@ -979,6 +1144,14 @@
     <!-- Cuenta atrás del bloqueo por perder una pelea -->
     <div id="stunBar"><div id="stunBarFill"></div></div>
 
+    <!-- Racha. La ventana la manda el servidor; aquí solo se anima la barra,
+         igual que con el bloqueo de arriba. -->
+    <div id="comboBox">
+        <span id="comboMult">x1</span>
+        <span id="comboCount">0</span>
+        <div class="combo-bar"><div id="comboBarFill"></div></div>
+    </div>
+
 
     <!-- Centro -->
     <p class="section-label">Cartas del Centro</p>
@@ -1028,7 +1201,6 @@
         <div class="qte-scores" id="qteScores"></div>
         <div class="qte-timer-bar"><div id="qteTimerFill"></div></div>
         <button id="qteClickBtn" onclick="sendQteClick()" style="display:none">¡ C L I C K !</button>
-        <button id="qteConcedeBtn" onclick="sendQteConcede()" style="display:none">🏳️ Ceder la carta</button>
     </div>
 </div>
 
@@ -1104,6 +1276,8 @@ const RECONNECT_MAX_DELAY = 15000;
 
 // ─── WebSocket ────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
+    initCardTilt();
+
     // Restaurar nickname guardado y guardarlo automáticamente al editar
     const nickInput = document.getElementById('nickname');
     const savedNick = localStorage.getItem('piles_nickname');
@@ -1352,6 +1526,10 @@ function handleMsg(msg) {
             startStun(msg.ms);
             break;
 
+        case 'combo_update':
+            renderCombo(msg);
+            break;
+
         case 'game_update': {
             // Intercambio de otro jugador. No vimos de dónde salía su carta,
             // así que nada de vuelos: solo se resalta el hueco que cambió.
@@ -1364,7 +1542,10 @@ function handleMsg(msg) {
             // ya está como toca no se toca nada.
             if (changed === -1) break;
             renderCenterCards();
-            if (qteBlockedCenterIndex === null) markLanded('centerCards', changed);
+            if (qteBlockedCenterIndex === null) {
+                markLanded('centerCards', changed);
+                flashCenter();   // el centro cambió por alguien que no eres tú
+            }
             break;
         }
 
@@ -1696,6 +1877,7 @@ function onGameStart(msg) {
     pendingDrop = null;
     pendingTake = null;
     clearStun();
+    resetCombo();
     myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
     verificationSent = false;
@@ -1708,7 +1890,7 @@ function onGameStart(msg) {
     renderCenterCards();
     renderYourCards();
     updateFlipBtn();
-    renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false })));
+    renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false, on_fire: false })));
     renderOpponentPanel();
 
     showScreen('gameScreen');
@@ -1780,8 +1962,12 @@ function renderPlayersProgress(progress) {
     div.innerHTML = '';
     progress.forEach(p => {
         const chip = document.createElement('div');
-        chip.className = 'player-progress-chip' + (p.finished ? ' finished' : '');
-        chip.textContent = `${p.nickname}: ${p.completed_sets}/6`;
+        // on_fire se difunde a todos a propósito: ver quién está encadenando es
+        // lo que da ganas de ir a quitarle una carta.
+        chip.className = 'player-progress-chip'
+            + (p.finished ? ' finished' : '')
+            + (p.on_fire ? ' on-fire' : '');
+        chip.textContent = `${p.on_fire ? '🔥 ' : ''}${p.nickname}: ${p.completed_sets}/6`;
         div.appendChild(chip);
     });
 }
@@ -1855,10 +2041,10 @@ function cardRectAt(rowId, index) {
  *  dos a la vez (que es exactamente lo que pasaba). Por eso la de destino se
  *  esconde mientras dura el vuelo y se descubre justo cuando la copia llega.
  */
-function flyCard(cardData, from, rowId, index) {
+function flyCard(cardData, from, rowId, index, won = false) {
     const dest = document.getElementById(rowId)?.children[index];
     const to = dest ? dest.getBoundingClientRect() : null;
-    if (!cardData || !from || !to) { if (dest) markLanded(rowId, index); return; }
+    if (!cardData || !from || !to) { if (dest) markLanded(rowId, index, won); return; }
 
     const el = buildCard(cardData);
     el.style.left = `${from.left}px`;
@@ -1876,7 +2062,7 @@ function flyCard(cardData, from, rowId, index) {
         // Descubrir SIEMPRE, pase lo que pase con la transición: una carta
         // invisible para siempre sería mucho peor que ver la copia de más.
         dest.style.visibility = '';
-        markLanded(rowId, index);
+        markLanded(rowId, index, won);
     };
 
     requestAnimationFrame(() => {
@@ -1889,13 +2075,166 @@ function flyCard(cardData, from, rowId, index) {
     setTimeout(finish, 900);
 }
 
-/** Marca una carta recién llegada para que se vea qué ha cambiado. */
-function markLanded(rowId, index) {
+/** Marca una carta recién llegada para que se vea qué ha cambiado.
+ *  `won` la pinta en dorado y con más fuerza: es el premio de una pelea. */
+function markLanded(rowId, index, won = false) {
     const el = document.getElementById(rowId)?.children[index];
     if (!el) return;
-    el.classList.remove('card-landed');
+    const cls = won ? 'card-won' : 'card-landed';
+    el.classList.remove('card-landed', 'card-won');
     void el.offsetWidth;   // reinicia la animación si ya la tenía
-    el.classList.add('card-landed');
+    el.classList.add(cls);
+    shakeBoard(won);
+    if (won) sparkBurst(el.getBoundingClientRect());
+}
+
+// ─── Impacto ──────────────────────────────────────────────────────────────
+// La partida va rápida y las cartas se mueven solas; sin un golpe visible es
+// fácil no enterarse de que algo pasó. Nada de esto cambia el estado del
+// juego: si falla, se pierde el adorno y no la partida.
+
+const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+
+/** Sacudida corta de las filas de cartas. `hard` para las peleas ganadas.
+ *  Las filas y no #gameScreen: ver el comentario del keyframe boardShake. */
+function shakeBoard(hard = false) {
+    if (REDUCED_MOTION?.matches) return;
+    const cls = hard ? 'shake-hard' : 'shake';
+    for (const rowId of ['centerCards', 'yourCards']) {
+        const row = document.getElementById(rowId);
+        if (!row) continue;
+        row.classList.remove('shake', 'shake-hard');
+        void row.offsetWidth;
+        row.classList.add(cls);
+        row.addEventListener('animationend', () => row.classList.remove(cls), { once: true });
+    }
+}
+
+/** Chispas saliendo del centro de una carta. Van en #fxLayer porque .card
+ *  recorta a sus hijos y ahí dentro no se verían. */
+function sparkBurst(rect, count = 10) {
+    if (REDUCED_MOTION?.matches) return;
+    const layer = document.getElementById('fxLayer');
+    if (!layer) return;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+        const dist = 50 + Math.random() * 60;
+        const s = document.createElement('div');
+        s.className = 'spark';
+        s.style.left = `${cx}px`;
+        s.style.top = `${cy}px`;
+        s.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+        s.style.setProperty('--dy', `${Math.sin(angle) * dist}px`);
+        layer.appendChild(s);
+        s.addEventListener('animationend', () => s.remove(), { once: true });
+        // Por si la animación no llega a dispararse (pestaña en segundo
+        // plano): mismo motivo que la red de seguridad de flyCard.
+        setTimeout(() => s.remove(), 1200);
+    }
+}
+
+// ─── Racha ────────────────────────────────────────────────────────────────
+// El servidor es quien la calcula; aquí solo se pinta. La barra se vacía sola
+// con la ventana que él manda, igual que la del bloqueo — así el cliente nunca
+// puede enseñar un multiplicador que el servidor no reconoce.
+
+let comboHideTimer = null;
+
+function renderCombo(msg) {
+    const box = document.getElementById('comboBox');
+    const mult = document.getElementById('comboMult');
+    const count = document.getElementById('comboCount');
+    const fill = document.getElementById('comboBarFill');
+    if (!box) return;
+
+    clearTimeout(comboHideTimer);
+    const board = document.getElementById('gameScreen');
+
+    // window_ms = 0 significa racha cortada.
+    if (!msg.window_ms || msg.combo === 0) {
+        box.classList.remove('active');
+        delete board.dataset.comboTier;
+        return;
+    }
+
+    box.classList.add('active');
+    // En el tablero y no en el cartel: así el color del tramo lo heredan
+    // también las cartas y el anillo de aterrizaje sube de temperatura.
+    board.dataset.comboTier = String(msg.multiplier);
+    mult.textContent = `x${msg.multiplier}`;
+    count.textContent = String(msg.combo);
+
+    mult.classList.remove('bump');
+    void mult.offsetWidth;   // reinicia la animación si ya la tenía
+    mult.classList.add('bump');
+
+    // Reiniciar la barra al 100% sin transición y luego vaciarla en la
+    // ventana real. Sin el reflow intermedio el navegador agrupa los dos
+    // cambios y la barra no se movería.
+    fill.style.transition = 'none';
+    fill.style.width = '100%';
+    void fill.offsetWidth;
+    fill.style.transition = `width ${msg.window_ms}ms linear`;
+    fill.style.width = '0%';
+
+    // Cuando la ventana vence, el servidor no manda nada (expira de forma
+    // perezosa en su siguiente acción), así que el cartel se esconde solo.
+    comboHideTimer = setTimeout(() => box.classList.remove('active'), msg.window_ms);
+}
+
+/** Al empezar o terminar una partida no debe quedar racha de la anterior. */
+function resetCombo() {
+    clearTimeout(comboHideTimer);
+    document.getElementById('comboBox')?.classList.remove('active');
+    const board = document.getElementById('gameScreen');
+    if (board) delete board.dataset.comboTier;
+}
+
+/** Destello del centro: alguien más ha movido algo ahí. */
+function flashCenter() {
+    if (REDUCED_MOTION?.matches) return;
+    const row = document.getElementById('centerCards');
+    if (!row) return;
+    row.classList.remove('flash');
+    void row.offsetWidth;
+    row.classList.add('flash');
+    row.addEventListener('animationend', () => row.classList.remove('flash'), { once: true });
+}
+
+/** La carta se inclina hacia el puntero. Es el gesto que más "peso" da, y
+ *  sale gratis: se escuchan los eventos en las filas (no en cada carta, que
+ *  se reconstruyen constantemente) y solo se tocan dos variables CSS.
+ *  Sin puntero de verdad no se activa: en táctil no hay hacia dónde apuntar. */
+function initCardTilt() {
+    if (!window.matchMedia?.('(hover: hover)').matches) return;
+    const MAX = 9;   // grados; más que esto y las cartas se deforman
+
+    for (const rowId of ['centerCards', 'yourCards']) {
+        const row = document.getElementById(rowId);
+        if (!row) continue;
+
+        row.addEventListener('pointermove', (e) => {
+            if (REDUCED_MOTION?.matches) return;
+            const card = e.target.closest('.card');
+            if (!card || !row.contains(card)) return;
+            const r = card.getBoundingClientRect();
+            const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5 … 0.5
+            const py = (e.clientY - r.top) / r.height - 0.5;
+            card.style.setProperty('--tilt-y', `${px * MAX * 2}deg`);
+            card.style.setProperty('--tilt-x', `${-py * MAX * 2}deg`);
+        });
+
+        // pointerout cubre salir de la fila y saltar entre cartas; sin esto la
+        // carta se queda torcida al alejarse.
+        row.addEventListener('pointerout', (e) => {
+            const card = e.target.closest('.card');
+            if (!card) return;
+            card.style.setProperty('--tilt-x', '0deg');
+            card.style.setProperty('--tilt-y', '0deg');
+        });
+    }
 }
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
@@ -1948,7 +2287,7 @@ function onSwapSuccess(msg) {
         // vuelo es todo el "has ganado" que hace falta.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) {
-            flyCard(qteWonSlot.card, fromCenter, 'yourCards', slot);
+            flyCard(qteWonSlot.card, fromCenter, 'yourCards', slot, true);
         }
         qteWonSlot = null;
     } else if (drop) {
@@ -2200,7 +2539,6 @@ function onSwapConflict(players, cardId, durationMs) {
         });
 
         document.getElementById('qteClickBtn').style.display = 'block';
-        document.getElementById('qteConcedeBtn').style.display = 'block';
 
         const fill = document.getElementById('qteTimerFill');
         fill.style.width = '100%';
@@ -2283,7 +2621,6 @@ function onQteResolved(winnerName) {
         : null;
 
     document.getElementById('qteClickBtn').style.display = 'none';
-    document.getElementById('qteConcedeBtn').style.display = 'none';
     if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
 
     qtePlayers.forEach(name => {
@@ -2310,8 +2647,6 @@ function closeQteOverlay() {
     const overlay = document.getElementById('qteOverlay');
     overlay.classList.remove('active');
     document.getElementById('qteClickBtn').disabled = false;
-    document.getElementById('qteConcedeBtn').disabled = false;
-    document.getElementById('qteConcedeBtn').style.display = 'none';
     document.getElementById('qteCard').innerHTML = '';
     document.querySelectorAll('.qte-player-score').forEach(el => el.classList.remove('won', 'lost'));
 
@@ -2328,15 +2663,6 @@ function closeQteOverlay() {
 
 function sendQteClick() {
     if (qteActive) send({ type: 'qte_click' });
-}
-
-function sendQteConcede() {
-    if (qteActive) {
-        qteActive = false; // Prevenir más clicks locales
-        document.getElementById('qteClickBtn').disabled = true;
-        document.getElementById('qteConcedeBtn').disabled = true;
-        send({ type: 'qte_concede' });
-    }
 }
 
 // Spacebar como atajo durante QTE
@@ -2513,15 +2839,26 @@ function onGameOver(rankings) {
     gameOver = true;
     closeVerifyOverlay();
     clearMatchNotifications();
+    resetCombo();
     const list = document.getElementById('rankingList');
     list.innerHTML = '';
     const medals = ['🥇', '🥈', '🥉'];
     rankings.forEach(entry => {
         const div = document.createElement('div');
         div.className = 'ranking-entry';
+        // El desglose del combo importa: un total a secas no premia haber
+        // jugado deprisa, y es lo que hace querer encadenar la próxima vez.
+        // Mismo tramo y mismo tope que el servidor (models.rs:
+        // combo_multiplier). Sin el tope, una racha larga mostraría un x7 que
+        // el servidor nunca pagó.
+        const bestMult = Math.min(1 + Math.floor(entry.best_combo / 3), 5);
+        const combo = entry.combo_points > 0
+            ? `<span class="rank-combo">🔥 +${entry.combo_points} · mejor x${bestMult}</span>`
+            : '';
         div.innerHTML = `
             <span class="rank-pos">${medals[entry.position - 1] || entry.position}</span>
             <span class="rank-name">${entry.nickname}</span>
+            ${combo}
             <span class="rank-points">${entry.points} pts</span>
         `;
         list.appendChild(div);
@@ -2587,6 +2924,7 @@ function onGameCancelled(reason) {
     closeQteOverlay();
     clearStun();
     clearMatchNotifications();
+    resetCombo();
     // Mostrar notificación breve y volver al lobby
     const notif = document.createElement('div');
     notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#16213e;border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:#eee;';

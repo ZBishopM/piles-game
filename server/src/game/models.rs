@@ -1,7 +1,31 @@
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// Cuánto se mantiene viva una racha sin hacer nada.
+///
+/// Son 4 s contra los 3 s de `STUN_DURATION` a propósito: el bloqueo por
+/// perder una pelea **no** debe comerse la racha de rebote, porque entonces
+/// "pierdes el combo" sería un efecto secundario del reloj y no una regla. Al
+/// perder se resetea explícitamente (ver `reset_combo`), así la pelea es de
+/// verdad a dos bandas: ganas y la racha sube, pierdes y la pierdes entera
+/// además de quedarte congelado.
+pub const COMBO_WINDOW: Duration = Duration::from_secs(4);
+
+/// Tope del multiplicador. Sin tope, una racha larga convertiría la
+/// puntuación de la partida en ruido.
+pub const COMBO_MAX_MULTIPLIER: u32 = 5;
+
+/// Puntos por eslabón antes de multiplicar.
+pub const COMBO_POINTS_PER_LINK: u32 = 10;
+
+/// Cuántos eslabones vale cada jugada. Coger una carta mantiene el ritmo;
+/// ganar una pelea es lo que queremos que la gente busque, así que paga más;
+/// completar un set es el objetivo del juego y paga todavía más.
+pub const COMBO_LINKS_TAKE: u32 = 1;
+pub const COMBO_LINKS_FIGHT_WON: u32 = 2;
+pub const COMBO_LINKS_SET_DONE: u32 = 3;
 
 /// Representa una carta individual en el juego
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -87,6 +111,17 @@ pub struct PlayerState {
     /// haya deuda no se puede soltar otra, ni intercambiar, ni mostrar sets:
     /// lo único que se puede hacer es coger una carta del centro.
     pub owed_slot: Option<(usize, usize)>,
+    /// Eslabones encadenados ahora mismo. El servidor es el único que lo
+    /// calcula: si el cliente llevara la cuenta, el multiplicador sería un
+    /// número que se puede inventar.
+    pub combo: u32,
+    /// Cuándo se corta la racha si no haces nada.
+    #[serde(skip)]
+    pub combo_expires_at: Option<Instant>,
+    /// La racha más larga de la partida, para el resumen final.
+    pub best_combo: u32,
+    /// Puntos acumulados por combo. Se suman a los del puesto final.
+    pub combo_points: u32,
 }
 
 impl PlayerState {
@@ -101,12 +136,65 @@ impl PlayerState {
             finished_at: None,
             finished_position: None,
             owed_slot: None,
+            combo: 0,
+            combo_expires_at: None,
+            best_combo: 0,
+            combo_points: 0,
         }
     }
 
     /// ¿Le falta una carta por coger?
     pub fn owes_card(&self) -> bool {
         self.owed_slot.is_some()
+    }
+
+    /// Multiplicador actual. Una sola expresión en vez de una tabla de tramos.
+    pub fn combo_multiplier(&self) -> u32 {
+        (1 + self.combo / 3).min(COMBO_MAX_MULTIPLIER)
+    }
+
+    /// ¿Queda ventana? Lo usa todo lo demás para no repetir la comparación.
+    pub fn combo_is_live(&self) -> bool {
+        self.combo_expires_at.map_or(false, |until| Instant::now() < until)
+    }
+
+    /// Corta la racha si la ventana ya venció.
+    ///
+    /// Se llama al principio de cada acción en vez de montar un temporizador
+    /// por jugador: sale más barato y deja al servidor como única fuente de
+    /// verdad. El cliente solo anima su propia barra con `window_ms`, igual
+    /// que ya hace la barra del bloqueo.
+    pub fn expire_combo_if_stale(&mut self) {
+        if self.combo > 0 && !self.combo_is_live() {
+            self.reset_combo();
+        }
+    }
+
+    /// Suma eslabones y devuelve los puntos que ha dado la jugada.
+    /// El multiplicador se aplica **después** de sumar, así el eslabón que te
+    /// sube de tramo ya cobra al tramo nuevo.
+    pub fn add_combo_links(&mut self, links: u32) -> u32 {
+        self.expire_combo_if_stale();
+        self.combo += links;
+        if self.combo > self.best_combo {
+            self.best_combo = self.combo;
+        }
+        self.combo_expires_at = Some(Instant::now() + COMBO_WINDOW);
+        let earned = COMBO_POINTS_PER_LINK * links * self.combo_multiplier();
+        self.combo_points += earned;
+        earned
+    }
+
+    /// Racha a cero. Los puntos ya ganados no se tocan: se han cobrado.
+    pub fn reset_combo(&mut self) {
+        self.combo = 0;
+        self.combo_expires_at = None;
+    }
+
+    /// Racha viva y lo bastante alta para que los demás la vean. Es lo que se
+    /// difunde en `PlayerProgress` para que den ganas de ir a quitarle cartas.
+    pub fn is_on_fire(&self) -> bool {
+        self.combo_is_live() && self.combo_multiplier() >= 2
     }
 
     /// Verifica si un set específico está completo (4 cartas idénticas)
@@ -236,6 +324,93 @@ mod tests {
         let mut player = PlayerState::new(Uuid::new_v4(), "Ana".to_string(), [full; 6]);
         player.sets[0][0] = None;
         assert!(!player.is_set_complete(0));
+    }
+
+    fn a_player() -> PlayerState {
+        let full = [Card::new(0, 7), Card::new(1, 7), Card::new(2, 7), Card::new(3, 7)];
+        PlayerState::new(Uuid::new_v4(), "Ana".to_string(), [full; 6])
+    }
+
+    #[test]
+    fn combo_multiplier_climbs_every_three_links_and_then_stops() {
+        let mut p = a_player();
+        assert_eq!(p.combo_multiplier(), 1, "sin racha no hay multiplicador");
+
+        for (links, expected) in [(2u32, 1u32), (1, 2), (3, 3), (3, 4), (3, 5)] {
+            p.add_combo_links(links);
+            assert_eq!(p.combo_multiplier(), expected, "tras {} eslabones", p.combo);
+        }
+
+        // El tope aguanta: veinte eslabones más no lo suben.
+        p.add_combo_links(20);
+        assert_eq!(p.combo_multiplier(), COMBO_MAX_MULTIPLIER);
+    }
+
+    #[test]
+    fn a_link_is_paid_at_the_tier_it_reaches() {
+        // Dos eslabones sueltos se cobran a x1; el tercero ya sube a x2 y cobra
+        // a x2. Si se multiplicara antes de sumar, cobraría a x1.
+        let mut p = a_player();
+        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
+        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
+        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK * 2);
+        assert_eq!(p.combo_points, COMBO_POINTS_PER_LINK * 4);
+    }
+
+    #[test]
+    fn losing_a_fight_zeroes_the_streak_but_not_the_points() {
+        let mut p = a_player();
+        p.add_combo_links(COMBO_LINKS_SET_DONE);
+        p.add_combo_links(COMBO_LINKS_FIGHT_WON);
+        let banked = p.combo_points;
+        assert!(banked > 0);
+        assert_eq!(p.best_combo, 5);
+
+        p.reset_combo();
+
+        assert_eq!(p.combo, 0);
+        assert!(!p.combo_is_live());
+        assert_eq!(p.combo_multiplier(), 1);
+        assert_eq!(p.combo_points, banked, "lo ya cobrado no se devuelve");
+        assert_eq!(p.best_combo, 5, "el récord de la partida se conserva");
+    }
+
+    // La ventana (4 s) es más larga que el bloqueo por perder (3 s) a
+    // propósito: perder tiene que cortar la racha por regla, no porque el
+    // reloj llegue justo. Aquí se comprueba que una ventana vencida sí corta.
+    #[test]
+    fn an_expired_window_cuts_the_streak() {
+        let mut p = a_player();
+        p.add_combo_links(COMBO_LINKS_SET_DONE);
+        assert!(p.combo_is_live());
+
+        // Vencida hace un instante, sin esperar 4 s en un test.
+        p.combo_expires_at = Some(Instant::now() - Duration::from_millis(1));
+        assert!(!p.combo_is_live());
+
+        p.expire_combo_if_stale();
+        assert_eq!(p.combo, 0);
+
+        // Y el siguiente eslabón arranca de cero, no de donde se quedó.
+        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
+        assert_eq!(p.combo, 1);
+    }
+
+    #[test]
+    fn on_fire_needs_a_live_streak_of_at_least_two_times() {
+        let mut p = a_player();
+        assert!(!p.is_on_fire(), "nadie arde sin racha");
+
+        p.add_combo_links(2);   // x1 todavía
+        assert!(!p.is_on_fire());
+
+        p.add_combo_links(1);   // x2
+        assert!(p.is_on_fire());
+
+        // Una racha alta pero vencida no arde: si no, el icono se quedaría
+        // encendido para siempre en el tablero de los demás.
+        p.combo_expires_at = Some(Instant::now() - Duration::from_millis(1));
+        assert!(!p.is_on_fire());
     }
 
     #[test]

@@ -45,8 +45,6 @@ pub enum ClientMessage {
     RequestVerification,
     /// Click durante QTE
     QteClick,
-    /// Ceder la carta al oponente en un QTE
-    QteConcede,
     /// Ping para mantener la conexión viva
     Ping,
 }
@@ -158,6 +156,19 @@ pub enum ServerMessage {
     Stunned {
         ms: u64,
     },
+    /// Tu racha, solo para ti. Igual que con el bloqueo, la ventana la manda
+    /// el servidor y el cliente solo anima la barra: así el multiplicador no
+    /// es un número que el cliente pueda inventarse.
+    ComboUpdate {
+        combo: u32,
+        multiplier: u32,
+        /// Cuánto queda de ventana. 0 = racha cortada.
+        window_ms: u64,
+        /// Puntos que ha dado esta jugada (0 al cortarse).
+        points: u32,
+        /// Total acumulado por combo en la partida.
+        total_points: u32,
+    },
     /// El juego ha terminado
     GameOver {
         rankings: Vec<RankingEntry>,
@@ -221,6 +232,9 @@ pub struct PlayerProgress {
     pub nickname: String,
     pub completed_sets: usize,
     pub finished: bool,
+    /// Lleva una racha viva de x2 o más. Se difunde a todos a propósito: ver
+    /// quién está encadenando es lo que da ganas de ir a pelearle una carta.
+    pub on_fire: bool,
 }
 
 /// Entrada en el ranking final
@@ -229,4 +243,9 @@ pub struct RankingEntry {
     pub position: u8,
     pub nickname: String,
     pub points: u32,
+    /// Lo que ha aportado el combo a esos puntos. Se manda aparte para poder
+    /// enseñarlo en la pantalla final: un total sin desglose no premia nada.
+    pub combo_points: u32,
+    /// La racha más larga que consiguió en la partida.
+    pub best_combo: u32,
 }
