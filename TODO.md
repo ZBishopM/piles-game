@@ -45,13 +45,47 @@ números, no lógica: tocarlos no puede romper nada.
 | Pensar entre jugadas | 2,5 s | 1,2 s | 0,5 s |
 | Pulsar en pelea (±25 % jitter) | 320 ms | 180 ms | 110 ms |
 | Elige la carta buena | 50 % | 80 % | 95 % |
-| Se pelea una carta que te ve coger | 10 % | 35 % | 70 % |
+| Se pelea una carta que te ve coger | 5 % | 20 % | 50 % |
 
 - [ ] Jugar contra los tres niveles y ajustar. Lo que hay es una primera
       aproximación, no algo medido con gente.
 - [ ] El bot apunta al set con más cartas iguales y suelta lo que no encaja.
       No mira lo que han revelado los demás ni lo que hay en el centro para
       decidir qué set perseguir — se podría, si resulta demasiado tonto.
+
+- [ ] **Nadie cierra un set, y puede que no sea culpa del bot** (2026-09-11).
+      Medido: tres partidas (8 min y dos de 3 min, 3 bots difíciles + un humano
+      jugando) y **cero sets cerrados por nadie**, humano incluido. La mesa se
+      mueve —570 actualizaciones en 8 minutos, sin parones—, lo que falla es el
+      cierre.
+
+      Lo que dice la traza: los bots se plantan en **tres iguales el 63 % de la
+      partida** y no pasan de ahí. Nunca se vio un cuatro. No es que jueguen mal
+      de camino: llegan a la última carta y ahí se quedan.
+
+      Descartado ya, comprobando el código: el mazo tiene exactamente 4 copias
+      por prenda; `take_card_into_slot` mete la carta en el hueco del que
+      soltaste, no en otro set; `is_set_complete` en el servidor y `set_is_done`
+      en el bot piden lo mismo.
+
+      La sospecha es el **reparto**. Con 4 jugadores hay 25 prendas y hacen falta
+      24 completas (6 por cabeza): sobra **una sola prenda, 4 cartas**, y son las
+      únicas que circulan libres. Para cerrar tu cuarta copia tiene que pasar por
+      un centro de 4 cartas justo cuando tú tienes el hueco abierto en ese set.
+      Con todos plantados en tres, cada uno guarda como basura la cuarta copia
+      que otro necesita.
+
+      Probado y revertido, sin efecto: soltar del set *peor* en vez del mejor
+      (para liberar esas copias muertas), primero suelto —250 cambios de set en
+      3 minutos, el bot se pasaba la partida yendo y viniendo— y luego con
+      compromiso de destino, que quitó el vaivén pero siguió sin cerrar nada.
+
+      Antes de tocar más el bot, la pregunta es de diseño: **¿cuánto debería
+      sobrar?** `calculate_total_sets` da `13 + (n-2)*6`, que deja siempre un set
+      de sobra sea cual sea el número de jugadores. Subirlo a dos o tres sets de
+      sobra daría holgura real al centro. Es una decisión de juego, no de código.
+      Falta también saber si entre personas las partidas sí terminan: si acaban,
+      el problema es solo del bot; si tampoco, es del reparto.
 
 **Ojo si se toca el bucle del bot**: hay dos relojes separados y no es un
 descuido. `think` es la dificultad; `watch` (80 ms fijos) es mirar si alguien va
@@ -215,6 +249,33 @@ Los resultados que se guardan van a Session Manager, no aquí.
 ---
 
 ## ✅ Hecho
+
+- **Una pelea podía congelar la partida entera** (2026-09-11). `run_qte` tenía
+  un `return` a secas cuando el ganador ya no podía quedarse la carta, y eso se
+  saltaba el `QteResolved`. Como cliente y bot solo salen del estado "peleando"
+  con ese mensaje, **todos los de esa pelea se quedaban bloqueados para
+  siempre**: una partida medida movió 92 cartas en dos minutos y luego nada en
+  seis. Ahora la pelea se resuelve siempre; sin premio no hay carta, ni racha,
+  ni bloqueo al perdedor —una pelea que no reparte nada no puede castigar.
+  La causa era el plazo de 3 s: al tapar el hueco dejaba vivo el intento de
+  coger, así que otro podía convertirlo en pelea que su "ganador" ya no podía
+  ganar. Ahora saldar la deuda borra los intentos de ese jugador.
+- **Los bots no podían ganar** (2026-09-11). Ganar exige voltear los 6 sets,
+  que es lo que dispara la verificación, y los bots no mandaban nunca `FlipSet`
+  ni `RequestVerification`: podían tener los 6 sets perfectos y no terminar
+  jamás. Ahora enseñan cada set en cuanto lo cierran —nunca debiendo una
+  carta— y piden verificación al tener los seis.
+- **Los bots peleaban por todo** (2026-09-11). El dado de pelear se tiraba cada
+  80 ms mientras durase el intento rival, o sea ~4 veces por oportunidad: el
+  0,35 de normal era un 82 % real. Ahora se tira **una vez por carta**, y los
+  números bajan a 5 % / 20 % / 50 %.
+- **El centro ya no se recoloca** (2026-09-11). El servidor lo guarda en una
+  lista, así que coger una carta corría todas las de detrás y la que ibas a
+  tocar se movía debajo del dedo. Ahora cada carta se queda en su hueco, el
+  hueco vacío se queda vacío y la siguiente soltada ocupa el primero libre.
+  Además caen "tiradas": ángulo y desplazamiento salen del id de la carta, así
+  que son iguales en la pantalla de todos, y van en % para verse igual en
+  cualquier tamaño.
 
 - **Cuatro fallos salidos de jugar en beta** (2026-09-11).
   - *Soltar una carta y cambiar de set bloqueaba la partida.* La respuesta a

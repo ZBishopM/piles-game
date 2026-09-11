@@ -1090,6 +1090,21 @@ async fn execute_delayed_take(
     }).await;
 }
 
+/// Borra los intentos de coger carta que tuviera ese jugador pendientes.
+///
+/// Un intento vive 300 ms y es lo que convierte en pelea que otro vaya a por la
+/// misma carta. Si mientras tanto la deuda del jugador se salda por otro camino
+/// —el plazo de 3 s, por ejemplo—, el intento se queda ahí sin dueño válido: la
+/// pelea arranca igual y su "ganador" ya no tiene hueco donde meter la carta.
+/// Esa era la causa de que una pelea acabara sin premio y, antes del arreglo de
+/// `run_qte`, dejara a todo el mundo colgado.
+async fn clear_intents_for(state: &AppState, lobby_id: &str, player_id: &Uuid) {
+    let mut intents = state.take_intents.write().await;
+    if let Some(per_card) = intents.get_mut(lobby_id) {
+        per_card.retain(|_, i| i.player_id != *player_id);
+    }
+}
+
 /// Mete al jugador en una sala recién creada y le confirma. Lo comparten
 /// `CreateLobby` y `QuickMatch`, que hacen exactamente lo mismo una vez que la
 /// sala existe.
@@ -1187,6 +1202,9 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
         state.lobby_manager.update_lobby(lobby).await;
+        // Ya no debe nada: cualquier intento suyo que siguiera vivo provocaría
+        // una pelea que no podría ganar, porque no le queda hueco.
+        clear_intents_for(&state, &lobby_id, &player_id).await;
 
         tracing::info!("⏱️ a {} se le acabó el plazo: carta {} asignada", nickname, card.id);
         state.send_to_player(&player_id, ServerMessage::DebtForced {
@@ -1436,16 +1454,30 @@ async fn run_qte(
             };
 
             // El ganador se lleva la carta a su hueco.
-            let Some((winner_set, winner_new_set, completed)) =
-                take_card_into_slot(game_state, winner.player_id, card_id) else { return };
+            //
+            // Puede fallar: si su deuda se saldó por otro camino mientras duraba
+            // la pelea, ya no tiene hueco donde meterla. Antes aquí había un
+            // `return` a secas y eso se saltaba el QteResolved de más abajo —
+            // con lo que TODOS los clientes de esa pelea se quedaban con el
+            // overlay abierto y sin poder jugar, para siempre. Una partida
+            // medida así movió 92 cartas en dos minutos y luego nada en seis.
+            // La pelea tiene que resolverse siempre, aunque no haya premio.
+            let awarded = take_card_into_slot(game_state, winner.player_id, card_id);
 
             // Ganar una pelea es la jugada que más queremos que se busque, así
             // que paga más eslabones que coger una carta sin disputa. Perder
             // corta la racha: la ventana dura más que el bloqueo, así que si no
             // se cortara aquí, perder no costaría la racha.
-            let winner_combo = award_combo(
-                game_state, &winner.player_id, COMBO_LINKS_FIGHT_WON, completed);
-            let loser_combo = break_combo(game_state, &loser.player_id);
+            //
+            // Sin premio no hay ni racha ni castigo: una pelea que no reparte
+            // carta no puede además bloquear al que la perdió.
+            let (winner_combo, loser_combo) = match &awarded {
+                Some((_, _, completed)) => (
+                    award_combo(game_state, &winner.player_id, COMBO_LINKS_FIGHT_WON, *completed),
+                    break_combo(game_state, &loser.player_id),
+                ),
+                None => (None, None),
+            };
 
             let new_center: Vec<CardInfo> = game_state.center_cards.iter()
                 .map(|&c| CardInfo::from(c)).collect();
@@ -1456,15 +1488,22 @@ async fn run_qte(
                     finished: p.finished_position.is_some(),
                     on_fire: p.is_on_fire(),
                 }).collect();
-            (winner, loser, winner_set, winner_new_set, new_center, players_progress,
+            (winner, loser, awarded, new_center, players_progress,
              winner_combo, loser_combo)
         };
 
-        let (winner, loser, winner_set, winner_new_set, new_center, players_progress,
+        let (winner, loser, awarded, new_center, players_progress,
              winner_combo, loser_combo) = outcome;
-        // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
-        // mensaje de "has perdido": el tablero apagándose es el aviso.
-        lobby.stun_player(&loser.player_id);
+        if awarded.is_some() {
+            // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
+            // mensaje de "has perdido": el tablero apagándose es el aviso.
+            lobby.stun_player(&loser.player_id);
+        } else {
+            tracing::warn!(
+                "pelea por la carta {} sin premio: {} ya no tenía hueco; se resuelve sin carta ni bloqueo",
+                card_id, winner.nickname
+            );
+        }
         state.lobby_manager.update_lobby(lobby).await;
 
         // Broadcast: pelea resuelta (cierra el overlay en todos)
@@ -1472,26 +1511,29 @@ async fn run_qte(
             winner: winner.nickname.clone(),
         }).await;
 
-        // Ganador: swap_success
-        state.send_to_player(&winner.player_id, ServerMessage::SwapSuccess {
-            player: winner.nickname,
-            set_index: winner_set,
-            your_new_set: Some(winner_new_set),
-            center_cards: new_center.clone(),
-        }).await;
-        if let Some(msg) = winner_combo {
-            state.send_to_player(&winner.player_id, msg).await;
-        }
+        // El reparto solo va si hubo premio. El QteResolved de arriba ya salió
+        // pase lo que pase, que es lo que impide que nadie se quede colgado.
+        if let Some((winner_set, winner_new_set, _)) = awarded {
+            state.send_to_player(&winner.player_id, ServerMessage::SwapSuccess {
+                player: winner.nickname,
+                set_index: winner_set,
+                your_new_set: Some(winner_new_set),
+                center_cards: new_center.clone(),
+            }).await;
+            if let Some(msg) = winner_combo {
+                state.send_to_player(&winner.player_id, msg).await;
+            }
 
-        // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
-        state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
-            reason: "Perdiste la carta".to_string(),
-        }).await;
-        state.send_to_player(&loser.player_id, ServerMessage::Stunned {
-            ms: STUN_DURATION.as_millis() as u64,
-        }).await;
-        if let Some(msg) = loser_combo {
-            state.send_to_player(&loser.player_id, msg).await;
+            // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
+            state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
+                reason: "Perdiste la carta".to_string(),
+            }).await;
+            state.send_to_player(&loser.player_id, ServerMessage::Stunned {
+                ms: STUN_DURATION.as_millis() as u64,
+            }).await;
+            if let Some(msg) = loser_combo {
+                state.send_to_player(&loser.player_id, msg).await;
+            }
         }
 
         // Todos: actualización del centro
