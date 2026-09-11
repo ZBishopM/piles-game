@@ -25,8 +25,13 @@ los problemas de sincronización.
       fin. Entre bots ya corre sola (ver `D:/Temp/bot-e2e.mjs` como referencia
       del arnés), pero con personas sigue sin comprobarse.
 - [ ] Partida a 3+ para ver los rankings (1º, 2º, 3º)
-- [ ] Desconexión a mitad de partida (hoy se cancela la partida y todos
-      vuelven a la sala; falta decidir si eso es lo que queremos)
+- [ ] Desconexión a mitad de partida, con personas: cerrar la pestaña de una y
+      comprobar que las demás siguen jugando y ven la cuenta atrás, que volver
+      antes de 30 s recupera el tablero, y que al agotarse la espera el centro y
+      los sets quedan coherentes y la partida se puede terminar.
+- [ ] `bot-e2e.mjs` vive en `D:/Temp/` y se perderá. Si los bots van a
+      seguir, merece la pena meterlo en el repo (`tests/`) para que la única
+      prueba multijugador automática no dependa de un fichero temporal.
 
 ---
 
