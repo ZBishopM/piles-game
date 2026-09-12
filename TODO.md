@@ -91,6 +91,17 @@ sola carta.
 
 ## 💡 Ideas por probar
 
+- [ ] **Toda la pantalla es el botón de pelear** (puesto el 2026-09-11 *a modo de
+      prueba*, decidir si se queda). Apuntar al botón se perdía cuando venías de
+      tocar una carta en la otra punta de la pantalla: el dedo ya estaba lejos y
+      la pelea dura un suspiro. Ahora vale tocar donde sea.
+
+      Lo que hay que mirar jugando: si al tocar en cualquier sitio se pierde la
+      referencia de *dónde* estás tocando, y si con el móvil en la mano se dan
+      toques sin querer. Si molesta, volver a un botón grande centrado es un
+      cambio de dos líneas: devolver el `onclick` al botón y quitar el
+      `pointerdown` del overlay.
+
 - [ ] **Romper los plantes con el combo** (idea de 2026-09-11, por probar).
       Pasa también entre personas: llega un momento en que todos esperan a que
       otro suelte por fin la carta que les falta, y nadie suelta. La partida no

@@ -667,6 +667,20 @@
             background: #e74c3c;
             transition: width 0.05s linear;
         }
+        /* Toda la pantalla es el botón mientras dura la pelea.
+           Apuntar a un botón concreto se perdía cuando venías de tocar una
+           carta en la otra punta: el dedo ya estaba lejos y la pelea dura un
+           suspiro. Ahora vale tocar donde sea. */
+        #qteOverlay.active {
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
+               en mitad de la pelea. */
+            -webkit-touch-callout: none;
+        }
+        #qteOverlay.hit .qte-box { transform: scale(0.98); }
+        .qte-box { transition: transform 0.05s; }
         #qteClickBtn {
             width: 100%;
             padding: 20px;
@@ -676,15 +690,14 @@
             border-radius: 12px;
             background: #e74c3c;
             color: white;
-            cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
-            /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
-               en mitad de la pelea. */
             -webkit-touch-callout: none;
-            transition: transform 0.05s, background 0.1s;
+            /* El overlay entero es lo que recibe el toque: si el botón también
+               lo recibiera, un toque encima contaría dos veces. */
+            pointer-events: none;
         }
-        #qteClickBtn:active { transform: scale(0.96); background: #c0392b; }
+        #qteOverlay.hit #qteClickBtn { background: #c0392b; }
         /* Carta en disputa dentro del overlay */
         .qte-card-slot { display: flex; justify-content: center; margin-bottom: 16px; }
         .qte-card-slot .card { width: 84px; cursor: default; }
@@ -737,8 +750,15 @@
             transition: opacity 0.15s, filter 0.15s;
         }
 
+        /* Para quien solo mira: la carta en disputa no se puede coger, pero sin
+           pulso ni resplandor. Solo la etiqueta, para que no parezca que la
+           carta está rota cuando no responde. */
+        .card.qte-contested { cursor: not-allowed; }
+        .card.qte-contested:hover { transform: none; }
+
         /* Etiqueta sobre la carta que se está peleando */
-        .card.qte-locked::after {
+        .card.qte-locked::after,
+        .card.qte-contested::after {
             content: "PELEADA";
             position: absolute;
             left: 50%;
@@ -1355,7 +1375,10 @@
         <div class="qte-card-slot" id="qteCard"></div>
         <div class="qte-scores" id="qteScores"></div>
         <div class="qte-timer-bar"><div id="qteTimerFill"></div></div>
-        <button id="qteClickBtn" onclick="sendQteClick()" style="display:none">¡ C L I C K !</button>
+        <!-- Sin onclick propio: quien recibe el toque es el overlay entero, que
+             ocupa la pantalla. Con el botón también escuchando, un toque encima
+             contaría dos veces. `pointer-events: none` lo deja de adorno. -->
+        <button id="qteClickBtn" style="display:none">¡ C L I C K !</button>
     </div>
 </div>
 
@@ -2305,8 +2328,16 @@ function renderCenterCards() {
         el.style.setProperty('--throw-x', `${dx}%`);
         el.style.setProperty('--throw-y', `${dy}%`);
         el.classList.add('thrown');
+        // Peleando: se apaga todo, porque no puedes hacer otra cosa.
+        // Mirando: el tablero se queda como estaba. Apagarlo entero mientras
+        // pelean otros dos distraía y encima no hacía falta — puedes seguir
+        // jugando. Lo único intocable es la carta en disputa.
         if (qteBlockedCardId !== null) {
-            el.classList.add(card.id === qteBlockedCardId ? 'qte-locked' : 'qte-waiting');
+            if (card.id === qteBlockedCardId) {
+                el.classList.add(qteActive ? 'qte-locked' : 'qte-contested');
+            } else if (qteActive) {
+                el.classList.add('qte-waiting');
+            }
         }
         el.onclick = () => onCenterCardClick(card.id);
         div.appendChild(el);
@@ -2717,7 +2748,9 @@ function initCardTilt() {
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
 // una del centro la coge. Nada que seleccionar, nada que confirmar.
 function onPlayerCardClick(index) {
-    if (qteBlockedCardId !== null || isStunned() || owesCard()) return;
+    // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
+    // quieto: sigues jugando con tus cartas y con el resto del centro.
+    if (qteActive || isStunned() || owesCard()) return;
     const card = (allSets[currentSetIndex] || [])[index];
     if (!card) return;
     pendingDrop = { index, card };
@@ -2725,9 +2758,11 @@ function onPlayerCardClick(index) {
 }
 
 function onCenterCardClick(cardId) {
-    // Sin mensaje: la etiqueta PELEADA sobre la carta y el tablero apagado ya
-    // explican por qué no pasa nada.
-    if (qteBlockedCardId !== null || isStunned()) return;
+    // Sin mensaje: la etiqueta PELEADA sobre la carta ya explica por qué no
+    // pasa nada. La carta en disputa es la única intocable; las demás siguen
+    // disponibles para quien no está peleando.
+    if (qteActive || isStunned()) return;
+    if (cardId === qteBlockedCardId) return;
     // Solo se coge para tapar un hueco.
     if (!owesCard()) return;
     const card = centerCards.find(c => c.id === cardId);
@@ -3156,6 +3191,18 @@ function closeQteOverlay() {
 function sendQteClick() {
     if (qteActive) send({ type: 'qte_click' });
 }
+
+// Toda la pantalla cuenta como el botón. `pointerdown` y no `click`: en una
+// pelea a golpes de dedo, esperar al `click` completo (que exige soltar) pierde
+// pulsaciones y llega tarde.
+document.getElementById('qteOverlay').addEventListener('pointerdown', (e) => {
+    if (!qteActive) return;
+    e.preventDefault();
+    sendQteClick();
+    const overlay = e.currentTarget;
+    overlay.classList.add('hit');
+    setTimeout(() => overlay.classList.remove('hit'), 60);
+});
 
 // Spacebar como atajo durante QTE
 document.addEventListener('keydown', (e) => {

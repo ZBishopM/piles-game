@@ -655,7 +655,7 @@ pub(crate) async fn handle_client_message(
 
             let result = {
                 let Some(game_state) = lobby.game_state.as_mut() else { return };
-                if game_state.active_qte.is_some() { return; }
+                if qte_blocks(game_state, player_id, None) { return; }
                 let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
                 let player = &mut game_state.players[idx];
                 if player.is_verifying || player.owes_card() { return; }
@@ -714,7 +714,7 @@ pub(crate) async fn handle_client_message(
 
             let nickname = {
                 let Some(game_state) = lobby.game_state.as_ref() else { return };
-                if game_state.active_qte.is_some() { return; }
+                if qte_blocks(game_state, player_id, Some(card_id)) { return; }
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) { return; }
                 let Some(p) = game_state.players.iter().find(|p| p.id == player_id) else { return };
                 // Solo se coge para tapar un hueco: sin deuda no hay nada que
@@ -1048,7 +1048,7 @@ async fn execute_delayed_take(
     let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
     let (taken, combo_msg) = {
         let Some(game_state) = lobby.game_state.as_mut() else { return };
-        if game_state.active_qte.is_some() { return; }
+        if qte_blocks(game_state, player_id, Some(card_id)) { return; }
         let taken = take_card_into_slot(game_state, player_id, card_id);
         // Coger una carta mantiene el ritmo; si además cierra un set, suma más.
         let combo_msg = match &taken {
@@ -1154,7 +1154,9 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
         }
         {
             let Some(gs) = lobby.game_state.as_ref() else { return };
-            if gs.active_qte.is_some() {
+            // Solo se pausa el plazo de quien está peleando. Al resto no les
+            // afecta la pelea, así que su cuenta atrás sigue corriendo.
+            if qte_blocks(gs, player_id, None) {
                 wait = Duration::from_millis(500);
                 continue;
             }
@@ -1346,6 +1348,22 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
 /// donde una carta entra en un hueco, así que es también el único momento en
 /// que un set puede pasar a estar completo: detectarlo aquí evita recalcularlo
 /// por todos lados.
+/// ¿Le impide jugar a este jugador la pelea que haya en curso?
+///
+/// Solo a quien pelea, y solo sobre la carta en disputa. Antes una pelea
+/// paraba la mesa entera: los otros dos jugadores se quedaban mirando aunque no
+/// tuvieran nada que ver. Una pelea dura un instante, pero pasan a menudo, y
+/// entre todas se comían buena parte de la partida de los demás.
+fn qte_blocks(
+    game_state: &crate::game::models::GameState,
+    player_id: Uuid,
+    card_id: Option<u32>,
+) -> bool {
+    let Some(qte) = game_state.active_qte.as_ref() else { return false };
+    qte.participants.iter().any(|(id, _)| *id == player_id)
+        || card_id == Some(qte.card_id)
+}
+
 fn take_card_into_slot(
     game_state: &mut crate::game::models::GameState,
     player_id: Uuid,
@@ -1571,5 +1589,62 @@ async fn send_lobby_update(state: &AppState, lobby_id: &str) {
         };
 
         state.broadcast_to_lobby(lobby_id, update_msg).await;
+    }
+}
+
+#[cfg(test)]
+mod qte_scope_tests {
+    use super::*;
+    use crate::game::models::{Card, GameState, PlayerState, QteState};
+
+    fn state_with_fight(fighters: [Uuid; 2], card_id: u32) -> GameState {
+        let sets = [[Card::new(0, 1); 4]; 6];
+        let players = fighters.iter()
+            .map(|id| PlayerState::new(*id, "x".to_string(), sets))
+            .collect();
+        let mut gs = GameState::new("l".to_string(), players, vec![Card::new(card_id, 3)]);
+        gs.active_qte = Some(QteState {
+            participants: fighters.iter().map(|id| (*id, "x".to_string())).collect(),
+            card_id,
+            clicks: std::collections::HashMap::new(),
+            duration_ms: 3000,
+        });
+        gs
+    }
+
+    #[test]
+    fn a_fight_stops_only_the_two_fighting() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let mirando = Uuid::new_v4();
+        let gs = state_with_fight([a, b], 7);
+
+        assert!(qte_blocks(&gs, a, None), "el que pelea no juega a la vez");
+        assert!(qte_blocks(&gs, b, None));
+        // Lo que rompía la partida a los demás: la mesa entera parada.
+        assert!(!qte_blocks(&gs, mirando, None), "no tiene nada que ver con esa pelea");
+    }
+
+    #[test]
+    fn the_contested_card_is_off_limits_to_everyone() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let mirando = Uuid::new_v4();
+        let gs = state_with_fight([a, b], 7);
+
+        assert!(qte_blocks(&gs, mirando, Some(7)), "se la llevaría en mitad de la pelea");
+        assert!(!qte_blocks(&gs, mirando, Some(8)), "esa no la pelea nadie");
+    }
+
+    #[test]
+    fn without_a_fight_nothing_is_blocked() {
+        let a = Uuid::new_v4();
+        let sets = [[Card::new(0, 1); 4]; 6];
+        let gs = GameState::new(
+            "l".to_string(),
+            vec![PlayerState::new(a, "x".to_string(), sets)],
+            vec![Card::new(7, 3)],
+        );
+        assert!(!qte_blocks(&gs, a, Some(7)));
     }
 }
