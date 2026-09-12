@@ -46,8 +46,11 @@ class El {
 const TAP_SLOP_PX = 12, TAP_MAX_MS = 700;
 const bindTap = eval(`(${src[0].replace(/^function bindTap/, 'function')})`);
 
-function scenario(name, run) {
+function scenario(name, run, { scrollable = false } = {}) {
     const container = new El('div');
+    // Con scroll disponible se responde al soltar; sin él, al bajar el dedo.
+    container.scrollHeight = scrollable ? 500 : 100;
+    container.clientHeight = 100;
     let got = null;
     bindTap(container, (v) => { got = v; });
     const card = new El('div');
@@ -64,7 +67,7 @@ const ev = (target, x, y) => ({ target, clientX: x, clientY: y, pointerType: 'to
 let all = true;
 
 // El caso que rompía: el centro se redibuja con el dedo apoyado.
-all &= scenario('el toque sobrevive a un redibujado a media pulsación', (c, card, got) => {
+all &= scenario('con scroll, el toque sobrevive a un redibujado a media pulsación', (c, card, got) => {
     c.fire('pointerdown', ev(card, 100, 100));
     c.clear();                       // llega un game_update: fuera todas las cartas
     const nueva = new El('div');
@@ -72,15 +75,38 @@ all &= scenario('el toque sobrevive a un redibujado a media pulsación', (c, car
     c.append(nueva);
     c.fire('pointerup', ev(nueva, 101, 101));
     return got() === '42';           // vale la que se tocó, no la que quedó debajo
+}, { scrollable: true });
+
+// Sin nada que desplazar no hay gesto de scroll posible, así que se responde al
+// bajar el dedo: es lo que se siente inmediato.
+all &= scenario('sin scroll, responde al bajar el dedo', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    return got() === '42';                     // sin haber levantado el dedo
 });
 
-all &= scenario('arrastrar no cuenta como toque', (c, card, got) => {
+all &= scenario('sin scroll, no cuenta dos veces al levantar', (c, card, got) => {
+    let veces = 0;
+    c.listeners = {};                          // se reengancha contando
+    bindTap(c, () => { veces++; });
+    c.fire('pointerdown', ev(card, 100, 100));
+    c.fire('pointerup', ev(card, 100, 100));
+    return veces === 1;
+});
+
+// Con scroll disponible hay que esperar: deslizar para mover el centro no puede
+// llevarse una carta por delante.
+all &= scenario('con scroll, arrastrar no cuenta como toque', (c, card, got) => {
     c.fire('pointerdown', ev(card, 100, 100));
     c.fire('pointerup', ev(card, 100, 160));   // scroll con el dedo
     return got() === null;
-});
+}, { scrollable: true });
 
-all &= scenario('un toque normal cuenta', (c, card, got) => {
+all &= scenario('con scroll, no dispara hasta levantar', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    return got() === null;
+}, { scrollable: true });
+
+all &= scenario('sin scroll, un toque normal cuenta', (c, card, got) => {
     c.fire('pointerdown', ev(card, 100, 100));
     c.fire('pointerup', ev(card, 102, 101));
     return got() === '42';
@@ -94,12 +120,12 @@ all &= scenario('tocar el hueco vacío no hace nada', (c, card, got) => {
     return got() === null;
 });
 
-all &= scenario('pointercancel anula el toque', (c, card, got) => {
+all &= scenario('con scroll, pointercancel anula el toque', (c, card, got) => {
     c.fire('pointerdown', ev(card, 100, 100));
     c.fire('pointercancel', ev(card, 100, 100));
     c.fire('pointerup', ev(card, 100, 100));
     return got() === null;
-});
+}, { scrollable: true });
 
 console.log(all ? 'TODO OK' : 'HAY FALLOS');
 process.exit(all ? 0 : 1);

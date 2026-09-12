@@ -2794,9 +2794,12 @@ function initCardTilt() {
 // Aquí escucha el contenedor, que no se redibuja nunca, y la carta se apunta al
 // bajar el dedo. Lo que haya pasado con el DOM mientras tanto da igual.
 //
-// Se dispara al SUBIR el dedo, no al bajarlo, y solo si no se ha movido: en
-// móvil el centro se desplaza con el dedo, y disparar al bajar convertiría cada
-// intento de scroll en una carta cogida sin querer.
+// Se dispara al BAJAR el dedo siempre que se pueda, que es lo que se siente
+// instantáneo. La excepción es cuando el contenedor puede desplazarse: en móvil
+// el centro tiene altura fija y scroll propio, y ahí disparar al bajar
+// convertiría cada intento de deslizar en una carta cogida sin querer. Se mira
+// en el momento, no una vez: el centro solo desborda cuando hay cartas de
+// sobra, así que la mayor parte del tiempo responde al bajar el dedo.
 const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
 const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 
@@ -2808,15 +2811,24 @@ function bindTap(container, handler) {
     }
     let start = null;
 
+    // ¿Hay algo que desplazar AHORA MISMO? Si no, no hay gesto de scroll que
+    // confundir con un toque y se puede responder al instante.
+    const canScroll = () => container.scrollHeight > container.clientHeight + 2;
+
     container.addEventListener('pointerdown', (e) => {
         start = null;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         const el = e.target.closest('[data-tap]');
         if (!el || !container.contains(el)) return;
-        start = { tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el };
+        start = { tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el, fired: false };
         // Confirmación inmediata, sin esperar al servidor: el toque se ve
         // acusado aunque la respuesta tarde.
         el.classList.add('tapped');
+
+        if (!canScroll()) {
+            start.fired = true;
+            handler(start.tap, el);
+        }
     });
 
     const cancel = () => {
@@ -2831,6 +2843,7 @@ function bindTap(container, handler) {
         const s = start;
         start = null;
         s.el.classList.remove('tapped');
+        if (s.fired) return;          // ya se hizo al bajar el dedo
         if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > TAP_SLOP_PX) return;
         if (Date.now() - s.t > TAP_MAX_MS) return;
         handler(s.tap, s.el);
