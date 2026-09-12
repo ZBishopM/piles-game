@@ -89,6 +89,21 @@ sola carta.
 
 ---
 
+## 🖱️ Toques
+
+`client/tap-test.mjs` — `node client/tap-test.mjs`. Saca `bindTap` del propio
+`lobby.html`, así que no se queda vieja: si cambia la función, prueba la nueva.
+
+Lo que fija, y por qué: un `click` solo existe si el dedo baja y sube sobre el
+MISMO elemento, y el centro se redibuja entero cada vez que otro jugador mueve
+una carta. Si eso caía entre el apoyo y el levantamiento, el toque se perdía sin
+dejar rastro — el famoso "hay que darle dos veces". Por eso escucha el
+contenedor y la carta se apunta al bajar el dedo.
+
+Si algún día se vuelve a poner un `onclick` en cada carta, vuelve el fallo.
+
+---
+
 ## 💡 Ideas por probar
 
 - [ ] **Toda la pantalla es el botón de pelear** (puesto el 2026-09-11 *a modo de

@@ -402,6 +402,40 @@
             --lift: -10px;
             --scale: 1.08;
         }
+        /* Acuse de recibo del toque, antes de que conteste el servidor. Lo que
+           se notaba como "no me ha cogido el click" era casi siempre falta de
+           esto: entre el toque y la respuesta no pasaba nada en pantalla. */
+        /* Registrada para que `--lift` interpole en la animación de rechazo.
+           Sin esto una custom property salta entre valores en vez de animarse.
+           Donde no haya soporte se ve a tirones, que sigue diciendo "no". */
+        @property --lift {
+            syntax: '<length>';
+            inherits: false;
+            initial-value: 0px;
+        }
+        /* Por la variable, no con un `transform` propio: las cartas del centro
+           van torcidas con `--throw-rot` y escribir aquí `transform` las
+           enderezaría de golpe al tocarlas. */
+        .card.tapped {
+            --scale: 0.94;
+            filter: brightness(1.25);
+            transition: transform 0.04s ease-out, filter 0.04s ease-out;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .card.tapped { --scale: 1; }
+        }
+        /* Toque recibido pero jugada imposible. Sin esto es idéntico a que el
+           toque se haya perdido, y se insiste — que es justo lo que hacía que
+           pareciera que había que pulsar dos veces. */
+        .card.refused { animation: refuseNudge 0.28s ease-in-out; }
+        @keyframes refuseNudge {
+            0%, 100% { --lift: 0px; filter: none; }
+            25%      { --lift: -3px; filter: saturate(0.4); }
+            75%      { --lift: 3px;  filter: saturate(0.4); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .card.refused { animation: none; filter: saturate(0.3); }
+        }
         /* Carta en disputa (QTE activo en ella) — todos los clientes la ven así */
         .card.qte-locked {
             outline: 3px solid var(--danger);
@@ -2339,7 +2373,9 @@ function renderCenterCards() {
                 el.classList.add('qte-waiting');
             }
         }
-        el.onclick = () => onCenterCardClick(card.id);
+        // El id va en el elemento, no en un closure: quien escucha es el
+        // contenedor, que sobrevive a los redibujados. Ver `bindTap`.
+        el.dataset.tap = card.id;
         div.appendChild(el);
     }
 }
@@ -2358,7 +2394,7 @@ function renderYourCards() {
             return;
         }
         const el = buildCard(card);
-        el.onclick = () => onPlayerCardClick(i);
+        el.dataset.tap = i;
         div.appendChild(el);
     });
     updateSetNav();
@@ -2744,31 +2780,118 @@ function initCardTilt() {
     }
 }
 
+// ─── Toques ───────────────────────────────────────────────────────────────
+// Por qué no un `onclick` en cada carta, que es lo que había:
+//
+// Un `click` solo existe si el dedo baja Y sube sobre el MISMO elemento. El
+// centro se redibuja entero (`innerHTML = ''`) cada vez que otro jugador mueve
+// una carta, así que si ese redibujado cae entre que apoyas el dedo y lo
+// levantas —una ventana de milisegundos que con tres rivales pasa a todas
+// horas— la carta que estabas pulsando deja de existir y el toque se pierde sin
+// más. De ahí el "hay que darle dos veces" o "hay que apretar más fuerte". No
+// era el servidor: era el cliente borrando el botón que tenías debajo del dedo.
+//
+// Aquí escucha el contenedor, que no se redibuja nunca, y la carta se apunta al
+// bajar el dedo. Lo que haya pasado con el DOM mientras tanto da igual.
+//
+// Se dispara al SUBIR el dedo, no al bajarlo, y solo si no se ha movido: en
+// móvil el centro se desplaza con el dedo, y disparar al bajar convertiría cada
+// intento de scroll en una carta cogida sin querer.
+const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
+const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
+
+function bindTap(container, handler) {
+    if (!container) {
+        // Sin esto el juego se queda mudo y sin decir por qué.
+        console.error('[piles] falta el contenedor de cartas: no habrá toques');
+        return;
+    }
+    let start = null;
+
+    container.addEventListener('pointerdown', (e) => {
+        start = null;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        const el = e.target.closest('[data-tap]');
+        if (!el || !container.contains(el)) return;
+        start = { tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el };
+        // Confirmación inmediata, sin esperar al servidor: el toque se ve
+        // acusado aunque la respuesta tarde.
+        el.classList.add('tapped');
+    });
+
+    const cancel = () => {
+        if (start) start.el.classList.remove('tapped');
+        start = null;
+    };
+    container.addEventListener('pointercancel', cancel);
+    container.addEventListener('pointerleave', cancel);
+
+    container.addEventListener('pointerup', (e) => {
+        if (!start) return;
+        const s = start;
+        start = null;
+        s.el.classList.remove('tapped');
+        if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > TAP_SLOP_PX) return;
+        if (Date.now() - s.t > TAP_MAX_MS) return;
+        handler(s.tap, s.el);
+    });
+}
+
+/** Carta pedida, esperando al servidor. El estilo `.card-pending` ya existía y
+ *  ya se limpiaba al fallar, pero no lo ponía nadie: el hueco entre el toque y
+ *  la respuesta se veía igual que no haber tocado. */
+function markPending(el) {
+    clearPending();
+    if (el) el.classList.add('card-pending');
+}
+
+function clearPending() {
+    document.querySelectorAll('.card-pending')
+        .forEach(el => el.classList.remove('card-pending'));
+}
+
+/** La jugada no toca ahora. El toque SÍ se registró, y decirlo evita que se
+ *  insista pensando que no ha entrado. */
+function refuseTap(el) {
+    if (!el) return;
+    el.classList.remove('refused');
+    void el.offsetWidth;          // reinicia la animación si se repite el toque
+    el.classList.add('refused');
+    setTimeout(() => el.classList.remove('refused'), 300);
+}
+
+bindTap(document.getElementById('centerCards'), (v, el) => onCenterCardClick(Number(v), el));
+bindTap(document.getElementById('yourCards'), (v, el) => onPlayerCardClick(Number(v), el));
+
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
 // una del centro la coge. Nada que seleccionar, nada que confirmar.
-function onPlayerCardClick(index) {
+function onPlayerCardClick(index, el) {
     // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
     // quieto: sigues jugando con tus cartas y con el resto del centro.
-    if (qteActive || isStunned() || owesCard()) return;
+    // Debiendo una carta no se puede soltar otra: primero se tapa el hueco.
+    if (qteActive || isStunned() || owesCard()) return refuseTap(el);
     const card = (allSets[currentSetIndex] || [])[index];
     if (!card) return;
     pendingDrop = { index, card };
+    markPending(el);
     send({ type: 'drop_card', my_card_index: index });
 }
 
-function onCenterCardClick(cardId) {
+function onCenterCardClick(cardId, el) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta ya explica por qué no
     // pasa nada. La carta en disputa es la única intocable; las demás siguen
     // disponibles para quien no está peleando.
-    if (qteActive || isStunned()) return;
-    if (cardId === qteBlockedCardId) return;
-    // Solo se coge para tapar un hueco.
-    if (!owesCard()) return;
+    if (qteActive || isStunned()) return refuseTap(el);
+    if (cardId === qteBlockedCardId) return refuseTap(el);
+    // Solo se coge para tapar un hueco: sin deuda no hay dónde meterla. Es el
+    // "no pasa nada" más frecuente, así que conviene que se vea.
+    if (!owesCard()) return refuseTap(el);
     const card = centerCards.find(c => c.id === cardId);
     if (!card) return;
     // El hueco donde estaba, para animar el vuelo desde ahí.
     pendingTake = { centerIndex: centerSlots.indexOf(cardId), card };
+    markPending(el);
     // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
     // una posición deja de referirse a la misma carta.
     send({ type: 'take_card', card_id: card.id });
@@ -2815,6 +2938,7 @@ function onSwapSuccess(msg) {
     }
     pendingDrop = null;
     pendingTake = null;
+    clearPending();
     updateOwingUi();
 }
 
@@ -3037,9 +3161,12 @@ function onSwapConflict(players, cardId, durationMs) {
     // El hueco donde está, que es el que ocupa en pantalla: hace falta para
     // animar el vuelo si la ganas.
     qteContestedIndex = card ? centerSlots.indexOf(card.id) : null;
-    // Un movimiento propio a medias queda anulado por la pelea.
+    // Un movimiento propio a medias queda anulado por la pelea: ibas a coger
+    // esa carta y ahora hay que ganársela. Para quien la estaba pidiendo, el
+    // overlay que entra a continuación es la respuesta a su toque.
     pendingDrop = null;
     pendingTake = null;
+    clearPending();
     renderCenterCards();
     const isParticipant = players.includes(currentNickname);
 
