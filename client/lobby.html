@@ -1714,8 +1714,7 @@ function handleMsg(msg) {
             // rompió esto una vez—, sino por si venías de una pelea.
             pendingDrop = null;
             pendingTake = null;
-            document.querySelectorAll('.card-pending')
-                .forEach(el => el.classList.remove('card-pending'));
+            clearPending();
             if (!qtePlayers.includes(currentNickname) && !isStunned() && msg.reason) {
                 renderYourCards();
                 renderCenterCards();

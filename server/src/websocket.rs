@@ -653,23 +653,44 @@ pub(crate) async fn handle_client_message(
                 return;
             }
 
+            // Igual que al coger: una jugada que no se puede hacer se contesta.
+            // Quedarse callado se ve exactamente igual que un toque perdido, y
+            // lo que hace el jugador entonces es volver a tocar.
             let result = {
                 let Some(game_state) = lobby.game_state.as_mut() else { return };
-                if qte_blocks(game_state, player_id, None) { return; }
                 let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
-                let player = &mut game_state.players[idx];
-                if player.is_verifying || player.owes_card() { return; }
-
-                let set_index = player.current_set_index;
-                let Some(card) = player.sets[set_index][my_card_index].take() else { return };
-                player.owed_slot = Some((set_index, my_card_index));
-                player.owed_since = Some(Instant::now());
-                game_state.center_cards.push(card);
-
-                (set_index, set_to_info(&game_state.players[idx].sets[set_index]))
+                if qte_blocks(game_state, player_id, None) {
+                    Err("Espera a que acabe tu pelea")
+                } else {
+                    let player = &mut game_state.players[idx];
+                    if player.is_verifying {
+                        Err("Estás verificando tus pilas")
+                    } else if player.owes_card() {
+                        Err("Coge una carta del centro antes de soltar otra")
+                    } else {
+                        let set_index = player.current_set_index;
+                        match player.sets[set_index][my_card_index].take() {
+                            None => Err("Ese hueco ya está vacío"),
+                            Some(card) => {
+                                player.owed_slot = Some((set_index, my_card_index));
+                                player.owed_since = Some(Instant::now());
+                                game_state.center_cards.push(card);
+                                Ok((set_index, set_to_info(&game_state.players[idx].sets[set_index])))
+                            }
+                        }
+                    }
+                }
             };
 
-            let (set_index, new_set) = result;
+            let (set_index, new_set) = match result {
+                Ok(v) => v,
+                Err(reason) => {
+                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
+                        reason: reason.to_string(),
+                    }).await;
+                    return;
+                }
+            };
             let (new_center, players_progress) = snapshot(&lobby);
             let nickname = lobby.players.iter()
                 .find(|p| p.id == player_id)
@@ -712,14 +733,36 @@ pub(crate) async fn handle_client_message(
                 return;
             }
 
+            // Cada salida de aquí contesta algo. Callarse es lo que dejaba al
+            // jugador mirando cómo la carta que había elegido se esfumaba sin
+            // pelea ni aviso: al llegar su mensaje otro ya se la había llevado,
+            // el servidor no la encontraba en el centro y no hacía nada.
+            // La pelea solo salta si los dos van a por ella dentro de los 300 ms
+            // de `CONFLICT_WINDOW`; fuera de esa ventana no hay pelea que valga,
+            // pero sigue haciendo falta decirlo.
             let nickname = {
                 let Some(game_state) = lobby.game_state.as_ref() else { return };
-                if qte_blocks(game_state, player_id, Some(card_id)) { return; }
-                if !game_state.center_cards.iter().any(|c| c.id == card_id) { return; }
+                if qte_blocks(game_state, player_id, Some(card_id)) {
+                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
+                        reason: "Esa carta se está peleando".to_string(),
+                    }).await;
+                    return;
+                }
+                if !game_state.center_cards.iter().any(|c| c.id == card_id) {
+                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
+                        reason: "Esa carta ya no está".to_string(),
+                    }).await;
+                    return;
+                }
                 let Some(p) = game_state.players.iter().find(|p| p.id == player_id) else { return };
                 // Solo se coge para tapar un hueco: sin deuda no hay nada que
                 // rellenar, y sin intercambio 1↔1 no hay otra forma de coger.
-                if !p.owes_card() { return; }
+                if !p.owes_card() {
+                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
+                        reason: "Suelta una carta antes de coger otra".to_string(),
+                    }).await;
+                    return;
+                }
                 p.nickname.clone()
             };
 

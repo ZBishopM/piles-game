@@ -94,6 +94,17 @@ sola carta.
 `client/tap-test.mjs` — `node client/tap-test.mjs`. Saca `bindTap` del propio
 `lobby.html`, así que no se queda vieja: si cambia la función, prueba la nueva.
 
+`client/take-race-test.mjs` — `node client/take-race-test.mjs`, con el servidor
+levantado desde la raíz del repo. Reproduce con dos clientes de verdad el caso
+que confundía jugando: eliges una carta y desaparece sin pelea y sin aviso.
+
+Cómo lo provoca: uno coge la carta, espera 600 ms (más que los 300 ms de
+`CONFLICT_WINDOW`, así que NO puede haber pelea) y el otro pide la misma carta.
+Antes el servidor no contestaba nada; ahora manda `swap_failed`.
+
+Sirve de molde para cualquier otro "toqué algo y no pasó nada": levantar dos
+clientes, forzar la carrera, y mirar qué le llega al que pierde.
+
 Lo que fija, y por qué: un `click` solo existe si el dedo baja y sube sobre el
 MISMO elemento, y el centro se redibuja entero cada vez que otro jugador mueve
 una carta. Si eso caía entre el apoyo y el levantamiento, el toque se perdía sin
