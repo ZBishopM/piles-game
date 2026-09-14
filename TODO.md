@@ -89,6 +89,26 @@ sola carta.
 
 ---
 
+## 🔌 Cosas enchufadas a nada
+
+Dos revisiones que no cambian nada, solo miran. Conviene pasarlas al quitar una
+función o cambiar el protocolo:
+
+- `node client/dead-wiring-audit.mjs` — funciones que no llama nadie, `onclick`
+  que apuntan a funciones que no existen, ids y clases que ya no están.
+- `node client/protocol-audit.mjs` — variantes de `ClientMessage` y
+  `ServerMessage` que nadie manda o nadie escucha.
+
+Ojo con los falsos positivos: los ids formados con plantillas
+(`` `vicon-${i}` ``) salen siempre, y `.css`/`.md`/`.webp` son extensiones
+dentro de comentarios. Lo que hay que mirar son las dos primeras secciones.
+
+Ya encontraron: el botón de "Solicitar verificación", que no se podía pulsar
+nunca —se deshabilitaba solo y la verificación se pedía sola al enseñar el sexto
+set—, y `PlayerFinished`, un mensaje que no mandaba ni escuchaba nadie.
+
+---
+
 ## 🖱️ Toques
 
 `client/tap-test.mjs` — `node client/tap-test.mjs`. Saca `bindTap` del propio

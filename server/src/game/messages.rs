@@ -180,11 +180,9 @@ pub enum ServerMessage {
         center_cards: Vec<CardInfo>,
         players_progress: Vec<PlayerProgress>,
     },
-    /// Un jugador terminó
-    PlayerFinished {
-        player: String,
-        position: u8,
-    },
+    // `PlayerFinished` vivió aquí sin que nadie lo mandara ni lo escuchara: que
+    // alguien termina se sabe por `SetVerificationResult` y por el puesto que
+    // sale en `PlayerProgress`.
     /// QTE resuelto (broadcast a todos)
     QteResolved {
         /// Qué pelea se acabó. Se difunde a toda la sala, así que sin esto el

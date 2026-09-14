@@ -560,27 +560,6 @@
         #flipBtn:hover { background: rgba(74,90,154,0.2); color: #eee; }
         #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: rgba(102,126,234,0.1); }
 
-        /* Panel de oponentes */
-
-        /* Botón verificar — fijo en esquina inferior derecha */
-        #verifyBtn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 12px 22px;
-            border: 2px solid var(--warning);
-            border-radius: 10px;
-            background: #1a1a2e;
-            color: var(--warning);
-            font-size: 0.95rem;
-            cursor: pointer;
-            transition: all 0.2s;
-            z-index: 40;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-        }
-        #verifyBtn:hover:not(:disabled) { background: rgba(255,193,7,0.15); }
-        #verifyBtn:disabled { opacity: 0.3; cursor: not-allowed; }
-
         /* Overlay de verificación */
         #verifyOverlay {
             display: none;
@@ -857,10 +836,11 @@
         .card.card-won { animation: cardWon 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
 
         /* Sacudida. Corta a propósito: si dura, marea.
-           Se sacuden las FILAS de cartas, no #gameScreen: dentro del tablero
-           vive #verifyBtn en position:fixed, y un transform en un ancestro lo
-           convierte en su bloque contenedor — el botón daría un salto cada vez
-           que temblara el tablero. Las filas no contienen nada fijo. */
+           Se sacuden las FILAS de cartas y no #gameScreen: un `transform` en un
+           ancestro convierte a ese ancestro en bloque contenedor de cualquier
+           `position: fixed` que tenga dentro, y lo que hubiera fijo daría un
+           salto cada vez que temblara el tablero. Las filas no contienen nada
+           fijo, así que son el sitio seguro donde ponerlo. */
         @keyframes boardShake {
             0%, 100% { transform: translate(0, 0); }
             20%      { transform: translate(-4px, 2px); }
@@ -1153,25 +1133,16 @@
                 overscroll-behavior: contain;
             }
             /* Lo de abajo no se encoge: son los objetivos que hay que acertar. */
-            .hud, .set-nav, #yourCards, .section-head, #verifyBtn,
+            .hud, .set-nav, #yourCards, .section-head,
             #comboBox, #stunBar, #debtBar { flex-shrink: 0; }
             /* El cartel de ayuda solo ocupa sitio cuando dice algo. */
             #swapHint:empty { display: none; }
-            #verifyBtn { margin-top: 4px; }
             /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
             .set-btn { min-height: 44px; padding: 10px 4px; }
             #flipBtn { min-height: 44px; padding: 10px 12px; }
             /* La ✕ de quitar un bot es diminuta en ratón; con el pulgar hay
                que poder acertarla sin tocar la fila de al lado. */
             .kick-bot { width: 44px; height: 44px; }
-            /* Fijo abajo a la derecha tapaba las últimas cartas. En el flujo,
-               al final del tablero, no tapa nada y es más fácil de acertar. */
-            #verifyBtn {
-                position: static;
-                display: block;
-                width: 100%;
-                box-shadow: none;
-            }
         }
 
         /* Sin puntero un :hover se queda pegado tras tocar: la carta se
@@ -1189,7 +1160,6 @@
             }
             .set-btn:not(.active):hover { border-color: #2a2a5a; color: #888; }
             #flipBtn:not(.is-flipped):hover { background: rgba(74,90,154,0.15); color: #ccc; }
-            #verifyBtn:hover:not(:disabled) { background: #1a1a2e; }
         }
     </style>
 </head>
@@ -1401,9 +1371,6 @@
 
     <!-- Cards del set actual -->
     <div class="card-row" id="yourCards"></div>
-
-    <!-- Botón de verificación -->
-    <button id="verifyBtn" onclick="requestVerification()">🔍 Solicitar Verificación</button>
 
 </div>
 
@@ -3465,23 +3432,22 @@ document.addEventListener('keydown', (e) => {
 // ─── Verificación ────────────────────────────────────────────────────────
 let verificationSent = false;
 
+/** Enseñar los 6 sets ES pedir la verificación.
+ *
+ *  Había además un botón de "Solicitar verificación" que no se podía pulsar
+ *  nunca: estaba deshabilitado mientras faltara algún set por enseñar, y en
+ *  cuanto se enseñaba el sexto esta función mandaba la petición sola y lo
+ *  volvía a deshabilitar. No existía ningún momento en que sirviera de algo. */
 function checkAutoVerify() {
-    const btn = document.getElementById('verifyBtn');
-    if (!btn || verificationSent) return;
-    const allFlipped = myFlippedSets.length === 6 && myFlippedSets.every(f => f);
-    if (allFlipped) {
-        btn.disabled = false;
-        // Auto-disparar verificación cuando todos los sets están volteados
+    if (verificationSent) return;
+    if (myFlippedSets.length === 6 && myFlippedSets.every(f => f)) {
         requestVerification();
-    } else {
-        btn.disabled = true;
     }
 }
 
 function requestVerification() {
     if (verificationSent) return;
     verificationSent = true;
-    document.getElementById('verifyBtn').disabled = true;
     send({ type: 'request_verification' });
 }
 
@@ -3563,7 +3529,6 @@ function onVerificationSuccess(playerName, position) {
         footer.textContent = `${medal} ¡Terminaste en el puesto ${position}!`;
         footer.className = 'verify-footer success';
         document.getElementById('verifyCloseBtn').style.display = 'block';
-        document.getElementById('verifyBtn').disabled = false;
     } else {
         const notif = otherVerifications.get(playerName);
         if (notif) {
@@ -3583,7 +3548,6 @@ function onVerificationFailed(playerName, failedSets) {
         footer.textContent = `❌ Fallaste: ${failedNames}`;
         footer.className = 'verify-footer failure';
         document.getElementById('verifyCloseBtn').style.display = 'block';
-        document.getElementById('verifyBtn').disabled = true;
     } else {
         const notif = otherVerifications.get(playerName);
         if (notif) {
