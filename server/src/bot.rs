@@ -599,13 +599,12 @@ mod tests {
     #[test]
     fn but_it_does_move_when_the_table_would_otherwise_freeze() {
         // Si todos esperan, nadie suelta y el centro no cambia nunca. Pasados
-        // unos turnos el bucle llama a force_drop, que sí mueve algo: aquí
-        // cambiarse al montón malo, que es el paso previo a soltar de él.
+        // unos turnos el bucle llama a force_drop, que sí suelta.
         let sets = vec![
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
             mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
         ];
-        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
         assert!(bot.force_drop(&mut rng).is_some(), "la mesa se quedaría parada");
     }
