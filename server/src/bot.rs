@@ -982,8 +982,10 @@ async fn spam_clicks(state: AppState, bot_id: Uuid, lobby_id: String, base: Dura
         };
         sleep(base.mul_f64(jitter)).await;
 
+        // Su pelea, no una cualquiera: con dos a la vez, seguir pulsando por la
+        // de otros es tirar clicks a la basura.
         let still = state.lobby_manager.get_lobby(&lobby_id).await
-            .and_then(|l| l.game_state.map(|g| g.active_qte.is_some()))
+            .and_then(|l| l.game_state.map(|g| g.qte_of_player(&bot_id).is_some()))
             .unwrap_or(false);
         if !still {
             return;

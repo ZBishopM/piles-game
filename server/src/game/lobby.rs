@@ -277,7 +277,7 @@ impl Lobby {
                 ps.id = new_id;
             }
             // Si estaba en una pelea, su identidad también vive ahí.
-            if let Some(qte) = &mut game.active_qte {
+            for qte in game.active_qtes.iter_mut() {
                 for (id, _) in qte.participants.iter_mut() {
                     if *id == old_id { *id = new_id; }
                 }

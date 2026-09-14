@@ -660,17 +660,19 @@ pub(crate) async fn handle_client_message(
                 let Some(game_state) = lobby.game_state.as_mut() else { return };
                 let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
                 if qte_blocks(game_state, player_id, None) {
-                    Err("Espera a que acabe tu pelea")
+                    Err(("Espera a que acabe tu pelea", "rule"))
                 } else {
                     let player = &mut game_state.players[idx];
                     if player.is_verifying {
-                        Err("Estás verificando tus pilas")
+                        Err(("Estás verificando tus pilas", "rule"))
                     } else if player.owes_card() {
-                        Err("Coge una carta del centro antes de soltar otra")
+                        Err(("Coge una carta del centro antes de soltar otra", "rule"))
                     } else {
                         let set_index = player.current_set_index;
                         match player.sets[set_index][my_card_index].take() {
-                            None => Err("Ese hueco ya está vacío"),
+                            // Ya no está donde creías: el cliente iba con una
+                            // mano vieja, así que se deshace y no se dice nada.
+                            None => Err(("Ese hueco ya está vacío", "gone")),
                             Some(card) => {
                                 player.owed_slot = Some((set_index, my_card_index));
                                 player.owed_since = Some(Instant::now());
@@ -684,9 +686,9 @@ pub(crate) async fn handle_client_message(
 
             let (set_index, new_set) = match result {
                 Ok(v) => v,
-                Err(reason) => {
+                Err((reason, kind)) => {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: reason.to_string(),
+                        reason: reason.to_string(), kind: kind.to_string(),
                     }).await;
                     return;
                 }
@@ -744,13 +746,13 @@ pub(crate) async fn handle_client_message(
                 let Some(game_state) = lobby.game_state.as_ref() else { return };
                 if qte_blocks(game_state, player_id, Some(card_id)) {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Esa carta se está peleando".to_string(),
+                        reason: "Esa carta se está peleando".to_string(), kind: "gone".to_string(),
                     }).await;
                     return;
                 }
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Esa carta ya no está".to_string(),
+                        reason: "Esa carta ya no está".to_string(), kind: "gone".to_string(),
                     }).await;
                     return;
                 }
@@ -759,7 +761,7 @@ pub(crate) async fn handle_client_message(
                 // rellenar, y sin intercambio 1↔1 no hay otra forma de coger.
                 if !p.owes_card() {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Suelta una carta antes de coger otra".to_string(),
+                        reason: "Suelta una carta antes de coger otra".to_string(), kind: "rule".to_string(),
                     }).await;
                     return;
                 }
@@ -792,7 +794,11 @@ pub(crate) async fn handle_client_message(
 
                     if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
                         if let Some(gs) = lobby.game_state.as_mut() {
-                            gs.active_qte = Some(crate::game::QteState {
+                            // Se añade, no se sustituye: con cuatro jugadores
+                            // puede haber dos peleas a la vez y antes la segunda
+                            // borraba la primera.
+                            gs.active_qtes.retain(|q| q.card_id != card_id);
+                            gs.active_qtes.push(crate::game::QteState {
                                 participants: vec![
                                     (me.player_id, me.nickname.clone()),
                                     (them.player_id, them.nickname.clone()),
@@ -910,11 +916,15 @@ pub(crate) async fn handle_client_message(
                 if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
                     let mut updated = false;
                     if let Some(gs) = lobby.game_state.as_mut() {
-                        if let Some(qte) = gs.active_qte.as_mut() {
-                            if qte.participants.iter().any(|(id, _)| *id == player_id) {
-                                *qte.clicks.entry(player_id).or_insert(0) += 1;
-                                updated = true;
-                            }
+                        // El click va a LA pelea de quien lo manda, no a la
+                        // única que hubiera guardada. Con dos peleas a la vez,
+                        // buscar "la pelea activa" hacía que los clicks de una
+                        // de las dos parejas no contaran absolutamente nada.
+                        let mia = gs.active_qtes.iter_mut()
+                            .find(|q| q.participants.iter().any(|(id, _)| *id == player_id));
+                        if let Some(qte) = mia {
+                            *qte.clicks.entry(player_id).or_insert(0) += 1;
+                            updated = true;
                         }
                     }
                     if updated {
@@ -1105,7 +1115,7 @@ async fn execute_delayed_take(
     let Some((set_index, new_set, _completed)) = taken else {
         // Otro se la llevó mientras esperábamos: se sigue debiendo una.
         state.send_to_player(&player_id, ServerMessage::SwapFailed {
-            reason: "Esa carta ya no está".to_string(),
+            reason: "Esa carta ya no está".to_string(), kind: "gone".to_string(),
         }).await;
         return;
     };
@@ -1402,9 +1412,10 @@ fn qte_blocks(
     player_id: Uuid,
     card_id: Option<u32>,
 ) -> bool {
-    let Some(qte) = game_state.active_qte.as_ref() else { return false };
-    qte.participants.iter().any(|(id, _)| *id == player_id)
-        || card_id == Some(qte.card_id)
+    // Te frena tu propia pelea, y la carta que se esté peleando frena a todos.
+    // Las peleas ajenas por otras cartas no frenan a nadie.
+    game_state.qte_of_player(&player_id).is_some()
+        || card_id.is_some_and(|c| game_state.qte_for_card(c).is_some())
 }
 
 fn take_card_into_slot(
@@ -1483,11 +1494,13 @@ async fn run_qte(
         sleep(Duration::from_millis(500)).await;
         if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
             if let Some(gs) = &lobby.game_state {
-                if let Some(qte) = &gs.active_qte {
+                // Solo la pelea de ESTA carta: si no, dos peleas a la vez se
+                // pisaban los marcadores en pantalla.
+                if let Some(qte) = gs.qte_for_card(card_id) {
                     let clicks: std::collections::HashMap<String, u32> = qte.participants.iter()
                         .map(|(id, name)| (name.clone(), *qte.clicks.get(id).unwrap_or(&0)))
                         .collect();
-                    state.broadcast_to_lobby(&lobby_id, ServerMessage::QteUpdate { clicks }).await;
+                    state.broadcast_to_lobby(&lobby_id, ServerMessage::QteUpdate { card_id, clicks }).await;
                 }
             }
         }
@@ -1500,7 +1513,10 @@ async fn run_qte(
                 Some(gs) => gs,
                 None => return,
             };
-            let qte = match game_state.active_qte.take() {
+            // La pelea de ESTA carta. Coger "la pelea activa" resolvía la de
+            // otra pareja con los participantes de ésta: el resultado salía 0-0
+            // y ganaba quien estuviera primero en la lista.
+            let qte = match game_state.take_qte_for_card(card_id) {
                 Some(q) => q,
                 None => return,
             };
@@ -1567,8 +1583,10 @@ async fn run_qte(
         }
         state.lobby_manager.update_lobby(lobby).await;
 
-        // Broadcast: pelea resuelta (cierra el overlay en todos)
+        // Broadcast: esta pelea se acabó. Va con la carta porque puede haber
+        // otra en marcha, y quien esté en ésa no debe cerrar la suya.
         state.broadcast_to_lobby(&lobby_id, ServerMessage::QteResolved {
+            card_id,
             winner: winner.nickname.clone(),
         }).await;
 
@@ -1587,7 +1605,7 @@ async fn run_qte(
 
             // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
             state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
-                reason: "Perdiste la carta".to_string(),
+                reason: "Perdiste la carta".to_string(), kind: "gone".to_string(),
             }).await;
             state.send_to_player(&loser.player_id, ServerMessage::Stunned {
                 ms: STUN_DURATION.as_millis() as u64,
@@ -1646,7 +1664,7 @@ mod qte_scope_tests {
             .map(|id| PlayerState::new(*id, "x".to_string(), sets))
             .collect();
         let mut gs = GameState::new("l".to_string(), players, vec![Card::new(card_id, 3)]);
-        gs.active_qte = Some(QteState {
+        gs.active_qtes.push(QteState {
             participants: fighters.iter().map(|id| (*id, "x".to_string())).collect(),
             card_id,
             clicks: std::collections::HashMap::new(),

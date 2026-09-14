@@ -121,6 +121,9 @@ pub enum ServerMessage {
     },
     /// Actualización de clicks del QTE
     QteUpdate {
+        /// Por qué carta se pelea. Puede haber más de una pelea a la vez, y sin
+        /// esto el marcador de una se pintaba encima del de la otra.
+        card_id: u32,
         clicks: std::collections::HashMap<String, u32>,
     },
     /// Intercambio exitoso
@@ -133,6 +136,17 @@ pub enum ServerMessage {
     /// Intercambio fallido
     SwapFailed {
         reason: String,
+        /// Qué clase de fallo, para que el cliente decida sin leer el texto.
+        ///
+        /// - `"gone"`: llegaste tarde, otro se llevó la carta. No es culpa de
+        ///   nadie y no hace falta decir nada: el cliente deshace lo que había
+        ///   pintado y ya está.
+        /// - `"rule"`: la jugada no tocaba (debes una carta, estás verificando).
+        ///   Eso sí conviene contarlo, porque el jugador puede corregirlo.
+        ///
+        /// Va aparte del texto a propósito: decidir comparando `reason` ya
+        /// rompió esto una vez.
+        kind: String,
     },
     /// Un jugador volteó un set
     SetFlipped {
@@ -173,6 +187,10 @@ pub enum ServerMessage {
     },
     /// QTE resuelto (broadcast a todos)
     QteResolved {
+        /// Qué pelea se acabó. Se difunde a toda la sala, así que sin esto el
+        /// cliente cerraba SU pelea al resolverse la de otros dos: se quedaba a
+        /// medias a los pocos clicks.
+        card_id: u32,
         winner: String,
     },
     /// Al que pierde una pelea se le bloquea el intercambio unos segundos.

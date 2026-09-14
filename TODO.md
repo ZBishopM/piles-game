@@ -94,6 +94,15 @@ sola carta.
 `client/tap-test.mjs` — `node client/tap-test.mjs`. Saca `bindTap` del propio
 `lobby.html`, así que no se queda vieja: si cambia la función, prueba la nueva.
 
+`client/two-fights-test.mjs` — `node client/two-fights-test.mjs`, con el servidor
+levantado. Cuatro jugadores, dos peleas a la vez por cartas distintas. Cuenta
+cuántas peleas se resuelven y cuántos clicks cuentan **en cada una**.
+
+Ojo con lo que se afirma aquí: `qte_resolved` se difunde a TODA la sala, así que
+"los cuatro recibieron uno" no prueba nada —con una sola resolución la reciben
+los cuatro igual—. La primera versión de este test pasaba con el fallo delante.
+Hay que contar resoluciones y clicks por pareja.
+
 `client/take-race-test.mjs` — `node client/take-race-test.mjs`, con el servidor
 levantado desde la raíz del repo. Reproduce con dos clientes de verdad el caso
 que confundía jugando: eliges una carta y desaparece sin pelea y sin aviso.

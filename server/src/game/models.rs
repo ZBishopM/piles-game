@@ -247,8 +247,15 @@ pub struct GameState {
     pub center_cards: Vec<Card>,
     /// IDs de jugadores que han terminado (en orden)
     pub rankings: Vec<Uuid>,
-    /// QTE activo (si existe)
-    pub active_qte: Option<QteState>,
+    /// Peleas en curso, una por carta en disputa.
+    ///
+    /// Era un `Option`, es decir UNA sola pelea en toda la sala. Con cuatro
+    /// jugadores dos peleas a la vez son de lo más normal, y la segunda pisaba
+    /// a la primera: los de la primera dejaban de aparecer en `participants`,
+    /// así que sus clicks no contaban ninguno y perdían 0-0 contra quien fuera.
+    /// Medido: dos peleas simultáneas, 24 clicks contados en una y CERO en la
+    /// otra.
+    pub active_qtes: Vec<QteState>,
 }
 
 impl GameState {
@@ -258,8 +265,25 @@ impl GameState {
             players,
             center_cards,
             rankings: Vec::new(),
-            active_qte: None,
+            active_qtes: Vec::new(),
         }
+    }
+
+    /// La pelea por esa carta, si la hay.
+    pub fn qte_for_card(&self, card_id: u32) -> Option<&QteState> {
+        self.active_qtes.iter().find(|q| q.card_id == card_id)
+    }
+
+    /// La pelea en la que anda metido este jugador, si anda en alguna.
+    pub fn qte_of_player(&self, player_id: &Uuid) -> Option<&QteState> {
+        self.active_qtes.iter()
+            .find(|q| q.participants.iter().any(|(id, _)| id == player_id))
+    }
+
+    /// Saca la pelea por esa carta para resolverla.
+    pub fn take_qte_for_card(&mut self, card_id: u32) -> Option<QteState> {
+        let i = self.active_qtes.iter().position(|q| q.card_id == card_id)?;
+        Some(self.active_qtes.remove(i))
     }
 
     /// Encuentra un jugador por su ID (mutable)

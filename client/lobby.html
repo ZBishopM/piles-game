@@ -250,18 +250,6 @@
         }
         #gameScreen.active { display: block; }
 
-        .game-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #16213e;
-            border-radius: 10px;
-            padding: 10px 16px;
-            margin-bottom: 12px;
-            font-size: 0.85rem;
-            color: #aaa;
-        }
-        .game-header strong { color: #eee; }
 
         /* Instrucción de swap */
         #swapHint {
@@ -424,6 +412,14 @@
         @media (prefers-reduced-motion: reduce) {
             .card.tapped { --scale: 1; }
         }
+        /* Carta pintada por adelantado, antes de que conteste el servidor.
+           Se ve puesta pero sin asentar: si llegaste tarde se deshace sola. */
+        .card.card-ghost { opacity: 0.55; }
+        .card.card-ghost.ghost-out {
+            opacity: 0;
+            --scale: 0.8;
+            transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+        }
         /* Toque recibido pero jugada imposible. Sin esto es idéntico a que el
            toque se haya perdido, y se insiste — que es justo lo que hacía que
            pareciera que había que pulsar dos veces. */
@@ -479,21 +475,72 @@
         .set-btn.flipped { border-style: dashed; }
         .set-btn .set-eye { display: block; font-size: 0.55rem; color: #aaa; }
 
-        /* Jugadores progreso */
-        .players-progress {
+        /* ── Marcador: una franja por jugador, hasta 8, en rejilla ──
+           Dos columnas entran de sobra en un móvil y ocho jugadores caben en
+           cuatro filas cortas. Cada franja es nombre · sets revelados · cuántos
+           lleva cerrados, en ese orden y siempre en el mismo sitio, para poder
+           comparar de un vistazo sin leer. */
+        .hud {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+        @media (min-width: 720px) {
+            .hud { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
+        .hud-stripe {
             display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            margin-bottom: 12px;
-        }
-        .player-progress-chip {
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            padding: 4px 8px;
+            border-radius: 6px;
             background: #16213e;
-            border-radius: 20px;
-            padding: 4px 12px;
-            font-size: 0.8rem;
-            color: #aaa;
+            border-left: 3px solid transparent;
+            font-size: 0.72rem;
+            color: #9aa;
         }
-        .player-progress-chip.finished { color: var(--success); }
+        .hud-stripe.is-me {
+            border-left-color: var(--accent);
+            color: #eee;
+        }
+        .hud-stripe.finished { border-left-color: var(--success); color: var(--success); }
+        .hud-stripe.on-fire { border-left-color: var(--warning); color: var(--warning); }
+        .hud-name {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .hud-slots { display: flex; gap: 2px; flex-shrink: 0; }
+        /* Un set sin revelar es un hueco apagado; revelado enseña su prenda.
+           A este tamaño no se lee la prenda, pero sí se distingue una de otra,
+           que es lo que hace falta para saber quién va a por lo mismo que tú. */
+        .hud-dot {
+            width: 10px;
+            height: 14px;
+            border-radius: 2px;
+            background: #0f1830;
+            box-shadow: inset 0 0 0 1px #2a2a5a;
+        }
+        /* La misma hoja de sprites que las cartas: `applyCardSprite` solo
+           coloca el recorte, la imagen y su escala vienen de aquí. */
+        .hud-dot.revealed {
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+            background-color: #fff;
+            background-image: url("cards.webp");
+            background-repeat: no-repeat;
+            background-size: 1600% 1300%;   /* 16 columnas x 13 filas */
+        }
+        .hud-count {
+            flex-shrink: 0;
+            font-weight: bold;
+            font-variant-numeric: tabular-nums;
+            color: #eee;
+        }
+        .hud-stripe.finished .hud-count { color: var(--success); }
 
         /* Botón voltear set */
         #flipBtn {
@@ -514,54 +561,6 @@
         #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: rgba(102,126,234,0.1); }
 
         /* Panel de oponentes */
-        #opponentPanel {
-            margin-top: 14px;
-            display: none;
-        }
-        #opponentPanel.has-data { display: block; }
-        .opponent-entry {
-            background: #16213e;
-            border-radius: 8px;
-            padding: 10px 12px;
-            margin-bottom: 8px;
-        }
-        .opponent-name {
-            font-size: 0.8rem;
-            color: #888;
-            margin-bottom: 6px;
-        }
-        .opponent-sets {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-        .opponent-set-slot {
-            width: 48px;
-            height: 74px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.6rem;
-            font-weight: bold;
-            text-align: center;
-            padding: 4px;
-            box-sizing: border-box;
-            color: rgba(0,0,0,0.65);
-            line-height: 1.2;
-        }
-        /* Set revelado: se ve la prenda, no su nombre */
-        .opponent-set-slot.revealed {
-            background-color: #fff;
-            background-image: url("cards.webp");
-            background-repeat: no-repeat;
-            background-size: 1600% 1300%;
-            padding: 0;
-        }
-        .opponent-set-slot.hidden {
-            background: #2a2a5a;
-            color: #555;
-        }
 
         /* Botón verificar — fijo en esquina inferior derecha */
         #verifyBtn {
@@ -972,19 +971,22 @@
             margin-bottom: 8px;
         }
         #comboBox.active { display: flex; }
+        /* El multiplicador es el cartel entero: un número grande y su color.
+           Cuanto más alto, más pesa — tamaño y brillo suben con el tramo, así
+           que no hace falta leer nada para saber que vas lanzado. */
         #comboMult {
-            font-size: 1.5rem;
-            font-weight: bold;
+            font-size: clamp(2rem, 9vw, 2.8rem);
+            font-weight: 900;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -0.02em;
             color: var(--combo-color);
-            text-shadow: 0 0 12px var(--combo-color);
-            line-height: 1;
+            text-shadow: 0 0 14px var(--combo-color), 0 2px 0 rgba(0,0,0,0.45);
+            line-height: 0.9;
+            transform-origin: 50% 65%;
         }
-        #comboCount {
-            font-size: 0.7rem;
-            color: #888;
-            letter-spacing: 0.08em;
-        }
-        #comboCount::after { content: " encadenados"; }
+        #gameScreen[data-combo-tier="3"] #comboMult { font-size: clamp(2.3rem, 10vw, 3.2rem); }
+        #gameScreen[data-combo-tier="4"] #comboMult { font-size: clamp(2.6rem, 11vw, 3.6rem); }
+        #gameScreen[data-combo-tier="5"] #comboMult { font-size: clamp(2.9rem, 12vw, 4rem); }
         .combo-bar {
             flex: 1;
             height: 5px;
@@ -999,18 +1001,22 @@
             /* La transición se fija en JS con la ventana que manda el
                servidor, para que la barra y la regla no discrepen. */
         }
-        @keyframes comboPop {
-            0%   { transform: scale(1.6); }
-            100% { transform: scale(1); }
+        /* Golpe con peso, no un globo que se infla.
+           El número entra de golpe y grande, se pasa de frenada hacia abajo
+           —como si cayera y rebotara— y se asienta. El tirón lateral es lo que
+           lo hace parecer que tiene masa en vez de escalar y ya. */
+        @keyframes comboHit {
+            0%   { transform: scale(2.1) rotate(-5deg); }
+            35%  { transform: scale(0.88) rotate(2.5deg); }
+            60%  { transform: scale(1.12) rotate(-1deg); }
+            82%  { transform: scale(0.97) rotate(0.4deg); }
+            100% { transform: scale(1) rotate(0); }
         }
-        #comboMult.bump { animation: comboPop 0.28s cubic-bezier(0.22, 1, 0.36, 1); }
+        #comboMult.bump { animation: comboHit 0.42s cubic-bezier(0.18, 0.9, 0.3, 1); }
 
         /* Quien va encadenando se ve desde el marcador: es lo que invita a ir
            a pelearle una carta. */
-        .player-progress-chip.on-fire {
-            border-color: var(--warning);
-            color: var(--warning);
-        }
+        .hud-stripe.on-fire .hud-count { color: var(--warning); }
 
         /* Quien pide "menos movimiento" al sistema lo pide en serio: aquí se
            queda la información (qué cambió, quién ganó) y se va el meneo. */
@@ -1114,43 +1120,56 @@
            táctiles. */
         @media (max-width: 768px) {
             #gameScreen { padding: 8px; }
-            .game-header { padding: 8px 10px; margin-bottom: 8px; font-size: 0.78rem; }
             #swapHint { padding: 6px 10px; margin-bottom: 8px; font-size: 0.78rem; }
             .section-label { font-size: 0.68rem; margin-bottom: 4px; }
             /* min-width en vw forzaba scroll horizontal en pantallas
                estrechas; el grid ya se reparte solo. */
-            .card-row { gap: 6px; margin-bottom: 10px; min-width: 0; }
-            /* El centro tiene ALTURA FIJA. Antes crecía al añadirse una fila y
-               empujaba hacia abajo todo lo demás —tus cartas, los botones de
-               set, revelar—, así que en mitad de una partida el toque caía en
-               otra cosa: soltabas una carta que no querías o revelabas un set
-               sin pretenderlo. Con alto fijo la mesa no se mueve nunca, pase lo
-               que pase con el número de cartas; si no caben, se desplaza dentro
-               de su propio hueco. Esto también cubre el caso de que alguien
-               abandone y el centro se vaya a ~28 cartas.
-               `overscroll-behavior` evita que al llegar al final arrastre la
-               página entera. */
+            .card-row { gap: 6px; margin-bottom: 8px; min-width: 0; }
+
+            /* ── Todo el tablero en una pantalla, sin scroll ──
+               La página entera ya no se desplaza: lo que cede es el centro, que
+               es la única parte cuyo tamaño no controlamos —cada carta soltada
+               añade una, y si alguien abandona pueden ser casi treinta—. Todo
+               lo demás (marcador, racha, tus cartas, los botones) tiene el alto
+               que necesita y se queda donde está.
+               `100dvh` y no `100vh`: en móvil la barra del navegador aparece y
+               desaparece, y con `vh` el tablero se salía por abajo justo cuando
+               estaba visible. */
+            #gameScreen.active {
+                display: flex;
+                flex-direction: column;
+                height: 100dvh;
+                padding: 8px;
+                overflow: hidden;
+            }
             #centerCards {
-                height: 40vh;
+                flex: 1;
+                min-height: 0;
+                height: auto;
                 overflow-y: auto;
                 align-content: start;
+                /* Sin esto, al llegar al final del centro el arrastre seguía en
+                   la página de detrás. */
                 overscroll-behavior: contain;
             }
+            /* Lo de abajo no se encoge: son los objetivos que hay que acertar. */
+            .hud, .set-nav, #yourCards, .section-head, #verifyBtn,
+            #comboBox, #stunBar, #debtBar { flex-shrink: 0; }
+            /* El cartel de ayuda solo ocupa sitio cuando dice algo. */
+            #swapHint:empty { display: none; }
+            #verifyBtn { margin-top: 4px; }
             /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
             .set-btn { min-height: 44px; padding: 10px 4px; }
             #flipBtn { min-height: 44px; padding: 10px 12px; }
             /* La ✕ de quitar un bot es diminuta en ratón; con el pulgar hay
                que poder acertarla sin tocar la fila de al lado. */
             .kick-bot { width: 44px; height: 44px; }
-            .opponent-set-slot { width: 40px; height: 62px; }
-            /* Fijo abajo a la derecha tapaba las últimas cartas y el panel de
-               oponentes. En el flujo, al final del tablero, no tapa nada y es
-               más fácil de acertar. */
+            /* Fijo abajo a la derecha tapaba las últimas cartas. En el flujo,
+               al final del tablero, no tapa nada y es más fácil de acertar. */
             #verifyBtn {
                 position: static;
                 display: block;
                 width: 100%;
-                margin-top: 12px;
                 box-shadow: none;
             }
         }
@@ -1338,11 +1357,12 @@
 <!-- ════ GAME ════ -->
 <div id="gameScreen" class="screen">
 
-    <!-- Header de estado -->
-    <div class="game-header">
-        <div class="players-progress" id="playersProgress"></div>
-        <div id="setLabel" style="color:#aaa;font-size:0.85rem">Set 1 / 6</div>
-    </div>
+    <!-- Marcador: una franja por jugador, hasta 8, en rejilla.
+         Lleva lo que antes estaba repartido entre la cabecera de arriba
+         (nombre y sets cerrados) y el panel de abajo (qué sets ha revelado
+         cada uno). Estaban lejos el uno del otro y el de abajo empujaba el
+         tablero fuera de la pantalla. -->
+    <div class="hud" id="hud"></div>
 
     <!-- Hint de intercambio -->
     <div id="swapHint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
@@ -1355,9 +1375,12 @@
 
     <!-- Racha. La ventana la manda el servidor; aquí solo se anima la barra,
          igual que con el bloqueo de arriba. -->
-    <div id="comboBox">
-        <span id="comboMult">x1</span>
-        <span id="comboCount">0</span>
+    <!-- Racha. Un número y ya: el multiplicador, con su color. Lo que decía
+         cuántos eslabones llevabas no lo entendía nadie y era texto de más.
+         La barra se queda sin etiqueta porque es lo único que avisa de que se
+         te acaba el tiempo. -->
+    <div id="comboBox" aria-live="polite">
+        <span id="comboMult">×1</span>
         <div class="combo-bar"><div id="comboBarFill"></div></div>
     </div>
 
@@ -1378,9 +1401,6 @@
 
     <!-- Cards del set actual -->
     <div class="card-row" id="yourCards"></div>
-
-    <!-- Panel de oponentes (sets volteados) -->
-    <div id="opponentPanel"></div>
 
     <!-- Botón de verificación -->
     <button id="verifyBtn" onclick="requestVerification()">🔍 Solicitar Verificación</button>
@@ -1709,30 +1729,22 @@ function handleMsg(msg) {
             break;
 
         case 'swap_failed':
-            // Perder una pelea no lleva mensaje: el bloqueo ya lo dice. Y no
-            // se decide comparando el texto del servidor —ese acoplamiento ya
-            // rompió esto una vez—, sino por si venías de una pelea.
-            pendingDrop = null;
-            pendingTake = null;
-            clearPending();
-            if (!qtePlayers.includes(currentNickname) && !isStunned() && msg.reason) {
-                renderYourCards();
-                renderCenterCards();
-                updateSwapHint(`⚠️ ${msg.reason}`);
-                resetSwapHintLater(2500);
-            }
+            onSwapFailed(msg);
             break;
 
         case 'swap_conflict':
             onSwapConflict(msg.players, msg.card_id, msg.qte_duration);
             break;
 
+        // Las dos llegan a toda la sala y puede haber más de una pelea a la vez,
+        // así que solo cuentan las de LA carta que tienes delante. Sin esto, al
+        // resolverse la pelea de otros dos se te cerraba la tuya a media pelea.
         case 'qte_update':
-            onQteUpdate(msg.clicks);
+            if (esMiPelea(msg.card_id)) onQteUpdate(msg.clicks);
             break;
 
         case 'qte_resolved':
-            onQteResolved(msg.winner);
+            if (esMiPelea(msg.card_id)) onQteResolved(msg.winner);
             break;
 
         case 'stunned':
@@ -2289,7 +2301,8 @@ function updateSetNav() {
         // reescribe className en cada render y las dos tienen que coincidir.
         btn.disabled = owing;
     });
-    document.getElementById('setLabel').textContent = `Set ${currentSetIndex + 1} / 6`;
+    // El "Set 3 / 6" de la cabecera se fue: los propios botones de set ya
+    // marcan cuál está abierto, y era una línea de texto más ocupando alto.
     updateFlipBtn();
     checkAutoVerify();
 }
@@ -2400,19 +2413,76 @@ function renderYourCards() {
     updateOwingUi();
 }
 
+// Último progreso recibido. El marcador también se repinta cuando alguien
+// revela un set, y ese mensaje no trae el progreso.
+let lastProgress = [];
+
+/** El marcador entero: una franja por jugador, hasta 8, en rejilla.
+ *
+ *  Cada franja dice lo mismo de un vistazo: quién es, cuántos sets lleva
+ *  cerrados y cuáles ha enseñado. Antes eso vivía en dos sitios —una tira de
+ *  etiquetas arriba y un panel al final del tablero—, y el de abajo crecía
+ *  según la gente iba revelando hasta empujar las cartas fuera de la pantalla. */
 function renderPlayersProgress(progress) {
-    const div = document.getElementById('playersProgress');
-    div.innerHTML = '';
-    progress.forEach(p => {
-        const chip = document.createElement('div');
-        // on_fire se difunde a todos a propósito: ver quién está encadenando es
-        // lo que da ganas de ir a quitarle una carta.
-        chip.className = 'player-progress-chip'
+    if (progress) lastProgress = progress;
+    const hud = document.getElementById('hud');
+    if (!hud) return;
+    hud.innerHTML = '';
+
+    lastProgress.slice(0, 8).forEach(p => {
+        const esMio = p.nickname === currentNickname;
+        const stripe = document.createElement('div');
+        stripe.className = 'hud-stripe'
+            + (esMio ? ' is-me' : '')
             + (p.finished ? ' finished' : '')
+            // on_fire se difunde a todos a propósito: ver quién está encadenando
+            // es lo que da ganas de ir a quitarle una carta.
             + (p.on_fire ? ' on-fire' : '');
-        chip.textContent = `${p.on_fire ? '🔥 ' : ''}${p.nickname}: ${p.completed_sets}/6`;
-        div.appendChild(chip);
+
+        const name = document.createElement('span');
+        name.className = 'hud-name';
+        name.textContent = p.nickname;
+        name.title = p.nickname;
+        stripe.appendChild(name);
+
+        const slots = document.createElement('span');
+        slots.className = 'hud-slots';
+        const revelados = esMio ? misSetsRevelados() : (opponentFlippedSets.get(p.nickname) || new Map());
+        for (let i = 0; i < 6; i++) {
+            const dot = document.createElement('i');
+            const card = revelados.get(i);
+            if (card) {
+                dot.className = 'hud-dot revealed';
+                applyCardSprite(dot, card);
+                dot.title = `Set ${i + 1}: ${card.name}`;
+            } else {
+                dot.className = 'hud-dot';
+                dot.title = `Set ${i + 1}: sin revelar`;
+            }
+            slots.appendChild(dot);
+        }
+        stripe.appendChild(slots);
+
+        const count = document.createElement('span');
+        count.className = 'hud-count';
+        count.textContent = p.completed_sets;
+        count.title = `${p.completed_sets} de 6 sets cerrados`;
+        stripe.appendChild(count);
+
+        hud.appendChild(stripe);
     });
+}
+
+/** Mis propios sets revelados, en el mismo formato que los de los rivales. */
+function misSetsRevelados() {
+    const m = new Map();
+    for (let i = 0; i < 6; i++) {
+        if (!myFlippedSets[i]) continue;
+        const set = allSets[i] || [];
+        const card = set.find(c => c);
+        if (card) m.set(i, card);
+    }
+    return m;
 }
 
 
@@ -2687,7 +2757,6 @@ let comboHideTimer = null;
 function renderCombo(msg) {
     const box = document.getElementById('comboBox');
     const mult = document.getElementById('comboMult');
-    const count = document.getElementById('comboCount');
     const fill = document.getElementById('comboBarFill');
     if (!box) return;
 
@@ -2705,8 +2774,9 @@ function renderCombo(msg) {
     // En el tablero y no en el cartel: así el color del tramo lo heredan
     // también las cartas y el anillo de aterrizaje sube de temperatura.
     board.dataset.comboTier = String(msg.multiplier);
-    mult.textContent = `x${msg.multiplier}`;
-    count.textContent = String(msg.combo);
+    // Solo el multiplicador. El recuento de eslabones era el dato que nadie
+    // entendía, y leerlo no cambiaba ninguna decisión.
+    mult.textContent = `×${msg.multiplier}`;
 
     mult.classList.remove('bump');
     void mult.offsetWidth;   // reinicia la animación si ya la tenía
@@ -2849,6 +2919,37 @@ function bindTap(container, handler) {
     });
 }
 
+/** Coger una carta se pinta YA, sin esperar al servidor.
+ *
+ *  El viaje de ida y vuelta se nota, y mientras dura no pasaba nada en pantalla.
+ *  Así que la carta se mete en tu hueco en cuanto la tocas, en fantasma. Si el
+ *  servidor la confirma, la sustituye la de verdad y no se ha visto ni un
+ *  parpadeo. Si llegaste tarde, `rollbackGhost` la deshace.
+ *
+ *  Solo al coger: soltar no tiene con qué equivocarse —la carta es tuya— y la
+ *  animación de vuelo ya la cubre. */
+function showGhost(card) {
+    const div = document.getElementById('yourCards');
+    if (!div) return;
+    const slot = (allSets[currentSetIndex] || []).findIndex(c => !c);
+    if (slot === -1 || !div.children[slot]) return;
+    const ghost = buildCard(card);
+    ghost.classList.add('card-ghost');
+    div.replaceChild(ghost, div.children[slot]);
+}
+
+/** Deshace la carta pintada por adelantado. */
+function rollbackGhost() {
+    const ghosts = document.querySelectorAll('.card-ghost');
+    if (!ghosts.length) return;
+    ghosts.forEach(el => el.classList.add('ghost-out'));
+    setTimeout(() => {
+        // Puede haber llegado ya un redibujado; `renderYourCards` deja el hueco
+        // como toca de todas formas.
+        renderYourCards();
+    }, 160);
+}
+
 /** Carta pedida, esperando al servidor. El estilo `.card-pending` ya existía y
  *  ya se limpiaba al fallar, pero no lo ponía nadie: el hueco entre el toque y
  *  la respuesta se veía igual que no haber tocado. */
@@ -2904,6 +3005,7 @@ function onCenterCardClick(cardId, el) {
     // El hueco donde estaba, para animar el vuelo desde ahí.
     pendingTake = { centerIndex: centerSlots.indexOf(cardId), card };
     markPending(el);
+    showGhost(card);
     // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
     // una posición deja de referirse a la misma carta.
     send({ type: 'take_card', card_id: card.id });
@@ -2952,6 +3054,38 @@ function onSwapSuccess(msg) {
     pendingTake = null;
     clearPending();
     updateOwingUi();
+}
+
+/** La jugada no salió. Se deshace lo que se había pintado por adelantado.
+ *
+ *  Llegar tarde a una carta es lo más normal del mundo con cuatro jugadores, y
+ *  no es culpa de nadie: un cartelito de "esa carta ya no está" cada vez que
+ *  alguien se te adelanta es ruido y encima se lee como un error tuyo. Se
+ *  deshace el movimiento y se sigue.
+ *
+ *  Solo se dice algo cuando el jugador puede hacer algo al respecto —debes una
+ *  carta, estás verificando—, y eso lo marca el servidor con `kind`, no el
+ *  texto: decidir comparando el texto ya rompió esto una vez. */
+function onSwapFailed(msg) {
+    pendingDrop = null;
+    pendingTake = null;
+    rollbackGhost();
+    clearPending();
+
+    if (qtePlayers.includes(currentNickname) || isStunned()) return;
+
+    // Los mensajes viejos no traen `kind`; se tratan como antes.
+    const kind = msg.kind || 'rule';
+    if (kind === 'gone') {
+        renderYourCards();
+        renderCenterCards();
+        return;
+    }
+    if (!msg.reason) return;
+    renderYourCards();
+    renderCenterCards();
+    updateSwapHint(`⚠️ ${msg.reason}`);
+    resetSwapHintLater(2500);
 }
 
 /** Primer hueco cuya carta cambió, comparando por id. El servidor manda los
@@ -3068,47 +3202,10 @@ function onSetFlipped(playerName, setIndex, cards) {
     }
 }
 
+/** Los sets revelados ya viven en el marcador de arriba, así que repintarlo es
+ *  todo lo que hay que hacer cuando alguien enseña uno. */
 function renderOpponentPanel() {
-    const panel = document.getElementById('opponentPanel');
-    panel.innerHTML = '';
-
-    let hasAny = false;
-    opponentNames.forEach(name => {
-        const flippedMap = opponentFlippedSets.get(name);
-        if (!flippedMap || flippedMap.size === 0) return;
-        hasAny = true;
-
-        const entry = document.createElement('div');
-        entry.className = 'opponent-entry';
-
-        const nameDiv = document.createElement('div');
-        nameDiv.className = 'opponent-name';
-        nameDiv.textContent = `👤 ${name} — sets revelados:`;
-        entry.appendChild(nameDiv);
-
-        const setsDiv = document.createElement('div');
-        setsDiv.className = 'opponent-sets';
-
-        for (let i = 0; i < 6; i++) {
-            const slot = document.createElement('div');
-            if (flippedMap.has(i)) {
-                const card = flippedMap.get(i);
-                slot.className = 'opponent-set-slot revealed';
-                applyCardSprite(slot, card);
-                slot.title = `Set ${i + 1}: ${card.name}`;
-            } else {
-                slot.className = 'opponent-set-slot hidden';
-                slot.textContent = `S${i + 1}`;
-                slot.title = `Set ${i + 1}: oculto`;
-            }
-            setsDiv.appendChild(slot);
-        }
-
-        entry.appendChild(setsDiv);
-        panel.appendChild(entry);
-    });
-
-    panel.classList.toggle('has-data', hasAny);
+    renderPlayersProgress(null);
 }
 
 // ─── QTE ─────────────────────────────────────────────────────────────────
@@ -3253,6 +3350,20 @@ function onSwapConflict(players, cardId, durationMs) {
             if (pct <= 0) clearInterval(qteTimerInterval);
         }, 50);
     }
+}
+
+/** ¿Habla esto de la pelea que estoy mirando?
+ *
+ *  Puede haber dos peleas a la vez, y `qte_update` y `qte_resolved` se difunden
+ *  a toda la sala. Sin comparar la carta, el marcador de una pelea se pintaba en
+ *  la otra y la resolución de cualquiera cerraba el overlay de todos.
+ *
+ *  Los mensajes viejos no traen `card_id`: en ese caso se acepta, que es como se
+ *  comportaba antes. */
+function esMiPelea(cardId) {
+    if (cardId === undefined || cardId === null) return true;
+    if (qteContestedCard) return qteContestedCard.id === cardId;
+    return qteBlockedCardId === cardId;
 }
 
 function onQteUpdate(clicks) {
