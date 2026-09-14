@@ -13,7 +13,8 @@ use uuid::Uuid;
 use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
     LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
-    COMBO_WINDOW, COMBO_LINKS_TAKE, COMBO_LINKS_FIGHT_WON, COMBO_LINKS_SET_DONE,
+    COMBO_WINDOW, COMBO_BASE_X100, COMBO_GAIN_FIGHT_WON_X100, COMBO_GAIN_SET_DONE_X100,
+    FRENZY_STUN,
     get_clothing_name,
 };
 use crate::game::lobby::{DEBT_DEADLINE, GRACE_PERIOD};
@@ -676,6 +677,8 @@ pub(crate) async fn handle_client_message(
                             Some(card) => {
                                 player.owed_slot = Some((set_index, my_card_index));
                                 player.owed_since = Some(Instant::now());
+                                // Para saber luego si vuelve a coger justo ésta.
+                                player.note_drop(card.clothing_type);
                                 game_state.center_cards.push(card);
                                 Ok((set_index, set_to_info(&game_state.players[idx].sets[set_index])))
                             }
@@ -934,6 +937,76 @@ pub(crate) async fn handle_client_message(
             }
         }
 
+        // ── Soltar el frenesí ──
+        //
+        // Bloquea 2 s a todo el mundo, salvo a quien tenga el suyo cargado: a
+        // ése se le gasta el suyo y se queda libre. Por eso llegar a x5 no es
+        // solo un premio, es también un seguro — y guardarlo o gastarlo es una
+        // decisión de verdad, porque soltarlo cuesta la racha entera.
+        ClientMessage::Frenzy => {
+            let Some(ref lobby_id) = *current_lobby else { return };
+            let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+
+            let resultado = {
+                let Some(gs) = lobby.game_state.as_mut() else { return };
+                let Some(yo) = gs.players.iter().position(|p| p.id == player_id) else { return };
+                if !gs.players[yo].spend_frenzy() {
+                    None
+                } else {
+                    let nombre = gs.players[yo].nickname.clone();
+                    let mut pararon = Vec::new();
+                    let mut bloqueados = Vec::new();
+                    for i in 0..gs.players.len() {
+                        if i == yo || gs.players[i].finished_position.is_some() { continue; }
+                        if gs.players[i].spend_frenzy() {
+                            pararon.push((gs.players[i].id, gs.players[i].nickname.clone()));
+                        } else {
+                            bloqueados.push((gs.players[i].id, gs.players[i].nickname.clone()));
+                        }
+                    }
+                    Some((nombre, pararon, bloqueados))
+                }
+            };
+
+            let Some((nombre, pararon, bloqueados)) = resultado else {
+                state.send_to_player(&player_id, ServerMessage::Error {
+                    message: "No tienes frenesí".to_string(),
+                }).await;
+                return;
+            };
+
+            for (id, _) in &bloqueados {
+                lobby.stun_player_for(id, FRENZY_STUN);
+            }
+
+            // Quien lo soltó y quienes lo pararon se quedan sin racha: hay que
+            // decírselo o el multiplicador se les queda pintado en pantalla.
+            let mut avisos = Vec::new();
+            if let Some(gs) = lobby.game_state.as_ref() {
+                for id in std::iter::once(&player_id).chain(pararon.iter().map(|(id, _)| id)) {
+                    if let Some(p) = gs.players.iter().find(|p| p.id == *id) {
+                        avisos.push((*id, combo_update_for(p, 0)));
+                    }
+                }
+            }
+            state.lobby_manager.update_lobby(lobby).await;
+
+            for (id, msg) in avisos {
+                state.send_to_player(&id, msg).await;
+            }
+            for (id, _) in &bloqueados {
+                state.send_to_player(id, ServerMessage::Stunned {
+                    ms: FRENZY_STUN.as_millis() as u64,
+                }).await;
+            }
+            state.broadcast_to_lobby(lobby_id, ServerMessage::FrenzyFired {
+                player: nombre,
+                countered: pararon.into_iter().map(|(_, n)| n).collect(),
+                stunned: bloqueados.into_iter().map(|(_, n)| n).collect(),
+                ms: FRENZY_STUN.as_millis() as u64,
+            }).await;
+        }
+
         ClientMessage::Ping => {
             // Responder con Pong para mantener la conexión viva
             state.send_to_player(&player_id, ServerMessage::Pong).await;
@@ -1105,14 +1178,14 @@ async fn execute_delayed_take(
         let taken = take_card_into_slot(game_state, player_id, card_id);
         // Coger una carta mantiene el ritmo; si además cierra un set, suma más.
         let combo_msg = match &taken {
-            Some((_, _, completed)) =>
-                award_combo(game_state, &player_id, COMBO_LINKS_TAKE, *completed),
+            Some((_, _, completed, gain)) =>
+                award_combo(game_state, &player_id, *gain, *completed),
             None => None,
         };
         (taken, combo_msg)
     };
 
-    let Some((set_index, new_set, _completed)) = taken else {
+    let Some((set_index, new_set, _completed, _gain)) = taken else {
         // Otro se la llevó mientras esperábamos: se sigue debiendo una.
         state.send_to_player(&player_id, ServerMessage::SwapFailed {
             reason: "Esa carta ya no está".to_string(), kind: "gone".to_string(),
@@ -1243,12 +1316,14 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             // set completado y el aviso se comporten igual.
             take_card_into_slot(gs, player_id, pick.id).map(|taken| (pick, taken))
         };
-        let Some((card, (set_index, new_set, completed))) = forced else { return };
+        let Some((card, (set_index, new_set, completed, gain))) = forced else { return };
 
         let combo_msg = {
             let Some(gs) = lobby.game_state.as_mut() else { return };
             gs.find_player_mut(&player_id).map(|p| p.owed_since = None);
-            award_combo(gs, &player_id, COMBO_LINKS_TAKE, completed)
+            // La carta que asigna el plazo cuenta como cualquier otra: si diera
+            // de más, dejar correr los 3 s sería la forma barata de subir.
+            award_combo(gs, &player_id, gain, completed)
         };
 
         let (new_center, players_progress) = snapshot(&lobby);
@@ -1422,40 +1497,52 @@ fn take_card_into_slot(
     game_state: &mut crate::game::models::GameState,
     player_id: Uuid,
     card_id: u32,
-) -> Option<(usize, Vec<Option<CardInfo>>, bool)> {
+) -> Option<(usize, Vec<Option<CardInfo>>, bool, u32)> {
     let idx = game_state.center_cards.iter().position(|c| c.id == card_id)?;
     let p = game_state.players.iter().position(|p| p.id == player_id)?;
     let (set_index, card_index) = game_state.players[p].owed_slot?;
 
     let was_complete = game_state.players[p].is_set_complete(set_index);
     let card = game_state.center_cards.remove(idx);
+
+    // Cuánto vale para la racha se mide ANTES de colocarla: si no, la carta
+    // recién puesta cuenta como "ya la tenía" y todo vale el doble.
+    let gain = game_state.players[p].combo_gain_for_take(card.clothing_type, set_index);
+
     game_state.players[p].sets[set_index][card_index] = Some(card);
     game_state.players[p].owed_slot = None;
     game_state.players[p].owed_since = None;
+    game_state.players[p].note_take(card.clothing_type, set_index);
     let completed = !was_complete && game_state.players[p].is_set_complete(set_index);
-    Some((set_index, set_to_info(&game_state.players[p].sets[set_index]), completed))
+    Some((set_index, set_to_info(&game_state.players[p].sets[set_index]), completed, gain))
 }
 
 /// Suma eslabones a la racha y devuelve el aviso para ese jugador.
 ///
-/// `base_links` es lo que vale la jugada en sí: coger una carta o ganar una
-/// pelea. Completar un set suma aparte, porque puede pasar a la vez.
+/// `base_gain` es lo que vale la jugada en sí, en centésimas de multiplicador.
+/// Cerrar un set suma aparte, porque puede pasar a la vez.
 fn award_combo(
     game_state: &mut crate::game::models::GameState,
     player_id: &Uuid,
-    base_links: u32,
+    base_gain_x100: u32,
     completed_a_set: bool,
 ) -> Option<ServerMessage> {
     let p = game_state.find_player_mut(player_id)?;
-    let links = base_links + if completed_a_set { COMBO_LINKS_SET_DONE } else { 0 };
-    let points = p.add_combo_links(links);
-    Some(ServerMessage::ComboUpdate {
+    let gain = base_gain_x100 + if completed_a_set { COMBO_GAIN_SET_DONE_X100 } else { 0 };
+    let points = p.add_combo(gain);
+    Some(combo_update_for(p, points))
+}
+
+/// El aviso de racha tal y como lo ve su dueño.
+fn combo_update_for(p: &crate::game::models::PlayerState, points: u32) -> ServerMessage {
+    ServerMessage::ComboUpdate {
         combo: p.combo,
-        multiplier: p.combo_multiplier(),
+        multiplier_x100: p.combo_multiplier_x100(),
         window_ms: COMBO_WINDOW.as_millis() as u64,
         points,
         total_points: p.combo_points,
-    })
+        frenzy_ready: p.frenzy_ready,
+    }
 }
 
 /// Corta la racha (perder una pelea) y devuelve el aviso, si había algo que
@@ -1473,10 +1560,12 @@ fn break_combo(
     p.reset_combo();
     Some(ServerMessage::ComboUpdate {
         combo: 0,
-        multiplier: 1,
+        multiplier_x100: COMBO_BASE_X100,
         window_ms: 0,
         points: 0,
         total_points: p.combo_points,
+        // Un frenesí ya ganado no se pierde por perder una pelea.
+        frenzy_ready: p.frenzy_ready,
     })
 }
 
@@ -1549,8 +1638,8 @@ async fn run_qte(
             // Sin premio no hay ni racha ni castigo: una pelea que no reparte
             // carta no puede además bloquear al que la perdió.
             let (winner_combo, loser_combo) = match &awarded {
-                Some((_, _, completed)) => (
-                    award_combo(game_state, &winner.player_id, COMBO_LINKS_FIGHT_WON, *completed),
+                Some((_, _, completed, _)) => (
+                    award_combo(game_state, &winner.player_id, COMBO_GAIN_FIGHT_WON_X100, *completed),
                     break_combo(game_state, &loser.player_id),
                 ),
                 None => (None, None),
@@ -1592,7 +1681,7 @@ async fn run_qte(
 
         // El reparto solo va si hubo premio. El QteResolved de arriba ya salió
         // pase lo que pase, que es lo que impide que nadie se quede colgado.
-        if let Some((winner_set, winner_new_set, _)) = awarded {
+        if let Some((winner_set, winner_new_set, _, _)) = awarded {
             state.send_to_player(&winner.player_id, ServerMessage::SwapSuccess {
                 player: winner.nickname,
                 set_index: winner_set,

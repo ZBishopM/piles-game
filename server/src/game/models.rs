@@ -13,19 +13,28 @@ use std::time::{Duration, Instant};
 /// además de quedarte congelado.
 pub const COMBO_WINDOW: Duration = Duration::from_secs(4);
 
-/// Tope del multiplicador. Sin tope, una racha larga convertiría la
-/// puntuación de la partida en ruido.
-pub const COMBO_MAX_MULTIPLIER: u32 = 5;
+/// El multiplicador se guarda en centésimas para no meter decimales en el
+/// estado del juego: 100 = x1,00 · 125 = x1,25 · 500 = x5,00.
+pub const COMBO_BASE_X100: u32 = 100;
 
-/// Puntos por eslabón antes de multiplicar.
+/// Tope del multiplicador. Sin tope, una racha larga convertiría la
+/// puntuación de la partida en ruido. Es además el umbral del frenesí.
+pub const COMBO_MAX_X100: u32 = 500;
+
+/// Puntos base de cada jugada, antes de multiplicar.
 pub const COMBO_POINTS_PER_LINK: u32 = 10;
 
-/// Cuántos eslabones vale cada jugada. Coger una carta mantiene el ritmo;
-/// ganar una pelea es lo que queremos que la gente busque, así que paga más;
-/// completar un set es el objetivo del juego y paga todavía más.
-pub const COMBO_LINKS_TAKE: u32 = 1;
-pub const COMBO_LINKS_FIGHT_WON: u32 = 2;
-pub const COMBO_LINKS_SET_DONE: u32 = 3;
+/// Lo que suma cada jugada al multiplicador.
+///
+/// Cambiar una carta por otra mantiene el ritmo; llevarte una prenda que YA
+/// tienes en ese set es avanzar de verdad, y paga el doble.
+pub const COMBO_GAIN_SWAP_X100: u32 = 25;
+pub const COMBO_GAIN_SAME_TYPE_X100: u32 = 50;
+pub const COMBO_GAIN_FIGHT_WON_X100: u32 = 50;
+pub const COMBO_GAIN_SET_DONE_X100: u32 = 100;
+
+/// Cuánto dura el bloqueo que reparte un frenesí.
+pub const FRENZY_STUN: Duration = Duration::from_secs(2);
 
 /// Representa una carta individual en el juego
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -117,10 +126,12 @@ pub struct PlayerState {
     /// cartas y nadie puede leer la mesa.
     #[serde(skip)]
     pub owed_since: Option<Instant>,
-    /// Eslabones encadenados ahora mismo. El servidor es el único que lo
+    /// Jugadas encadenadas ahora mismo. El servidor es el único que lo
     /// calcula: si el cliente llevara la cuenta, el multiplicador sería un
     /// número que se puede inventar.
     pub combo: u32,
+    /// Multiplicador actual en centésimas. Arranca en 100 (x1).
+    pub combo_mult_x100: u32,
     /// Cuándo se corta la racha si no haces nada.
     #[serde(skip)]
     pub combo_expires_at: Option<Instant>,
@@ -128,6 +139,17 @@ pub struct PlayerState {
     pub best_combo: u32,
     /// Puntos acumulados por combo. Se suman a los del puesto final.
     pub combo_points: u32,
+    /// Prenda que acaba de soltar. Recogerla otra vez no es avanzar.
+    #[serde(skip)]
+    pub last_dropped_type: Option<u8>,
+    /// Cambios seguidos que no han mejorado ningún set.
+    ///
+    /// Es el freno contra el farmeo: mover cartas de acá para allá sin acercar
+    /// ningún set paga cada vez menos. Avanzar de verdad lo pone a cero.
+    #[serde(skip)]
+    pub idle_swaps: u32,
+    /// Tiene un frenesí cargado, listo para soltarlo o para parar el de otro.
+    pub frenzy_ready: bool,
 }
 
 impl PlayerState {
@@ -144,9 +166,13 @@ impl PlayerState {
             owed_slot: None,
             owed_since: None,
             combo: 0,
+            combo_mult_x100: COMBO_BASE_X100,
             combo_expires_at: None,
             best_combo: 0,
             combo_points: 0,
+            last_dropped_type: None,
+            idle_swaps: 0,
+            frenzy_ready: false,
         }
     }
 
@@ -155,9 +181,48 @@ impl PlayerState {
         self.owed_slot.is_some()
     }
 
-    /// Multiplicador actual. Una sola expresión en vez de una tabla de tramos.
-    pub fn combo_multiplier(&self) -> u32 {
-        (1 + self.combo / 3).min(COMBO_MAX_MULTIPLIER)
+    /// Multiplicador actual, en centésimas.
+    pub fn combo_multiplier_x100(&self) -> u32 {
+        self.combo_mult_x100.min(COMBO_MAX_X100)
+    }
+
+    /// Lo que suma al multiplicador llevarte esa prenda a ese set.
+    ///
+    /// Tres reglas, y las dos últimas están para que no se pueda farmear:
+    ///
+    /// 1. Si la prenda YA está en ese set, te acerca a cerrarlo: +0,50.
+    /// 2. Si es justo la que acabas de soltar, has deshecho tu propia jugada
+    ///    y no vale nada. Sin esto, soltar y recoger la misma carta en bucle
+    ///    subía el multiplicador solo.
+    /// 3. Cualquier otro cambio vale +0,25, pero la mitad cada vez que
+    ///    encadenas otro cambio que tampoco mejora nada: 25, 12, 6, 3… hasta
+    ///    cero. Mover cartas sin acercar ningún set deja de pagar enseguida,
+    ///    mientras que jugar de verdad cobra siempre entero.
+    pub fn combo_gain_for_take(&self, taken: u8, set_index: usize) -> u32 {
+        let ya_lo_tengo = self.sets.get(set_index).is_some_and(|s| {
+            s.iter().flatten().any(|c| c.clothing_type == taken)
+        });
+        if ya_lo_tengo {
+            return COMBO_GAIN_SAME_TYPE_X100;
+        }
+        if self.last_dropped_type == Some(taken) {
+            return 0;
+        }
+        COMBO_GAIN_SWAP_X100 >> self.idle_swaps.min(8)
+    }
+
+    /// Apunta lo que acaba de soltar, para saber si luego lo recoge.
+    pub fn note_drop(&mut self, dropped: u8) {
+        self.last_dropped_type = Some(dropped);
+    }
+
+    /// Lleva la cuenta de cambios que no mejoran nada.
+    pub fn note_take(&mut self, taken: u8, set_index: usize) {
+        let mejoro = self.sets.get(set_index).is_some_and(|s| {
+            s.iter().flatten().filter(|c| c.clothing_type == taken).count() >= 2
+        });
+        if mejoro { self.idle_swaps = 0; } else { self.idle_swaps += 1; }
+        self.last_dropped_type = None;
     }
 
     /// ¿Queda ventana? Lo usa todo lo demás para no repetir la comparación.
@@ -177,31 +242,58 @@ impl PlayerState {
         }
     }
 
-    /// Suma eslabones y devuelve los puntos que ha dado la jugada.
-    /// El multiplicador se aplica **después** de sumar, así el eslabón que te
-    /// sube de tramo ya cobra al tramo nuevo.
-    pub fn add_combo_links(&mut self, links: u32) -> u32 {
+    /// Sube el multiplicador y devuelve los puntos que ha dado la jugada.
+    ///
+    /// La subida se aplica **antes** de cobrar, así la jugada que te sube ya
+    /// cobra al multiplicador nuevo. Con `gain_x100` a cero la racha sigue viva
+    /// —la ventana se renueva— pero no sube: es lo que pasa al deshacer tu
+    /// propia jugada o al encadenar cambios que no mejoran nada.
+    pub fn add_combo(&mut self, gain_x100: u32) -> u32 {
         self.expire_combo_if_stale();
-        self.combo += links;
+        self.combo += 1;
         if self.combo > self.best_combo {
             self.best_combo = self.combo;
         }
+        self.combo_mult_x100 = (self.combo_mult_x100 + gain_x100).min(COMBO_MAX_X100);
         self.combo_expires_at = Some(Instant::now() + COMBO_WINDOW);
-        let earned = COMBO_POINTS_PER_LINK * links * self.combo_multiplier();
+
+        // Tocar el techo carga el frenesí. Se guarda hasta gastarlo: puedes
+        // soltarlo cuando quieras, o reservarlo para parar el de otro.
+        if self.combo_mult_x100 >= COMBO_MAX_X100 {
+            self.frenzy_ready = true;
+        }
+
+        let earned = COMBO_POINTS_PER_LINK * self.combo_multiplier_x100() / COMBO_BASE_X100;
         self.combo_points += earned;
         earned
     }
 
     /// Racha a cero. Los puntos ya ganados no se tocan: se han cobrado.
+    /// El frenesí cargado tampoco: eso ya te lo habías ganado.
     pub fn reset_combo(&mut self) {
         self.combo = 0;
+        self.combo_mult_x100 = COMBO_BASE_X100;
         self.combo_expires_at = None;
+        self.idle_swaps = 0;
+        self.last_dropped_type = None;
+    }
+
+    /// Gasta el frenesí. `false` si no había ninguno cargado.
+    pub fn spend_frenzy(&mut self) -> bool {
+        if !self.frenzy_ready {
+            return false;
+        }
+        self.frenzy_ready = false;
+        // Soltarlo cuesta la racha: si no, quien llega a x5 lo lanzaría cada
+        // pocos segundos sin renunciar a nada.
+        self.reset_combo();
+        true
     }
 
     /// Racha viva y lo bastante alta para que los demás la vean. Es lo que se
     /// difunde en `PlayerProgress` para que den ganas de ir a quitarle cartas.
     pub fn is_on_fire(&self) -> bool {
-        self.combo_is_live() && self.combo_multiplier() >= 2
+        self.combo_is_live() && self.combo_multiplier_x100() >= 2 * COMBO_BASE_X100
     }
 
     /// Verifica si un set específico está completo (4 cartas idénticas)
@@ -363,47 +455,108 @@ mod tests {
     }
 
     #[test]
-    fn combo_multiplier_climbs_every_three_links_and_then_stops() {
+    fn the_multiplier_climbs_a_quarter_at_a_time_and_stops_at_five() {
         let mut p = a_player();
-        assert_eq!(p.combo_multiplier(), 1, "sin racha no hay multiplicador");
+        assert_eq!(p.combo_multiplier_x100(), 100, "sin racha, x1");
 
-        for (links, expected) in [(2u32, 1u32), (1, 2), (3, 3), (3, 4), (3, 5)] {
-            p.add_combo_links(links);
-            assert_eq!(p.combo_multiplier(), expected, "tras {} eslabones", p.combo);
-        }
+        p.add_combo(COMBO_GAIN_SWAP_X100);
+        assert_eq!(p.combo_multiplier_x100(), 125, "un cambio vale x0,25");
 
-        // El tope aguanta: veinte eslabones más no lo suben.
-        p.add_combo_links(20);
-        assert_eq!(p.combo_multiplier(), COMBO_MAX_MULTIPLIER);
+        p.add_combo(COMBO_GAIN_SAME_TYPE_X100);
+        assert_eq!(p.combo_multiplier_x100(), 175, "la prenda que te sirve vale el doble");
+
+        for _ in 0..20 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert_eq!(p.combo_multiplier_x100(), COMBO_MAX_X100, "x5 es el techo");
     }
 
     #[test]
-    fn a_link_is_paid_at_the_tier_it_reaches() {
-        // Dos eslabones sueltos se cobran a x1; el tercero ya sube a x2 y cobra
-        // a x2. Si se multiplicara antes de sumar, cobraría a x1.
+    fn a_play_is_paid_at_the_multiplier_it_reaches() {
+        // Si se cobrara antes de subir, la jugada que te sube pagaría al
+        // multiplicador viejo y subir nunca se notaría en la propia jugada.
         let mut p = a_player();
-        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
-        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
-        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK * 2);
-        assert_eq!(p.combo_points, COMBO_POINTS_PER_LINK * 4);
+        assert_eq!(p.add_combo(COMBO_GAIN_SWAP_X100), COMBO_POINTS_PER_LINK * 125 / 100);
+    }
+
+    // El farmeo evidente: soltar una carta y volver a cogerla en bucle.
+    #[test]
+    fn taking_back_what_you_just_dropped_is_worth_nothing() {
+        let mut p = a_player();          // sus 6 sets son del tipo 7
+        p.note_drop(3);
+        assert_eq!(p.combo_gain_for_take(3, 0), 0, "deshacer tu jugada no es avanzar");
+    }
+
+    #[test]
+    fn a_garment_already_in_that_set_pays_double() {
+        let mut p = a_player();
+        p.note_drop(3);
+        // El tipo 7 ya está en el set 0: eso sí acerca a cerrarlo.
+        assert_eq!(p.combo_gain_for_take(7, 0), COMBO_GAIN_SAME_TYPE_X100);
+    }
+
+    // El otro farmeo: cambiar basura por basura sin parar. Paga, pero cada vez
+    // menos, así que no compensa insistir.
+    #[test]
+    fn churning_junk_pays_less_every_time() {
+        let mut p = a_player();
+        let mut set1 = [Card::new(90, 1); 4];
+        set1[0] = Card::new(90, 1);
+        p.sets[1] = set1.map(Some);
+
+        let primero = p.combo_gain_for_take(40, 1);
+        assert_eq!(primero, COMBO_GAIN_SWAP_X100);
+
+        // Tres cambios seguidos que no mejoran nada.
+        for _ in 0..3 { p.note_take(40, 1); }
+        let despues = p.combo_gain_for_take(41, 1);
+        assert!(despues < primero, "{despues} debería ser menor que {primero}");
+
+        // Y una jugada buena lo devuelve a tarifa completa.
+        p.note_take(1, 1);
+        assert_eq!(p.combo_gain_for_take(42, 1), COMBO_GAIN_SWAP_X100);
     }
 
     #[test]
     fn losing_a_fight_zeroes_the_streak_but_not_the_points() {
         let mut p = a_player();
-        p.add_combo_links(COMBO_LINKS_SET_DONE);
-        p.add_combo_links(COMBO_LINKS_FIGHT_WON);
+        p.add_combo(COMBO_GAIN_SET_DONE_X100);
+        p.add_combo(COMBO_GAIN_FIGHT_WON_X100);
         let banked = p.combo_points;
         assert!(banked > 0);
-        assert_eq!(p.best_combo, 5);
+        assert_eq!(p.best_combo, 2);
 
         p.reset_combo();
 
         assert_eq!(p.combo, 0);
         assert!(!p.combo_is_live());
-        assert_eq!(p.combo_multiplier(), 1);
+        assert_eq!(p.combo_multiplier_x100(), COMBO_BASE_X100);
         assert_eq!(p.combo_points, banked, "lo ya cobrado no se devuelve");
-        assert_eq!(p.best_combo, 5, "el récord de la partida se conserva");
+        assert_eq!(p.best_combo, 2, "el récord de la partida se conserva");
+    }
+
+    #[test]
+    fn hitting_the_ceiling_loads_a_frenzy_and_spending_it_costs_the_streak() {
+        let mut p = a_player();
+        assert!(!p.frenzy_ready);
+
+        for _ in 0..10 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert_eq!(p.combo_multiplier_x100(), COMBO_MAX_X100);
+        assert!(p.frenzy_ready, "llegar a x5 lo carga");
+
+        assert!(p.spend_frenzy());
+        assert!(!p.frenzy_ready, "se gasta");
+        assert_eq!(p.combo_multiplier_x100(), COMBO_BASE_X100, "soltarlo cuesta la racha");
+        assert!(!p.spend_frenzy(), "no se puede gastar dos veces");
+    }
+
+    #[test]
+    fn a_frenzy_survives_losing_the_streak() {
+        // Ganárselo cuesta llegar a x5; perderlo por un despiste o por perder
+        // una pelea lo volvería un premio que nunca llegas a usar.
+        let mut p = a_player();
+        for _ in 0..10 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert!(p.frenzy_ready);
+        p.reset_combo();
+        assert!(p.frenzy_ready, "la carga no se pierde con la racha");
     }
 
     // La ventana (4 s) es más larga que el bloqueo por perder (3 s) a
@@ -412,7 +565,7 @@ mod tests {
     #[test]
     fn an_expired_window_cuts_the_streak() {
         let mut p = a_player();
-        p.add_combo_links(COMBO_LINKS_SET_DONE);
+        p.add_combo(COMBO_GAIN_SET_DONE_X100);
         assert!(p.combo_is_live());
 
         // Vencida hace un instante, sin esperar 4 s en un test.
@@ -422,8 +575,8 @@ mod tests {
         p.expire_combo_if_stale();
         assert_eq!(p.combo, 0);
 
-        // Y el siguiente eslabón arranca de cero, no de donde se quedó.
-        assert_eq!(p.add_combo_links(1), COMBO_POINTS_PER_LINK);
+        // Y la siguiente jugada arranca de x1, no de donde se quedó.
+        assert_eq!(p.add_combo(0), COMBO_POINTS_PER_LINK);
         assert_eq!(p.combo, 1);
     }
 
@@ -432,10 +585,10 @@ mod tests {
         let mut p = a_player();
         assert!(!p.is_on_fire(), "nadie arde sin racha");
 
-        p.add_combo_links(2);   // x1 todavía
+        p.add_combo(COMBO_GAIN_SWAP_X100);   // x1,25 todavía
         assert!(!p.is_on_fire());
 
-        p.add_combo_links(1);   // x2
+        p.add_combo(COMBO_GAIN_SET_DONE_X100);   // x2,25
         assert!(p.is_on_fire());
 
         // Una racha alta pero vencida no arde: si no, el icono se quedaría

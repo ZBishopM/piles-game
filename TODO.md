@@ -144,6 +144,22 @@ Si algún día se vuelve a poner un `onclick` en cada carta, vuelve el fallo.
 
 ---
 
+## 🔊 Sonido
+
+Sintetizado con WebAudio en `lobby.html`, sin ficheros. El motivo no es la
+pereza: lo que hace que Balatro suene a Balatro es que **cada eslabón suena más
+agudo que el anterior**, y eso pide un tono calculado. Con muestras haría falta
+una grabación por escalón.
+
+Se miraron los packs libres. Los de [Kenney](https://kenney.nl/assets/interface-sounds)
+son CC0 (uso comercial, sin atribución) y servirían. Si algún día se quieren
+muestras de verdad, el único sitio que hay que tocar es `playSfx`.
+
+- [ ] Ajustar volúmenes jugando. Están puestos a oído, sin nadie delante.
+- [ ] El silencio se recuerda en `localStorage` (`piles.mute`).
+
+---
+
 ## 💡 Ideas por probar
 
 - [ ] **Toda la pantalla es el botón de pelear** (puesto el 2026-09-11 *a modo de

@@ -994,9 +994,71 @@
         }
         #comboMult.bump { animation: comboHit 0.42s cubic-bezier(0.18, 0.9, 0.3, 1); }
 
+        /* ── Frenesí ──
+           Solo sale al llegar a x5, así que puede permitirse gritar. El arcoíris
+           se mueve para que no se confunda con un botón normal: es lo único de
+           la pantalla que hace eso. */
+        #frenzyBtn {
+            flex-shrink: 0;
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 900;
+            font-size: 0.85rem;
+            letter-spacing: 0.12em;
+            color: #1a1a2e;
+            cursor: pointer;
+            background: linear-gradient(90deg,
+                #ff4d4d, #ffa64d, #ffe74d, #4dff88, #4dd2ff, #b84dff, #ff4d4d);
+            background-size: 300% 100%;
+            animation: frenzyFlow 1.6s linear infinite;
+            box-shadow: 0 0 14px rgba(255,255,255,0.35);
+        }
+        #frenzyBtn:active { transform: scale(0.95); }
+        @keyframes frenzyFlow {
+            from { background-position: 0% 50%; }
+            to   { background-position: 300% 50%; }
+        }
+        @keyframes frenzyPop {
+            0%   { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+            60%  { transform: scale(1.15) rotate(3deg); opacity: 1; }
+            100% { transform: scale(1) rotate(0); opacity: 1; }
+        }
+        #frenzyBtn.pop { animation: frenzyFlow 1.6s linear infinite, frenzyPop 0.4s ease-out; }
+
+        /* Fogonazo cuando alguien lo suelta. Va en el tablero porque el efecto
+           es de sala, no de un jugador. */
+        #gameScreen.frenzy-flash { animation: frenzyFlash 0.65s ease-out; }
+        @keyframes frenzyFlash {
+            0%   { filter: brightness(2.2) saturate(2); }
+            100% { filter: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #frenzyBtn { animation: none; background-position: 40% 50%; }
+            #frenzyBtn.pop { animation: none; }
+            #gameScreen.frenzy-flash { animation: none; }
+        }
+
         /* Quien va encadenando se ve desde el marcador: es lo que invita a ir
            a pelearle una carta. */
         .hud-stripe.on-fire .hud-count { color: var(--warning); }
+
+        /* Silencio. Pequeño y en una esquina: se busca una vez y se olvida. */
+        #muteBtn {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            z-index: 45;
+            width: 34px;
+            height: 34px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(22,33,62,0.85);
+            color: #ccc;
+            font-size: 0.95rem;
+            cursor: pointer;
+        }
+        #gameScreen { position: relative; }
 
         /* Quien pide "menos movimiento" al sistema lo pide en serio: aquí se
            queda la información (qué cambió, quién ganó) y se va el meneo. */
@@ -1333,6 +1395,7 @@
          cada uno). Estaban lejos el uno del otro y el de abajo empujaba el
          tablero fuera de la pantalla. -->
     <div class="hud" id="hud"></div>
+    <button id="muteBtn" type="button" onclick="toggleMute()" title="Silenciar">🔊</button>
 
     <!-- Hint de intercambio -->
     <div id="swapHint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
@@ -1352,6 +1415,9 @@
     <div id="comboBox" aria-live="polite">
         <span id="comboMult">×1</span>
         <div class="combo-bar"><div id="comboBarFill"></div></div>
+        <!-- Aparece al llegar a x5. Se puede soltar, o guardar para parar el de
+             otro: mientras lo tengas cargado, su frenesí no te bloquea. -->
+        <button id="frenzyBtn" type="button" hidden onclick="fireFrenzy()">FRENZY</button>
     </div>
 
 
@@ -1720,6 +1786,10 @@ function handleMsg(msg) {
 
         case 'combo_update':
             renderCombo(msg);
+            break;
+
+        case 'frenzy_fired':
+            onFrenzyFired(msg);
             break;
 
         case 'debt_started':
@@ -2239,6 +2309,10 @@ function onGameStart(msg) {
     renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false, on_fire: false })));
     renderOpponentPanel();
 
+    // El silencio se recuerda entre partidas.
+    const mb = document.getElementById('muteBtn');
+    if (mb) { mb.textContent = sfxMuted ? '🔇' : '🔊'; }
+
     showScreen('gameScreen');
 }
 
@@ -2730,6 +2804,16 @@ function renderCombo(msg) {
     clearTimeout(comboHideTimer);
     const board = document.getElementById('gameScreen');
 
+    // El frenesí sobrevive a la racha, así que se pinta antes de cualquier
+    // vuelta atrás: se gana llegando a x5 y se guarda hasta gastarlo.
+    updateFrenzyBtn(msg.frenzy_ready);
+    // El escalón suena en cada jugada encadenada, y sube con la racha. Cerrar
+    // un set salta +1,00 de golpe, así que se le da su propio remate.
+    if (msg.window_ms && msg.points) {
+        comboStep(msg.multiplier_x100 ?? 100);
+        if (msg.points >= 20) playSfx('setDone');
+    }
+
     // window_ms = 0 significa racha cortada.
     if (!msg.window_ms || msg.combo === 0) {
         box.classList.remove('active');
@@ -2738,12 +2822,16 @@ function renderCombo(msg) {
     }
 
     box.classList.add('active');
+    // Llega en centésimas (125 = x1,25) para que no viaje un decimal por el
+    // cable ni cada cliente redondee a su manera.
+    const x100 = msg.multiplier_x100 ?? 100;
     // En el tablero y no en el cartel: así el color del tramo lo heredan
     // también las cartas y el anillo de aterrizaje sube de temperatura.
-    board.dataset.comboTier = String(msg.multiplier);
-    // Solo el multiplicador. El recuento de eslabones era el dato que nadie
-    // entendía, y leerlo no cambiaba ninguna decisión.
-    mult.textContent = `×${msg.multiplier}`;
+    board.dataset.comboTier = String(Math.floor(x100 / 100));
+    // Solo el multiplicador, y sin decimales de relleno: x2 se lee mejor que
+    // x2,00, pero x1,25 necesita los suyos.
+    const entero = x100 % 100 === 0;
+    mult.textContent = `×${entero ? x100 / 100 : (x100 / 100).toFixed(2).replace('.', ',')}`;
 
     mult.classList.remove('bump');
     void mult.offsetWidth;   // reinicia la animación si ya la tenía
@@ -2769,6 +2857,59 @@ function resetCombo() {
     document.getElementById('comboBox')?.classList.remove('active');
     const board = document.getElementById('gameScreen');
     if (board) delete board.dataset.comboTier;
+    updateFrenzyBtn(false);
+}
+
+/** El botón de frenesí solo existe cuando hay uno cargado. */
+function updateFrenzyBtn(ready) {
+    const btn = document.getElementById('frenzyBtn');
+    if (!btn) return;
+    const antes = !btn.hidden;
+    btn.hidden = !ready;
+    // Al aparecer se anuncia con el mismo golpe que el multiplicador: es el
+    // premio de haber llegado arriba, no un botón más.
+    if (ready && !antes) {
+        btn.classList.remove('pop');
+        void btn.offsetWidth;
+        btn.classList.add('pop');
+        playSfx('frenzyReady');
+    }
+    // El cartel de la racha tiene que verse aunque la racha esté cortada, o el
+    // botón se iría con ella.
+    if (ready) document.getElementById('comboBox')?.classList.add('active');
+}
+
+function fireFrenzy() {
+    const btn = document.getElementById('frenzyBtn');
+    if (!btn || btn.hidden) return;
+    btn.hidden = true;          // sin doble envío mientras contesta el servidor
+    playSfx('frenzyFire');
+    send({ type: 'frenzy' });
+}
+
+/** Alguien soltó un frenesí. Quien lo paró se entera de que le ha servido. */
+function onFrenzyFired(msg) {
+    const yoParé = (msg.countered || []).includes(currentNickname);
+    const yoLoSolté = msg.player === currentNickname;
+    playSfx(yoParé ? 'frenzyCounter' : 'frenzyHit');
+
+    const board = document.getElementById('gameScreen');
+    if (board && !REDUCED_MOTION?.matches) {
+        board.classList.remove('frenzy-flash');
+        void board.offsetWidth;
+        board.classList.add('frenzy-flash');
+        setTimeout(() => board.classList.remove('frenzy-flash'), 700);
+    }
+
+    if (yoParé) {
+        updateSwapHint('🛡️ Tu frenesí paró el suyo');
+        resetSwapHintLater(2200);
+    } else if (!yoLoSolté && (msg.stunned || []).includes(currentNickname)) {
+        // El bloqueo ya se anuncia con su propia barra; aquí solo se dice de
+        // quién vino, que es lo que no se sabría.
+        updateSwapHint(`⚡ Frenesí de ${msg.player}`);
+        resetSwapHintLater(2200);
+    }
 }
 
 /** Destello del centro: alguien más ha movido algo ahí. */
@@ -2814,6 +2955,109 @@ function initCardTilt() {
             card.style.setProperty('--tilt-y', '0deg');
         });
     }
+}
+
+// ─── Sonido ───────────────────────────────────────────────────────────────
+//
+// Sintetizado con WebAudio, sin un solo fichero. Se miraron los packs libres
+// que hay (los de Kenney son CC0 y valdrían: kenney.nl/assets/interface-sounds),
+// pero lo que hace que Balatro suene a Balatro no es el timbre: es que cada
+// eslabón de la cadena suena MÁS AGUDO que el anterior. Eso pide un tono
+// calculado, no un wav fijo — con muestras habría que grabar una por escalón.
+// Además así no hay descargas, ni licencias que arrastrar, ni un mp3 de 200 kB
+// bloqueando la primera partida.
+//
+// Si algún día se quieren muestras de verdad, el sitio por donde entrar es
+// `playSfx`: misma llamada, otro reproductor.
+let audioCtx = null;
+let sfxMuted = false;
+try { sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
+
+/** El navegador no deja sonar nada hasta que el usuario toca algo. */
+function unlockAudio() {
+    if (audioCtx) return;
+    try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch { audioCtx = null; }
+}
+document.addEventListener('pointerdown', unlockAudio, { once: true });
+
+/** Una nota. `type` da el color, la envolvente da el golpe. */
+function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }) {
+    if (!audioCtx || sfxMuted) return;
+    const t = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const amp = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    // Ataque muy corto y caída exponencial: es lo que se oye como un golpe y
+    // no como un pitido.
+    amp.gain.setValueAtTime(0.0001, t);
+    amp.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(amp).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + dur + 0.02);
+}
+
+/** Ruido corto, para lo que no es musical (soltar una carta, un choque). */
+function noise({ dur = 0.08, gain = 0.12, hp = 800 }) {
+    if (!audioCtx || sfxMuted) return;
+    const t = audioCtx.currentTime;
+    const n = Math.floor(audioCtx.sampleRate * dur);
+    const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'highpass';
+    filt.frequency.value = hp;
+    const amp = audioCtx.createGain();
+    amp.gain.value = gain;
+    src.connect(filt).connect(amp).connect(audioCtx.destination);
+    src.start(t);
+}
+
+/** Escalón de la cadena: cada jugada encadenada suena más arriba.
+ *  Es LA firma de Balatro y lo que convierte una racha en algo que se siente. */
+function comboStep(multX100) {
+    const escalon = Math.max(0, Math.round((multX100 - 100) / 25));
+    // Semitonos sobre un La: sube sin salirse de tono aunque la racha sea larga.
+    tone({ freq: 440 * Math.pow(2, Math.min(escalon, 16) / 12), dur: 0.1, type: 'square', gain: 0.12 });
+}
+
+const SFX = {
+    drop:  () => noise({ dur: 0.07, gain: 0.10, hp: 600 }),
+    take:  () => tone({ freq: 520, dur: 0.07, type: 'triangle', gain: 0.12 }),
+    setDone: () => { tone({ freq: 660, dur: 0.16 }); setTimeout(() => tone({ freq: 990, dur: 0.22 }), 90); },
+    fight: () => tone({ freq: 220, dur: 0.18, type: 'sawtooth', gain: 0.14, slideTo: 440 }),
+    fightWon: () => { tone({ freq: 590, dur: 0.12 }); setTimeout(() => tone({ freq: 880, dur: 0.2 }), 80); },
+    fightLost: () => tone({ freq: 300, dur: 0.3, type: 'sawtooth', gain: 0.13, slideTo: 110 }),
+    refused: () => tone({ freq: 180, dur: 0.09, type: 'square', gain: 0.09 }),
+    // Cargado: arpegio corto hacia arriba. Soltado: barrido grande.
+    frenzyReady: () => [0, 4, 7, 12].forEach((s, i) =>
+        setTimeout(() => tone({ freq: 440 * Math.pow(2, s / 12), dur: 0.12 }), i * 70)),
+    frenzyFire: () => tone({ freq: 180, dur: 0.5, type: 'sawtooth', gain: 0.2, slideTo: 1400 }),
+    frenzyHit: () => tone({ freq: 900, dur: 0.4, type: 'square', gain: 0.16, slideTo: 90 }),
+    frenzyCounter: () => { noise({ dur: 0.12, gain: 0.16, hp: 2000 }); tone({ freq: 1200, dur: 0.18, gain: 0.12 }); },
+};
+
+function playSfx(name, arg) {
+    if (sfxMuted || !audioCtx) return;
+    try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
+}
+
+function toggleMute() {
+    sfxMuted = !sfxMuted;
+    try { localStorage.setItem('piles.mute', sfxMuted ? '1' : '0'); } catch { /* modo privado */ }
+    const btn = document.getElementById('muteBtn');
+    if (btn) {
+        btn.textContent = sfxMuted ? '🔇' : '🔊';
+        btn.title = sfxMuted ? 'Activar sonido' : 'Silenciar';
+    }
+    if (!sfxMuted) { unlockAudio(); playSfx('take'); }
 }
 
 // ─── Toques ───────────────────────────────────────────────────────────────
@@ -2934,6 +3178,7 @@ function clearPending() {
  *  insista pensando que no ha entrado. */
 function refuseTap(el) {
     if (!el) return;
+    playSfx('refused');
     el.classList.remove('refused');
     void el.offsetWidth;          // reinicia la animación si se repite el toque
     el.classList.add('refused');
@@ -2955,6 +3200,7 @@ function onPlayerCardClick(index, el) {
     if (!card) return;
     pendingDrop = { index, card };
     markPending(el);
+    playSfx('drop');
     send({ type: 'drop_card', my_card_index: index });
 }
 
@@ -3249,6 +3495,7 @@ function onSwapConflict(players, cardId, durationMs) {
     if (isParticipant) {
         // ── Overlay completo para participantes ──
         qteActive = true;
+        playSfx('fight');
 
         const rival = players.find(p => p !== currentNickname) || '';
         document.getElementById('qteTitle').textContent = '⚡ ¡CLICK!';
@@ -3357,6 +3604,7 @@ function onQteResolved(winnerName) {
     }
 
     const iWon = winnerName === currentNickname;
+    playSfx(iWon ? 'fightWon' : 'fightLost');
     // Si ganaste, el swap_success que viene detrás animará la carta desde el
     // centro hasta tu set. Se guarda de dónde sale antes de que el tablero
     // cambie debajo.

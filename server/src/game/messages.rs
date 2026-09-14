@@ -64,6 +64,8 @@ pub enum ClientMessage {
     RequestVerification,
     /// Click durante QTE
     QteClick,
+    /// Soltar el frenesí: bloquea a todos menos a quien tenga el suyo cargado.
+    Frenzy,
     /// Ping para mantener la conexión viva
     Ping,
 }
@@ -214,13 +216,30 @@ pub enum ServerMessage {
     /// es un número que el cliente pueda inventarse.
     ComboUpdate {
         combo: u32,
-        multiplier: u32,
+        /// Multiplicador en centésimas: 125 = x1,25. Entero a propósito, para
+        /// que no haya un decimal viajando por el cable ni redondeos distintos
+        /// en cada cliente.
+        multiplier_x100: u32,
         /// Cuánto queda de ventana. 0 = racha cortada.
         window_ms: u64,
         /// Puntos que ha dado esta jugada (0 al cortarse).
         points: u32,
         /// Total acumulado por combo en la partida.
         total_points: u32,
+        /// Tiene un frenesí listo para soltar.
+        frenzy_ready: bool,
+    },
+    /// Alguien soltó su frenesí.
+    ///
+    /// Va a toda la sala para que se vea de quién fue y quién lo aguantó: el
+    /// frenesí es tan interesante por quién lo para como por a quién pilla.
+    FrenzyFired {
+        player: String,
+        /// Quienes lo pararon gastando el suyo.
+        countered: Vec<String>,
+        /// Quienes se comen el bloqueo.
+        stunned: Vec<String>,
+        ms: u64,
     },
     /// El juego ha terminado
     GameOver {

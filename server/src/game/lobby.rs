@@ -235,8 +235,18 @@ impl Lobby {
 
     /// Bloquea a un jugador tras perder una pelea.
     pub fn stun_player(&mut self, player_id: &Uuid) {
+        self.stun_player_for(player_id, STUN_DURATION);
+    }
+
+    /// Bloquea durante un rato concreto. El frenesí bloquea menos que perder
+    /// una pelea, y nunca acorta un bloqueo que ya estuviera corriendo.
+    pub fn stun_player_for(&mut self, player_id: &Uuid, how_long: Duration) {
         if let Some(p) = self.players.iter_mut().find(|p| p.id == *player_id) {
-            p.stunned_until = Some(Instant::now() + STUN_DURATION);
+            let hasta = Instant::now() + how_long;
+            p.stunned_until = Some(match p.stunned_until {
+                Some(ya) if ya > hasta => ya,
+                _ => hasta,
+            });
         }
     }
 
