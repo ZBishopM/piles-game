@@ -17,9 +17,15 @@ pub const COMBO_WINDOW: Duration = Duration::from_secs(4);
 /// estado del juego: 100 = x1,00 · 125 = x1,25 · 500 = x5,00.
 pub const COMBO_BASE_X100: u32 = 100;
 
-/// Tope del multiplicador. Sin tope, una racha larga convertiría la
-/// puntuación de la partida en ruido. Es además el umbral del frenesí.
-pub const COMBO_MAX_X100: u32 = 500;
+/// Lo que cuesta el PRIMER frenesí, y por tanto el tope del multiplicador
+/// mientras no hayas gastado ninguno.
+pub const FRENZY_COST_X100: u32 = 500;
+
+/// Lo que sube el precio con cada frenesí que gastas. El primero cuesta x5, el
+/// siguiente x5,5, el siguiente x6… Sin esto, quien llega arriba una vez se
+/// queda ahí soltando frenesíes cada pocos segundos, porque volver a x5 es
+/// mucho más barato que llegar la primera vez.
+pub const FRENZY_COST_STEP_X100: u32 = 50;
 
 /// Puntos base de cada jugada, antes de multiplicar.
 pub const COMBO_POINTS_PER_LINK: u32 = 10;
@@ -150,6 +156,9 @@ pub struct PlayerState {
     pub idle_swaps: u32,
     /// Tiene un frenesí cargado, listo para soltarlo o para parar el de otro.
     pub frenzy_ready: bool,
+    /// Cuántos ha gastado ya, contando los que usó para parar los de otros.
+    /// Cada uno encarece el siguiente.
+    pub frenzies_used: u32,
 }
 
 impl PlayerState {
@@ -173,6 +182,7 @@ impl PlayerState {
             last_dropped_type: None,
             idle_swaps: 0,
             frenzy_ready: false,
+            frenzies_used: 0,
         }
     }
 
@@ -181,9 +191,16 @@ impl PlayerState {
         self.owed_slot.is_some()
     }
 
-    /// Multiplicador actual, en centésimas.
+    /// Lo que cuesta su próximo frenesí, en centésimas. Sube medio punto por
+    /// cada uno que haya gastado.
+    pub fn frenzy_cost_x100(&self) -> u32 {
+        FRENZY_COST_X100 + FRENZY_COST_STEP_X100 * self.frenzies_used
+    }
+
+    /// Multiplicador actual, en centésimas. El techo es justo lo que cuesta su
+    /// próximo frenesí: así siempre se puede llegar, pero nunca de más.
     pub fn combo_multiplier_x100(&self) -> u32 {
-        self.combo_mult_x100.min(COMBO_MAX_X100)
+        self.combo_mult_x100.min(self.frenzy_cost_x100())
     }
 
     /// Lo que suma al multiplicador llevarte esa prenda a ese set.
@@ -217,11 +234,16 @@ impl PlayerState {
     }
 
     /// Lleva la cuenta de cambios que no mejoran nada.
+    ///
+    /// Una jugada buena NO borra el contador, lo baja a la mitad. Borrarlo del
+    /// todo hacía que bastara con acertar una carta de vez en cuando —cosa que
+    /// pasa sola, por azar— para volver a cobrar el cambio entero y seguir
+    /// moviendo basura al precio máximo.
     pub fn note_take(&mut self, taken: u8, set_index: usize) {
         let mejoro = self.sets.get(set_index).is_some_and(|s| {
             s.iter().flatten().filter(|c| c.clothing_type == taken).count() >= 2
         });
-        if mejoro { self.idle_swaps = 0; } else { self.idle_swaps += 1; }
+        if mejoro { self.idle_swaps /= 2; } else { self.idle_swaps += 1; }
         self.last_dropped_type = None;
     }
 
@@ -254,12 +276,22 @@ impl PlayerState {
         if self.combo > self.best_combo {
             self.best_combo = self.combo;
         }
-        self.combo_mult_x100 = (self.combo_mult_x100 + gain_x100).min(COMBO_MAX_X100);
-        self.combo_expires_at = Some(Instant::now() + COMBO_WINDOW);
+        let tope = self.frenzy_cost_x100();
+        self.combo_mult_x100 = (self.combo_mult_x100 + gain_x100).min(tope);
 
-        // Tocar el techo carga el frenesí. Se guarda hasta gastarlo: puedes
+        // La ventana solo se renueva si la jugada valía algo.
+        //
+        // Renovarla siempre era el agujero de verdad: daba igual que el cambio
+        // no sumara nada, porque bastaba con seguir tocando cartas para que la
+        // racha no venciera nunca. Se podía mantener un multiplicador alto
+        // moviendo basura de un lado a otro. Ahora eso deja correr el reloj.
+        if gain_x100 > 0 {
+            self.combo_expires_at = Some(Instant::now() + COMBO_WINDOW);
+        }
+
+        // Llegar al precio carga el frenesí. Se guarda hasta gastarlo: puedes
         // soltarlo cuando quieras, o reservarlo para parar el de otro.
-        if self.combo_mult_x100 >= COMBO_MAX_X100 {
+        if self.combo_mult_x100 >= tope {
             self.frenzy_ready = true;
         }
 
@@ -279,13 +311,19 @@ impl PlayerState {
     }
 
     /// Gasta el frenesí. `false` si no había ninguno cargado.
+    ///
+    /// Cuenta igual soltarlo que usarlo para parar el de otro: las dos cosas lo
+    /// consumen, y las dos encarecen el siguiente. Guardarlo de seguro tiene
+    /// precio, que es lo que impide que todo el mundo se quede sentado encima
+    /// del suyo esperando.
     pub fn spend_frenzy(&mut self) -> bool {
         if !self.frenzy_ready {
             return false;
         }
         self.frenzy_ready = false;
-        // Soltarlo cuesta la racha: si no, quien llega a x5 lo lanzaría cada
-        // pocos segundos sin renunciar a nada.
+        self.frenzies_used += 1;
+        // Soltarlo cuesta la racha entera: si no, quien llega arriba lo lanzaría
+        // cada pocos segundos sin renunciar a nada.
         self.reset_combo();
         true
     }
@@ -466,7 +504,72 @@ mod tests {
         assert_eq!(p.combo_multiplier_x100(), 175, "la prenda que te sirve vale el doble");
 
         for _ in 0..20 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
-        assert_eq!(p.combo_multiplier_x100(), COMBO_MAX_X100, "x5 es el techo");
+        assert_eq!(p.combo_multiplier_x100(), FRENZY_COST_X100, "x5 es el techo");
+    }
+
+    // El agujero que de verdad hacía farmeable la racha: la ventana se renovaba
+    // con CUALQUIER acción, valiera o no. Bastaba con seguir tocando cartas
+    // para no perder nunca el multiplicador.
+    #[test]
+    fn a_worthless_swap_does_not_keep_the_streak_alive() {
+        let mut p = a_player();
+        p.add_combo(COMBO_GAIN_SAME_TYPE_X100);
+        let vence = p.combo_expires_at.unwrap();
+
+        p.add_combo(0);
+        assert_eq!(p.combo_expires_at.unwrap(), vence, "una jugada que no vale nada no alarga nada");
+
+        // Y con la ventana vencida, la racha se corta aunque se siga jugando.
+        p.combo_expires_at = Some(Instant::now() - Duration::from_millis(1));
+        p.add_combo(0);
+        assert_eq!(p.combo_multiplier_x100(), COMBO_BASE_X100, "spameando no se conserva");
+    }
+
+    #[test]
+    fn each_frenzy_costs_half_a_point_more_than_the_last() {
+        let mut p = a_player();
+        assert_eq!(p.frenzy_cost_x100(), 500, "el primero cuesta x5");
+
+        for _ in 0..20 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert!(p.frenzy_ready);
+        assert!(p.spend_frenzy());
+
+        assert_eq!(p.frenzy_cost_x100(), 550, "el segundo cuesta x5,5");
+        for _ in 0..20 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert_eq!(p.combo_multiplier_x100(), 550, "y el techo sube con él");
+        assert!(p.frenzy_ready);
+        assert!(p.spend_frenzy());
+
+        assert_eq!(p.frenzy_cost_x100(), 600, "el tercero, x6");
+    }
+
+    #[test]
+    fn countering_also_makes_your_next_frenzy_dearer() {
+        // Parar el de otro consume el tuyo igual que soltarlo. Si guardarlo de
+        // seguro saliera gratis, nadie gastaría el suyo nunca.
+        let mut p = a_player();
+        for _ in 0..20 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
+        assert!(p.spend_frenzy());
+        assert_eq!(p.frenzies_used, 1);
+        assert_eq!(p.frenzy_cost_x100(), 550);
+    }
+
+    #[test]
+    fn one_lucky_card_does_not_reset_the_churn_penalty() {
+        // Acertar una carta de vez en cuando pasa solo. Si eso devolviera el
+        // cambio a tarifa completa, el castigo por mover basura no existiría.
+        let mut p = a_player();
+        // Dos cartas del tipo 1: `note_take` se llama con la carta YA colocada,
+        // así que esto es lo que ve tras llevarse una tercera.
+        p.sets[1] = [Card::new(90, 1), Card::new(91, 1), Card::new(92, 3), Card::new(93, 4)]
+            .map(Some);
+
+        for _ in 0..6 { p.note_take(40, 1); }      // seis cambios inútiles
+        assert_eq!(p.idle_swaps, 6);
+
+        p.note_take(1, 1);                          // una buena
+        assert_eq!(p.idle_swaps, 3, "baja a la mitad, no a cero");
+        assert!(p.combo_gain_for_take(45, 1) < COMBO_GAIN_SWAP_X100);
     }
 
     #[test]
@@ -510,9 +613,12 @@ mod tests {
         let despues = p.combo_gain_for_take(41, 1);
         assert!(despues < primero, "{despues} debería ser menor que {primero}");
 
-        // Y una jugada buena lo devuelve a tarifa completa.
+        // Y una jugada buena lo mejora, pero no lo perdona del todo: acertar
+        // una carta suelta no devuelve el cambio a tarifa completa.
         p.note_take(1, 1);
-        assert_eq!(p.combo_gain_for_take(42, 1), COMBO_GAIN_SWAP_X100);
+        let tras_acertar = p.combo_gain_for_take(42, 1);
+        assert!(tras_acertar > despues, "acertar tiene que aliviar algo");
+        assert!(tras_acertar < COMBO_GAIN_SWAP_X100, "pero no borra el castigo");
     }
 
     #[test]
@@ -539,7 +645,7 @@ mod tests {
         assert!(!p.frenzy_ready);
 
         for _ in 0..10 { p.add_combo(COMBO_GAIN_SAME_TYPE_X100); }
-        assert_eq!(p.combo_multiplier_x100(), COMBO_MAX_X100);
+        assert_eq!(p.combo_multiplier_x100(), FRENZY_COST_X100);
         assert!(p.frenzy_ready, "llegar a x5 lo carga");
 
         assert!(p.spend_frenzy());

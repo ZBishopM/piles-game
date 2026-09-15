@@ -1542,6 +1542,10 @@ fn combo_update_for(p: &crate::game::models::PlayerState, points: u32) -> Server
         points,
         total_points: p.combo_points,
         frenzy_ready: p.frenzy_ready,
+        // Lo que costará el siguiente. Sube medio punto cada vez, y el jugador
+        // tiene que poder verlo: si no, la barra parece que se atasca antes de
+        // llenarse y no se entiende por qué.
+        frenzy_cost_x100: p.frenzy_cost_x100(),
     }
 }
 
@@ -1566,6 +1570,7 @@ fn break_combo(
         total_points: p.combo_points,
         // Un frenesí ya ganado no se pierde por perder una pelea.
         frenzy_ready: p.frenzy_ready,
+        frenzy_cost_x100: p.frenzy_cost_x100(),
     })
 }
 

@@ -228,6 +228,9 @@ pub enum ServerMessage {
         total_points: u32,
         /// Tiene un frenesí listo para soltar.
         frenzy_ready: bool,
+        /// Lo que cuesta el siguiente, en centésimas. Sube 50 con cada uno
+        /// gastado, así que es también el techo del multiplicador.
+        frenzy_cost_x100: u32,
     },
     /// Alguien soltó su frenesí.
     ///

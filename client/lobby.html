@@ -2805,8 +2805,8 @@ function renderCombo(msg) {
     const board = document.getElementById('gameScreen');
 
     // El frenesí sobrevive a la racha, así que se pinta antes de cualquier
-    // vuelta atrás: se gana llegando a x5 y se guarda hasta gastarlo.
-    updateFrenzyBtn(msg.frenzy_ready);
+    // vuelta atrás: se gana llegando al precio y se guarda hasta gastarlo.
+    updateFrenzyBtn(msg.frenzy_ready, msg.frenzy_cost_x100);
     // El escalón suena en cada jugada encadenada, y sube con la racha. Cerrar
     // un set salta +1,00 de golpe, así que se le da su propio remate.
     if (msg.window_ms && msg.points) {
@@ -2860,10 +2860,18 @@ function resetCombo() {
     updateFrenzyBtn(false);
 }
 
-/** El botón de frenesí solo existe cuando hay uno cargado. */
-function updateFrenzyBtn(ready) {
+/** El botón de frenesí solo existe cuando hay uno cargado.
+ *
+ *  `coste` es lo que costará el SIGUIENTE, que sube medio punto cada vez que
+ *  gastas uno. Se enseña en el título porque si no, la segunda vez el
+ *  multiplicador parece atascarse antes de llegar arriba sin explicación. */
+function updateFrenzyBtn(ready, coste) {
     const btn = document.getElementById('frenzyBtn');
     if (!btn) return;
+    if (coste) {
+        const x = coste % 100 === 0 ? coste / 100 : (coste / 100).toFixed(2).replace('.', ',');
+        btn.title = `Bloquea 2 s a quien no tenga el suyo · el próximo costará ×${x}`;
+    }
     const antes = !btn.hidden;
     btn.hidden = !ready;
     // Al aparecer se anuncia con el mismo golpe que el multiplicador: es el
