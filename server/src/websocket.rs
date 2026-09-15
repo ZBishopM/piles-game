@@ -800,6 +800,12 @@ pub(crate) async fn handle_client_message(
                             // Se añade, no se sustituye: con cuatro jugadores
                             // puede haber dos peleas a la vez y antes la segunda
                             // borraba la primera.
+                            // Peleando no se puede jugar: se para el reloj de
+                            // la racha de los dos, o pelear te costaría el
+                            // combo por no poder tocar nada.
+                            for id in [me.player_id, them.player_id] {
+                                if let Some(p) = gs.find_player_mut(&id) { p.freeze_combo(); }
+                            }
                             gs.active_qtes.retain(|q| q.card_id != card_id);
                             gs.active_qtes.push(crate::game::QteState {
                                 participants: vec![
@@ -1633,6 +1639,13 @@ async fn run_qte(
             // overlay abierto y sin poder jugar, para siempre. Una partida
             // medida así movió 92 cartas en dos minutos y luego nada en seis.
             // La pelea tiene que resolverse siempre, aunque no haya premio.
+            // Se acabó la pelea: el reloj de la racha vuelve a correr donde se
+            // quedó. Al perdedor se le corta igualmente más abajo, pero eso es
+            // una regla del juego y no el reloj comiéndosela mientras peleaba.
+            for (id, _) in &qte.participants {
+                if let Some(p) = game_state.find_player_mut(id) { p.thaw_combo(); }
+            }
+
             let awarded = take_card_into_slot(game_state, winner.player_id, card_id);
 
             // Ganar una pelea es la jugada que más queremos que se busque, así

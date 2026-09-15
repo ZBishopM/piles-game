@@ -159,6 +159,14 @@ pub struct PlayerState {
     /// Cuántos ha gastado ya, contando los que usó para parar los de otros.
     /// Cada uno encarece el siguiente.
     pub frenzies_used: u32,
+    /// Ventana que le quedaba al empezar una pelea.
+    ///
+    /// Peleando no se puede jugar, así que dejar correr el reloj era quitarte
+    /// la racha por algo que no depende de ti — y encima justo cuando estás
+    /// haciendo lo que el juego quiere que hagas. Mientras esto tenga valor la
+    /// racha está congelada y no vence.
+    #[serde(skip)]
+    pub combo_frozen: Option<Duration>,
 }
 
 impl PlayerState {
@@ -183,6 +191,7 @@ impl PlayerState {
             idle_swaps: 0,
             frenzy_ready: false,
             frenzies_used: 0,
+            combo_frozen: None,
         }
     }
 
@@ -205,25 +214,26 @@ impl PlayerState {
 
     /// Lo que suma al multiplicador llevarte esa prenda a ese set.
     ///
-    /// Tres reglas, y las dos últimas están para que no se pueda farmear:
+    /// El orden de las comprobaciones importa, y equivocarse salía caro:
     ///
-    /// 1. Si la prenda YA está en ese set, te acerca a cerrarlo: +0,50.
-    /// 2. Si es justo la que acabas de soltar, has deshecho tu propia jugada
-    ///    y no vale nada. Sin esto, soltar y recoger la misma carta en bucle
-    ///    subía el multiplicador solo.
-    /// 3. Cualquier otro cambio vale +0,25, pero la mitad cada vez que
-    ///    encadenas otro cambio que tampoco mejora nada: 25, 12, 6, 3… hasta
-    ///    cero. Mover cartas sin acercar ningún set deja de pagar enseguida,
-    ///    mientras que jugar de verdad cobra siempre entero.
+    /// 1. **Primero**, si es la prenda que acabas de soltar, no vale nada. Esto
+    ///    iba en segundo lugar y ahí había un agujero de libro: con DOS cartas
+    ///    de la misma prenda en el set, soltabas una y la otra seguía ahí, así
+    ///    que "ya la tengo" daba +0,50 por recoger la que acababas de tirar.
+    ///    Soltar y coger las mismas dos cartas en bucle llevaba al frenesí sin
+    ///    jugar a nada.
+    /// 2. Si la prenda ya está en ese set, te acerca a cerrarlo: +0,50.
+    /// 3. Cualquier otro cambio vale +0,25, y la mitad cada vez que encadenas
+    ///    otro que tampoco mejora nada: 25, 12, 6, 3… hasta cero.
     pub fn combo_gain_for_take(&self, taken: u8, set_index: usize) -> u32 {
+        if self.last_dropped_type == Some(taken) {
+            return 0;
+        }
         let ya_lo_tengo = self.sets.get(set_index).is_some_and(|s| {
             s.iter().flatten().any(|c| c.clothing_type == taken)
         });
         if ya_lo_tengo {
-            return COMBO_GAIN_SAME_TYPE_X100;
-        }
-        if self.last_dropped_type == Some(taken) {
-            return 0;
+            return COMBO_GAIN_SAME_TYPE_X100 >> self.idle_swaps.min(8);
         }
         COMBO_GAIN_SWAP_X100 >> self.idle_swaps.min(8)
     }
@@ -248,8 +258,36 @@ impl PlayerState {
     }
 
     /// ¿Queda ventana? Lo usa todo lo demás para no repetir la comparación.
+    /// Congelada cuenta como viva: el reloj está parado, no agotado.
     pub fn combo_is_live(&self) -> bool {
+        if self.combo_frozen.is_some() {
+            return self.combo > 0;
+        }
         self.combo_expires_at.map_or(false, |until| Instant::now() < until)
+    }
+
+    /// Empieza una pelea: se para el reloj de la racha.
+    pub fn freeze_combo(&mut self) {
+        if self.combo_frozen.is_some() || self.combo == 0 {
+            return;
+        }
+        let queda = self.combo_expires_at
+            .and_then(|until| until.checked_duration_since(Instant::now()))
+            .unwrap_or_default();
+        self.combo_frozen = Some(queda);
+        self.combo_expires_at = None;
+    }
+
+    /// Termina la pelea: el reloj sigue donde se quedó.
+    pub fn thaw_combo(&mut self) {
+        let Some(queda) = self.combo_frozen.take() else { return };
+        if self.combo == 0 {
+            return;
+        }
+        // Un mínimo al descongelar: salir de una pelea con dos décimas de
+        // ventana es lo mismo que no tener racha.
+        let queda = queda.max(Duration::from_millis(1200));
+        self.combo_expires_at = Some(Instant::now() + queda);
     }
 
     /// Corta la racha si la ventana ya venció.
@@ -306,6 +344,7 @@ impl PlayerState {
         self.combo = 0;
         self.combo_mult_x100 = COMBO_BASE_X100;
         self.combo_expires_at = None;
+        self.combo_frozen = None;
         self.idle_swaps = 0;
         self.last_dropped_type = None;
     }

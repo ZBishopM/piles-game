@@ -1525,7 +1525,10 @@ let qteTimerInterval = null;
 // (participantes y espectadores) — pinta esa carta en rojo y las demás
 // como "esperando", ya que el servidor bloquea todo intercambio mientras
 // dura el QTE. Por id y no por posición: es lo que la identifica de verdad.
-let qteBlockedCardId = null;
+// Cartas en disputa AHORA MISMO, por id. Es un conjunto y no un id suelto
+// porque puede haber dos peleas a la vez: con una sola variable, la segunda
+// borraba a la primera y su carta se quedaba sin marcar.
+const qteBlockedCards = new Set();
 
 // Keep-alive
 let pingInterval = null;
@@ -1777,6 +1780,13 @@ function handleMsg(msg) {
             break;
 
         case 'qte_resolved':
+            // La limpieza por carta va SIEMPRE, sea tu pelea o la de otros dos.
+            // Colgarla de `esMiPelea` fue justo lo que dejaba avisos pegados en
+            // pantalla: con dos peleas, la que no era la tuya no se limpiaba
+            // nunca.
+            qteBlockedCards.delete(msg.card_id);
+            cerrarAvisoPelea(msg.card_id);
+            renderCenterCards();
             if (esMiPelea(msg.card_id)) onQteResolved(msg.winner);
             break;
 
@@ -1835,7 +1845,7 @@ function handleMsg(msg) {
             // ya está como toca no se toca nada.
             if (!arrived) break;
             renderCenterCards();
-            if (qteBlockedCardId === null) {
+            if (qteBlockedCards.size === 0) {
                 // Por hueco, que es lo que se dibuja: el índice dentro de
                 // centerCards ya no coincide con lo que hay en pantalla.
                 const slot = centerSlots.indexOf(arrived.id);
@@ -2419,8 +2429,8 @@ function renderCenterCards() {
         // Mirando: el tablero se queda como estaba. Apagarlo entero mientras
         // pelean otros dos distraía y encima no hacía falta — puedes seguir
         // jugando. Lo único intocable es la carta en disputa.
-        if (qteBlockedCardId !== null) {
-            if (card.id === qteBlockedCardId) {
+        if (qteBlockedCards.size) {
+            if (qteBlockedCards.has(card.id)) {
                 el.classList.add(qteActive ? 'qte-locked' : 'qte-contested');
             } else if (qteActive) {
                 el.classList.add('qte-waiting');
@@ -3217,7 +3227,7 @@ function onCenterCardClick(cardId, el) {
     // pasa nada. La carta en disputa es la única intocable; las demás siguen
     // disponibles para quien no está peleando.
     if (qteActive || isStunned()) return refuseTap(el);
-    if (cardId === qteBlockedCardId) return refuseTap(el);
+    if (qteBlockedCards.has(cardId)) return refuseTap(el);
     // Solo se coge para tapar un hueco: sin deuda no hay dónde meterla. Es el
     // "no pasa nada" más frecuente, así que conviene que se vea.
     if (!owesCard()) return refuseTap(el);
@@ -3430,7 +3440,12 @@ function renderOpponentPanel() {
 }
 
 // ─── QTE ─────────────────────────────────────────────────────────────────
-let qteBattleNotif = null;  // Notificación para espectadores
+// Avisos de pelea para quien mira, por carta en disputa.
+//
+// Era una sola variable, y con dos peleas a la vez la segunda pisaba a la
+// primera: el aviso de la primera se quedaba colgado en pantalla para siempre,
+// porque ya no quedaba nada que lo apuntara para poder borrarlo.
+const qteNotifs = new Map();
 let qtePlayers = [];        // Jugadores en la pelea actual
 let qteContestedCard = null;   // La carta por la que se pelea
 let qteContestedIndex = null;  // En qué hueco del centro estaba
@@ -3486,7 +3501,7 @@ function onSwapConflict(players, cardId, durationMs) {
     // carta se guarda aparte para el overlay: al acabar la pelea ya no estará
     // en el centro.
     const card = centerCards.find(c => c && c.id === cardId) || null;
-    qteBlockedCardId = card ? card.id : null;
+    if (card) qteBlockedCards.add(card.id);
     qteContestedCard = card;
     // El hueco donde está, que es el que ocupa en pantalla: hace falta para
     // animar el vuelo si la ganas.
@@ -3558,19 +3573,37 @@ function onSwapConflict(players, cardId, durationMs) {
             <div class="qbn-bar"><div class="qbn-bar-fill" id="qbnFill"></div></div>
         `;
         area.appendChild(notif);
-        qteBattleNotif = notif;
+        // Por carta: con dos peleas a la vez hay dos avisos, y cada uno tiene
+        // que poder cerrarse por su cuenta.
+        cerrarAvisoPelea(cardId);
+        qteNotifs.set(cardId, notif);
 
-        // Barra de tiempo
+        // Barra de tiempo. El temporizador vive en el propio aviso, no en una
+        // variable compartida: si no, el segundo aviso paraba la barra del
+        // primero y la dejaba congelada a media cuenta.
         const fill = notif.querySelector('#qbnFill');
         fill.style.width = '100%';
         const start = Date.now();
-        if (qteTimerInterval) clearInterval(qteTimerInterval);
-        qteTimerInterval = setInterval(() => {
+        notif._timer = setInterval(() => {
             const pct = Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100);
             fill.style.width = pct + '%';
-            if (pct <= 0) clearInterval(qteTimerInterval);
+            if (pct <= 0) clearInterval(notif._timer);
         }, 50);
+
+        // Red de seguridad: si por lo que sea no llegara la resolución, el
+        // aviso no se queda ahí para el resto de la partida.
+        notif._failsafe = setTimeout(() => cerrarAvisoPelea(cardId), durationMs + 4000);
     }
+}
+
+/** Quita el aviso de una pelea concreta, con sus temporizadores. */
+function cerrarAvisoPelea(cardId) {
+    const notif = qteNotifs.get(cardId);
+    if (!notif) return;
+    clearInterval(notif._timer);
+    clearTimeout(notif._failsafe);
+    notif.remove();
+    qteNotifs.delete(cardId);
 }
 
 /** ¿Habla esto de la pelea que estoy mirando?
@@ -3584,7 +3617,7 @@ function onSwapConflict(players, cardId, durationMs) {
 function esMiPelea(cardId) {
     if (cardId === undefined || cardId === null) return true;
     if (qteContestedCard) return qteContestedCard.id === cardId;
-    return qteBlockedCardId === cardId;
+    return qteBlockedCards.has(cardId);
 }
 
 function onQteUpdate(clicks) {
@@ -3637,7 +3670,9 @@ function onQteResolved(winnerName) {
 
 function closeQteOverlay() {
     qteActive = false;
-    qteBlockedCardId = null;
+    // Solo la carta de ESTA pelea: si se vaciara el conjunto entero, cerrar la
+    // tuya desmarcaría la carta de la pelea que siguen teniendo otros dos.
+    if (qteContestedCard) qteBlockedCards.delete(qteContestedCard.id);
     renderCenterCards();
     if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
     if (qteResultTimer) { clearTimeout(qteResultTimer); qteResultTimer = null; }
@@ -3649,11 +3684,9 @@ function closeQteOverlay() {
     document.getElementById('qteCard').innerHTML = '';
     document.querySelectorAll('.qte-player-score').forEach(el => el.classList.remove('won', 'lost'));
 
-    // Cerrar notificación de espectador
-    if (qteBattleNotif) {
-        qteBattleNotif.remove();
-        qteBattleNotif = null;
-    }
+    // El aviso de espectador se cierra por carta desde `qte_resolved`, que
+    // llega siempre. Aquí solo se limpia el de la tuya por si acaso.
+    if (qteContestedCard) cerrarAvisoPelea(qteContestedCard.id);
 
     qtePlayers = [];
     qteContestedCard = null;
@@ -3840,7 +3873,8 @@ function dismissVerifyNotif(playerName, notif, delayMs) {
 function clearMatchNotifications() {
     document.getElementById('verifyNotifications').innerHTML = '';
     otherVerifications.clear();
-    qteBattleNotif = null;
+    for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
+    qteBlockedCards.clear();
 }
 
 function onGameOver(rankings) {

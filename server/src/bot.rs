@@ -89,6 +89,11 @@ const REFLEX_DELAY: Duration = Duration::from_millis(250);
 /// partida se queda quieta; esto la mueve.
 const IDLE_TICKS_BEFORE_CHURN: u8 = 3;
 
+/// Lo que espera un bot tras una pelea antes de meterse en otra. Con varios
+/// bots difíciles, sin esto la mesa es una pelea detrás de otra y casi no se
+/// llega a jugar.
+const FIGHT_COOLDOWN: Duration = Duration::from_secs(6);
+
 /// Lo que el bot sabe del tablero. Solo lo que le han mandado a él, igual que
 /// un cliente: no mira el estado del servidor para decidir sus jugadas.
 struct Bot {
@@ -108,6 +113,13 @@ struct Bot {
     flipped: [bool; 6],
     /// La verificación se pide una sola vez.
     verification_sent: bool,
+    /// Hasta cuándo no vuelve a pelear.
+    ///
+    /// Sin esto, cuatro bots difíciles tirando el dado por cada carta que ve
+    /// coger cualquiera convierten la mesa en una pelea continua: el tablero
+    /// pasa más tiempo bloqueado que jugable. El dado sigue siendo el mismo,
+    /// pero después de pelear cada bot se toma un respiro.
+    calm_until: Option<Instant>,
     /// Prenda que acaba de soltar para desatascarse. No se vuelve a coger en el
     /// hueco que ha abierto: volvería al set del que la sacó.
     freed: Option<u8>,
@@ -414,6 +426,7 @@ mod tests {
             last_intent: None,
             flipped: [false; 6],
             verification_sent: false,
+            calm_until: None,
             freed: None,
             freeing: None,
             chasing: None,
@@ -777,6 +790,7 @@ async fn run(
         last_intent: None,
         flipped: [false; 6],
         verification_sent: false,
+        calm_until: None,
         freed: None,
         freeing: None,
         chasing: None,
@@ -898,6 +912,7 @@ async fn apply(
             bot.flipped = [false; 6];
             bot.verification_sent = false;
             bot.last_intent = None;
+            bot.calm_until = None;
             bot.freed = None;
             bot.freeing = None;
             bot.chasing = None;
@@ -940,7 +955,10 @@ async fn apply(
                 }
             }
         }
-        ServerMessage::QteResolved { .. } => bot.fighting = false,
+        ServerMessage::QteResolved { .. } => {
+            bot.fighting = false;
+            bot.calm_until = Some(Instant::now() + FIGHT_COOLDOWN);
+        }
         ServerMessage::GameOver { .. } | ServerMessage::GameCancelled { .. } => {
             bot.playing = false;
             bot.sets.clear();
@@ -1001,6 +1019,10 @@ async fn spam_clicks(state: AppState, bot_id: Uuid, lobby_id: String, base: Dura
 /// el mismo camino que usan dos personas: no hace falta protocolo nuevo.
 async fn try_contest(state: &AppState, bot: &mut Bot, current_lobby: &mut Option<String>) -> bool {
     if !bot.playing || bot.stunned() || bot.fighting {
+        return false;
+    }
+    // Recién salido de una pelea: se deja jugar un rato antes de buscar otra.
+    if bot.calm_until.is_some_and(|t| Instant::now() < t) {
         return false;
     }
     let Some(lobby_id) = current_lobby.clone() else { return false };
