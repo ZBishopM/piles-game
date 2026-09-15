@@ -89,6 +89,31 @@ sola carta.
 
 ---
 
+## 🧪 Abrir el juego en un navegador antes de dar nada por bueno
+
+Las pruebas automáticas de este repo no ven una clase entera de fallos: los que
+solo existen en tiempo de ejecución y en un camino concreto.
+
+Ejemplo real (2026-09-15): tras renombrar `qteBlockedCenterIndex` a
+`qteBlockedCardId`, quedó un `centerCardIndex` dentro de una plantilla de texto,
+en el aviso de pelea para espectadores. **Todas las peleas reventaban el cliente
+de quien miraba**, con 64 tests en verde y las dos revisiones de código muerto
+sin decir nada. Se vio al primer intento de jugar una partida de verdad.
+
+Se probó a escribir un detector estático de nombres sin declarar. Se descartó:
+daba 60 avisos y la mayoría eran funciones que sí existen. Un detector que se
+equivoca tanto se acaba ignorando, y entonces estorba más que ayuda.
+
+Así que el paso que falta no es otro script, es **abrir el juego y jugar**:
+
+1. Levantar el servidor y entrar con un navegador.
+2. Crear sala, meter 3 bots, empezar.
+3. Soltar una carta y coger otra.
+4. **Esperar a que salte una pelea** — es el camino que más se rompe.
+5. Mirar la consola del navegador. Ahí sale lo que los tests no ven.
+
+---
+
 ## 🔌 Cosas enchufadas a nada
 
 Dos revisiones que no cambian nada, solo miran. Conviene pasarlas al quitar una
