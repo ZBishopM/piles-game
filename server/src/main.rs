@@ -12,6 +12,7 @@ use tracing_subscriber;
 
 mod bot;
 mod game;
+mod record;
 mod websocket;
 
 use game::is_valid_lobby_code;
@@ -40,6 +41,9 @@ async fn main() {
 
     // Crear estado compartido de la aplicación
     let app_state = AppState::new();
+    // Recoge las grabaciones de partidas que se quedaron a medias. No hace
+    // nada si no se está grabando.
+    app_state.spawn_recording_sweeper();
 
     // Configurar CORS para permitir conexiones desde el frontend
     let cors = CorsLayer::new()
@@ -51,6 +55,13 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/api/qr/:lobby_code", get(lobby_qr))
+        // Grabaciones. Bajo `/api/` porque es lo único que nginx reenvía al
+        // servidor tanto en beta como en producción; los estáticos salen de
+        // disco. Y NO por `ServeDir`: el directorio queda fuera de `client/`
+        // a propósito, porque un fichero ahí dentro sería la mano de todos los
+        // jugadores servida a internet.
+        .route("/api/recordings", get(list_recordings))
+        .route("/api/recordings/:file", get(get_recording))
         .route("/ws", get(ws_handler))
         // Servir archivos estáticos del frontend desde la carpeta "client/"
         // La carpeta debe estar al lado del binario al ejecutar
@@ -75,6 +86,40 @@ async fn main() {
 
 async fn health_check() -> &'static str {
     "OK"
+}
+
+/// Las grabaciones que hay. 404 si no se está grabando: sin `PILES_REC=1` el
+/// endpoint no existe, así que en producción no hay nada que pedir.
+async fn list_recordings(State(state): State<AppState>) -> Response {
+    let Some(rec) = state.rec.as_ref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let lista = record::list(rec.dir());
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        axum::Json(lista),
+    ).into_response()
+}
+
+/// Una grabación entera, tal cual está en disco.
+async fn get_recording(State(state): State<AppState>, Path(file): Path<String>) -> Response {
+    let Some(rec) = state.rec.as_ref() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    // Se valida el nombre, no se limpia: limpiar es como se cuelan los `..`.
+    if !record::valid_name(&file) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match std::fs::read_to_string(rec.dir().join(&file)) {
+        Ok(texto) => (
+            [
+                (header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8"),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            texto,
+        ).into_response(),
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// SVG con el QR de un lobby. Codifica el enlace de invitación completo,

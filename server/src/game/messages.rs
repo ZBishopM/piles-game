@@ -70,8 +70,17 @@ pub enum ClientMessage {
     /// esa carta, se la lleva el otro, y vuelves a jugar en el momento sin
     /// esperar a que acabe el reloj de la pelea.
     GiveUpCard,
-    /// Ping para mantener la conexión viva
-    Ping,
+    /// Ping para mantener la conexión viva.
+    ///
+    /// Trae de vuelta la última ida y vuelta que midió el propio cliente: el
+    /// servidor no puede medirla por su cuenta, y saber el ping de cada uno es
+    /// lo que distingue "perdió la pelea" de "perdió la red". Con `default`
+    /// para que una pestaña vieja que mande `{"type":"ping"}` a secas siga
+    /// funcionando.
+    Ping {
+        #[serde(default)]
+        rtt_ms: Option<u32>,
+    },
 }
 
 /// Mensajes que el servidor envía al cliente

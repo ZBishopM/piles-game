@@ -89,6 +89,48 @@ sola carta.
 
 ---
 
+## 📼 Grabar partidas y verlas después
+
+Apagado por defecto. Se enciende con `PILES_REC=1` en el entorno del servidor;
+sin eso no graba nada y los endpoints devuelven 404.
+
+    PILES_REC=1 ./server/target/release/piles-server
+    # jugar una partida, y luego:
+    #   http://<host>/replay.html
+
+El visor lista lo grabado, y al abrir una partida se puede arrastrar por la
+línea de tiempo, ir evento a evento (flechas, `J`/`K`, espacio para reproducir)
+y **tocar cualquier set de cualquier jugador** para ver sus cuatro cartas —
+también las que en ese momento estaban boca abajo, que para depurar es justo lo
+que hace falta.
+
+Trae dos relojes a propósito: el desplazamiento desde el inicio para moverse, y
+la **hora de reloj** para cuadrarlo con un vídeo del móvil. El botón
+"aquí es 0:00 del vídeo" marca el momento en que empezaste a grabar con el
+teléfono y a partir de ahí enseña también el tiempo del vídeo.
+
+**Lo que hace que valga la pena**: el visor reconstruye lo que el servidor le
+dijo a cada jugador y lo compara con el estado que el servidor tenía. Si no
+cuadran, sale en "desajustes" — que es exactamente la clase de fallo que más
+ha costado encontrar aquí. La comprobación **no** simula las reglas del juego a
+propósito: eso sería escribir una segunda versión del juego, y sus fallos
+parecerían fallos de verdad.
+
+- `node client/recording-check.mjs` — dice si una grabación tiene lo que el
+  visor necesita (cabecera, mapa de cartas, mensajes privados, fotogramas,
+  cierre).
+- `replay.html?test` — comprueba que el detector de desajustes salta con un
+  fallo plantado. Un detector que nunca salta no sirve de nada.
+
+Se guardan **las 10 últimas**; las viejas se borran solas. La máquina no tiene
+swap y también lleva producción y el correo: un disco lleno se los lleva.
+
+Ojo con esto antes de abrir el juego a gente (ver `LANZAMIENTO.md`): una
+grabación contiene la mano de todos los jugadores, y ahora mismo la puede abrir
+cualquiera que tenga el enlace.
+
+---
+
 ## 🧪 Abrir el juego en un navegador antes de dar nada por bueno
 
 Las pruebas automáticas de este repo no ven una clase entera de fallos: los que

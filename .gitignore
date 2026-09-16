@@ -14,6 +14,10 @@
 # Logs
 *.log
 
+# Grabaciones de partidas: son para depurar en local/beta, pesan, y
+# contienen la mano de todos los jugadores.
+/recordings/
+
 # OS
 .DS_Store
 Thumbs.db

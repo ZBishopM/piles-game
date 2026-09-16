@@ -1580,8 +1580,13 @@ let qteTimerInterval = null;
 // borraba a la primera y su carta se quedaba sin marcar.
 const qteBlockedCards = new Set();
 
-// Keep-alive
+// Keep-alive, y de paso la medida del ping. lastRtt viaja con el ping
+// siguiente: es la única forma de que el servidor sepa la latencia de cada
+// uno, porque medirla desde su lado es imposible.
 let pingInterval = null;
+let pingSentAt = 0;
+let lastPingAt = 0;
+let lastRtt = null;
 let closedIntentionally = false;
 
 // Reconexión: el overlay ya traía un botón "Reconectar", pero había que
@@ -1718,13 +1723,22 @@ function connectWs() {
         clearTimeout(reconnectTimer);
         reconnectAttempt = 0;
         document.getElementById('reconnectOverlay').style.display = 'none';
-        // Ping cada 25s para mantener la conexión viva
+        // Ping para mantener viva la conexión y, de paso, para medir la ida y
+        // vuelta. El servidor no puede medirla: solo el cliente sabe cuándo
+        // salió su mensaje, así que manda la medida ANTERIOR pegada al ping
+        // siguiente.
+        //
+        // Cada 3 s jugando y cada 25 s fuera: con 25 s no se puede responder a
+        // "¿esto fue lag?", que es justo para lo que se guarda.
         clearInterval(pingInterval);
         pingInterval = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'ping' }));
-            }
-        }, 25000);
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const enPartida = document.getElementById('gameScreen')?.classList.contains('active');
+            if (!enPartida && Date.now() - lastPingAt < 25000) return;
+            lastPingAt = Date.now();
+            pingSentAt = performance.now();
+            ws.send(JSON.stringify({ type: 'ping', rtt_ms: lastRtt }));
+        }, 3000);
 
         if (pendingAutoJoin) {
             // Sala abierta desde un enlace/QR con nombre ya guardado.
@@ -1934,7 +1948,8 @@ function handleMsg(msg) {
             break;
 
         case 'pong':
-            // Keep-alive confirmado, no hacer nada
+            // Keep-alive confirmado, y la medida de la ida y vuelta.
+            if (pingSentAt) lastRtt = Math.round(performance.now() - pingSentAt);
             break;
 
         case 'error':
