@@ -404,6 +404,14 @@ pub struct QteState {
     pub clicks: std::collections::HashMap<Uuid, u32>,
     /// Duración del QTE en milisegundos (ej: 3000ms)
     pub duration_ms: u64,
+    /// Quién ha cedido la carta, si alguien lo ha hecho.
+    ///
+    /// En cuanto aparece, la pelea se resuelve sin esperar al reloj y gana el
+    /// otro, tenga los clicks que tenga. Ceder cuesta la carta pero **no**
+    /// bloquea ni corta la racha: lo que ganas rindiéndote son los segundos que
+    /// ibas a pasar machacando una pelea perdida, y si además costara la racha
+    /// no habría ningún motivo para usarlo.
+    pub conceded_by: Option<Uuid>,
 }
 
 /// Estado completo del juego

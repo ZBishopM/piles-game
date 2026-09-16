@@ -815,6 +815,7 @@ pub(crate) async fn handle_client_message(
                                 card_id,
                                 clicks: std::collections::HashMap::new(),
                                 duration_ms: 3000,
+                                conceded_by: None,
                             });
                         }
                         state.lobby_manager.update_lobby(lobby).await;
@@ -1011,6 +1012,35 @@ pub(crate) async fn handle_client_message(
                 stunned: bloqueados.into_iter().map(|(_, n)| n).collect(),
                 ms: FRENZY_STUN.as_millis() as u64,
             }).await;
+        }
+
+        // ── Ceder la carta que se está peleando ──
+        //
+        // Una pelea dura 3 s a base de machacar la pantalla. Cuando ya se ve
+        // que la pierdes, esos 3 s no deciden nada: solo te tienen ocupado.
+        // Esto la termina ya, el otro se lleva la carta, y tú vuelves a jugar.
+        //
+        // Se busca LA pelea de quien lo manda, igual que hace `QteClick`: con
+        // dos peleas a la vez, coger "la pelea activa" mandaba la rendición a
+        // la pareja equivocada.
+        ClientMessage::GiveUpCard => {
+            let Some(ref lobby_id) = *current_lobby else { return };
+            let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+            let mut cedida = false;
+            if let Some(gs) = lobby.game_state.as_mut() {
+                let mia = gs.active_qtes.iter_mut()
+                    .find(|q| q.participants.iter().any(|(id, _)| *id == player_id));
+                if let Some(qte) = mia {
+                    if qte.conceded_by.is_none() {
+                        qte.conceded_by = Some(player_id);
+                        cedida = true;
+                    }
+                }
+            }
+            if cedida {
+                tracing::info!("🏳️ {} cede la carta en {}", player_id, lobby_id);
+                state.lobby_manager.update_lobby(lobby).await;
+            }
         }
 
         ClientMessage::Ping => {
@@ -1581,6 +1611,29 @@ fn break_combo(
 }
 
 
+/// Quién gana una pelea. Devuelve `(gana el primero, el perdedor había cedido)`.
+///
+/// Aparte para poder probarlo: el resto de la resolución vive dentro de una
+/// función async con sockets de por medio, y estas tres reglas —ceder pierde,
+/// los clicks deciden el resto, el empate va para el primero— son justo las que
+/// no pueden salir mal en silencio.
+fn decide_fight(
+    qte: &crate::game::QteState,
+    a: Uuid,
+    b: Uuid,
+) -> (bool, bool) {
+    // Ceder pierde, se hubiera pulsado lo que se hubiera pulsado.
+    if qte.conceded_by == Some(a) {
+        return (false, true);
+    }
+    if qte.conceded_by == Some(b) {
+        return (true, true);
+    }
+    let clicks_a = *qte.clicks.get(&a).unwrap_or(&0);
+    let clicks_b = *qte.clicks.get(&b).unwrap_or(&0);
+    (clicks_a >= clicks_b, false)
+}
+
 /// Ejecuta el QTE: envía updates cada 500ms y resuelve al finalizar
 async fn run_qte(
     state: AppState,
@@ -1589,20 +1642,27 @@ async fn run_qte(
     p_a: QtePlayerData,
     p_b: QtePlayerData,
 ) {
-    // 6 updates × 500ms = 3 segundos
+    // 6 updates × 500ms = 3 segundos, o menos si alguien cede la carta.
     for _ in 0..6 {
         sleep(Duration::from_millis(500)).await;
+        let mut cedida = false;
         if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
             if let Some(gs) = &lobby.game_state {
                 // Solo la pelea de ESTA carta: si no, dos peleas a la vez se
                 // pisaban los marcadores en pantalla.
                 if let Some(qte) = gs.qte_for_card(card_id) {
+                    cedida = qte.conceded_by.is_some();
                     let clicks: std::collections::HashMap<String, u32> = qte.participants.iter()
                         .map(|(id, name)| (name.clone(), *qte.clicks.get(id).unwrap_or(&0)))
                         .collect();
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::QteUpdate { card_id, clicks }).await;
                 }
             }
+        }
+        // Alguien se rindió: la pelea se acaba aquí. Se mira en el mismo bucle
+        // que ya relee la sala, así que no hace falta ni un temporizador más.
+        if cedida {
+            break;
         }
     }
 
@@ -1621,10 +1681,9 @@ async fn run_qte(
                 None => return,
             };
 
-            let clicks_a = *qte.clicks.get(&p_a.player_id).unwrap_or(&0);
-            let clicks_b = *qte.clicks.get(&p_b.player_id).unwrap_or(&0);
-
-            let (winner, loser) = if clicks_a >= clicks_b {
+            let (gana_a, cedio_el_perdedor) =
+                decide_fight(&qte, p_a.player_id, p_b.player_id);
+            let (winner, loser) = if gana_a {
                 (p_a.clone(), p_b.clone())
             } else {
                 (p_b.clone(), p_a.clone())
@@ -1655,10 +1714,15 @@ async fn run_qte(
             //
             // Sin premio no hay ni racha ni castigo: una pelea que no reparte
             // carta no puede además bloquear al que la perdió.
+            //
+            // Ceder es otra cosa que perder: pierdes la carta, pero ni te corta
+            // la racha ni te bloquea. Lo que compras rindiéndote son los
+            // segundos que ibas a pasar machacando; si encima costara lo mismo
+            // que perder, no habría ningún motivo para tocar la bandera.
             let (winner_combo, loser_combo) = match &awarded {
                 Some((_, _, completed, _)) => (
                     award_combo(game_state, &winner.player_id, COMBO_GAIN_FIGHT_WON_X100, *completed),
-                    break_combo(game_state, &loser.player_id),
+                    if cedio_el_perdedor { None } else { break_combo(game_state, &loser.player_id) },
                 ),
                 None => (None, None),
             };
@@ -1673,16 +1737,17 @@ async fn run_qte(
                     on_fire: p.is_on_fire(),
                 }).collect();
             (winner, loser, awarded, new_center, players_progress,
-             winner_combo, loser_combo)
+             winner_combo, loser_combo, cedio_el_perdedor)
         };
 
         let (winner, loser, awarded, new_center, players_progress,
-             winner_combo, loser_combo) = outcome;
-        if awarded.is_some() {
+             winner_combo, loser_combo, cedio_el_perdedor) = outcome;
+        if awarded.is_some() && !cedio_el_perdedor {
             // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
             // mensaje de "has perdido": el tablero apagándose es el aviso.
+            // Ceder no: el sentido de rendirse es volver a jugar YA.
             lobby.stun_player(&loser.player_id);
-        } else {
+        } else if awarded.is_none() {
             tracing::warn!(
                 "pelea por la carta {} sin premio: {} ya no tenía hueco; se resuelve sin carta ni bloqueo",
                 card_id, winner.nickname
@@ -1710,13 +1775,17 @@ async fn run_qte(
                 state.send_to_player(&winner.player_id, msg).await;
             }
 
-            // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo
+            // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo.
+            // Quien cedió se queda sin la carta pero sin bloqueo: vuelve a
+            // jugar en el momento, que es justo lo que ha comprado.
             state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
                 reason: "Perdiste la carta".to_string(), kind: "gone".to_string(),
             }).await;
-            state.send_to_player(&loser.player_id, ServerMessage::Stunned {
-                ms: STUN_DURATION.as_millis() as u64,
-            }).await;
+            if !cedio_el_perdedor {
+                state.send_to_player(&loser.player_id, ServerMessage::Stunned {
+                    ms: STUN_DURATION.as_millis() as u64,
+                }).await;
+            }
             if let Some(msg) = loser_combo {
                 state.send_to_player(&loser.player_id, msg).await;
             }
@@ -1776,6 +1845,7 @@ mod qte_scope_tests {
             card_id,
             clicks: std::collections::HashMap::new(),
             duration_ms: 3000,
+            conceded_by: None,
         });
         gs
     }
@@ -1802,6 +1872,50 @@ mod qte_scope_tests {
 
         assert!(qte_blocks(&gs, mirando, Some(7)), "se la llevaría en mitad de la pelea");
         assert!(!qte_blocks(&gs, mirando, Some(8)), "esa no la pelea nadie");
+    }
+
+    // ── Ceder la carta ──
+
+    #[test]
+    fn conceding_loses_the_card_however_hard_you_clicked() {
+        // El caso que importa: te rindes DESPUÉS de haber pulsado más que el
+        // otro. Si mandaran los clicks, ceder no serviría de nada.
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let mut gs = state_with_fight([a, b], 7);
+        let qte = &mut gs.active_qtes[0];
+        qte.clicks.insert(a, 30);
+        qte.clicks.insert(b, 2);
+        qte.conceded_by = Some(a);
+
+        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
+        assert!(!gana_a, "quien cede pierde aunque llevara 30 a 2");
+        assert!(cedio, "y consta que fue por rendirse");
+    }
+
+    #[test]
+    fn without_a_concession_the_clicks_decide() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let mut gs = state_with_fight([a, b], 7);
+        gs.active_qtes[0].clicks.insert(a, 4);
+        gs.active_qtes[0].clicks.insert(b, 9);
+
+        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
+        assert!(!gana_a, "gana quien más pulsó");
+        assert!(!cedio, "nadie cedió: el perdedor sí se lleva bloqueo y corte de racha");
+    }
+
+    #[test]
+    fn a_tie_goes_to_the_first_and_is_not_a_concession() {
+        // El desempate por orden ya existía; lo que no puede pasar es que un
+        // empate se confunda con una rendición y deje al perdedor sin castigo.
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let gs = state_with_fight([a, b], 7);
+        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
+        assert!(gana_a);
+        assert!(!cedio);
     }
 
     #[test]

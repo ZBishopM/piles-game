@@ -710,6 +710,49 @@
             pointer-events: none;
         }
         #qteOverlay.hit #qteClickBtn { background: #c0392b; }
+        /* ── Ceder la carta ──
+           Abajo del todo y pequeña: lejos del centro, que es donde están la
+           vista y el pulgar mientras se machaca. */
+        #qteGiveUpBtn {
+            position: absolute;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 52px;
+            height: 52px;
+            padding: 0;
+            border: none;
+            border-radius: 50%;
+            background: rgba(22,33,62,0.9);
+            font-size: 1.3rem;
+            line-height: 1;
+            cursor: pointer;
+            opacity: 0.55;
+            overflow: hidden;
+            /* Sin esto, iOS saca su menú de "copiar" al mantener pulsado, que
+               es justo el gesto que pide este botón. */
+            -webkit-touch-callout: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        #qteGiveUpBtn:hover { opacity: 0.9; }
+        /* El relleno mientras se mantiene: es lo único que dice "sigue
+           apretando", sin una palabra de texto. */
+        #qteGiveUpBtn i {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 100%;
+            height: 0;
+            background: rgba(255,255,255,0.28);
+            pointer-events: none;
+        }
+        #qteGiveUpBtn.holding { opacity: 1; }
+        #qteGiveUpBtn.holding i {
+            height: 100%;
+            transition: height var(--giveup-ms, 700ms) linear;
+        }
+
         /* Carta en disputa dentro del overlay */
         .qte-card-slot { display: flex; justify-content: center; margin-bottom: 16px; }
         .qte-card-slot .card { width: 84px; cursor: default; }
@@ -1467,6 +1510,13 @@
              contaría dos veces. `pointer-events: none` lo deja de adorno. -->
         <button id="qteClickBtn" style="display:none">¡ C L I C K !</button>
     </div>
+    <!-- Ceder la carta. Sin texto: una bandera blanca se entiende sola.
+         Hay que MANTENERLA pulsada, y eso no es un capricho: durante la pelea
+         toda la pantalla es el botón de pulsar, así que cualquier cosa que se
+         active con un toque se dispararía sola a los dos segundos de machacar.
+         Un dedo que se queda quieto no sale por accidente. -->
+    <button id="qteGiveUpBtn" type="button" hidden
+            title="Mantén pulsado para ceder la carta">🏳️<i></i></button>
 </div>
 
 <!-- ════ OVERLAY GAME OVER ════ -->
@@ -2319,6 +2369,7 @@ function onGameStart(msg) {
     renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false, on_fire: false })));
     renderOpponentPanel();
 
+    startMusic();
     // El silencio se recuerda entre partidas.
     const mb = document.getElementById('muteBtn');
     if (mb) { mb.textContent = sfxMuted ? '🔇' : '🔊'; }
@@ -2817,6 +2868,9 @@ function renderCombo(msg) {
     // El frenesí sobrevive a la racha, así que se pinta antes de cualquier
     // vuelta atrás: se gana llegando al precio y se guarda hasta gastarlo.
     updateFrenzyBtn(msg.frenzy_ready, msg.frenzy_cost_x100);
+    // La música sigue a la racha. Aquí y en ningún otro sitio: este mensaje ya
+    // llega en cada cambio, así que no hace falta vigilar nada aparte.
+    musicFromCombo(msg.window_ms ? (msg.multiplier_x100 ?? 100) : 100, msg.frenzy_ready);
     // El escalón suena en cada jugada encadenada, y sube con la racha. Cerrar
     // un set salta +1,00 de golpe, así que se le da su propio remate.
     if (msg.window_ms && msg.points) {
@@ -2864,6 +2918,7 @@ function renderCombo(msg) {
 /** Al empezar o terminar una partida no debe quedar racha de la anterior. */
 function resetCombo() {
     clearTimeout(comboHideTimer);
+    musicFromCombo(100, false);
     document.getElementById('comboBox')?.classList.remove('active');
     const board = document.getElementById('gameScreen');
     if (board) delete board.dataset.comboTier;
@@ -3047,7 +3102,16 @@ function comboStep(multX100) {
 }
 
 const SFX = {
-    drop:  () => noise({ dur: 0.07, gain: 0.10, hp: 600 }),
+    // Lanzar una carta: primero viaja, luego aterriza. Antes era un solo
+    // chasquido de ruido, que sonaba a estática y no a una carta cayendo sobre
+    // una mesa. El tono de salida varía un poco con el id de la carta —igual
+    // que su inclinación en `thrownStyle`—, así que dos lanzamientos seguidos
+    // no suenan calcados.
+    drop: (cardId = 0) => {
+        const h = ((cardId * 2654435761) >>> 0) % 60;
+        tone({ freq: 420 + h, dur: 0.1, type: 'triangle', gain: 0.1, slideTo: 180 });
+        setTimeout(() => noise({ dur: 0.06, gain: 0.11, hp: 400 }), 70);
+    },
     take:  () => tone({ freq: 520, dur: 0.07, type: 'triangle', gain: 0.12 }),
     setDone: () => { tone({ freq: 660, dur: 0.16 }); setTimeout(() => tone({ freq: 990, dur: 0.22 }), 90); },
     fight: () => tone({ freq: 220, dur: 0.18, type: 'sawtooth', gain: 0.14, slideTo: 440 }),
@@ -3067,6 +3131,93 @@ function playSfx(name, arg) {
     try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
 }
 
+// ─── Música de fondo ──────────────────────────────────────────────────────
+//
+// Sintetizada, como todo lo demás: ni un fichero que descargar antes de la
+// primera partida. Es pentatónica a propósito — en esa escala no hay dos notas
+// que choquen, así que puede correr mucho sin sonar mal. "Frenética pero
+// amable" es exactamente eso: ritmo rápido, notas que no pueden desafinar.
+//
+// Responde a la racha, que es lo que la hace valer la pena: la partida se oye
+// distinta cuando vas encadenando, sin tener que mirar el multiplicador.
+const MUSIC_SCALE = [0, 3, 5, 7, 10];     // pentatónica menor, sobre La
+const MUSIC_BASS = [0, 0, 7, 5];          // 4 tiempos
+let musicTimer = null;
+let musicStep = 0;
+let musicLevel = 0;      // 0 sin racha · 1 arpegio · 2 contramelodía · 3 a tope
+let musicFrenzy = false;
+
+const midi = (semis, oct = 0) => 220 * Math.pow(2, (semis + oct * 12) / 12);
+
+function musicBeatMs() {
+    // Cuanto más alta la racha, más rápido. Nunca tanto como para volverse
+    // ruido: 260 ms es rápido, no frenético de verdad.
+    return [420, 380, 320, 260][musicLevel] ?? 420;
+}
+
+function musicTick() {
+    if (sfxMuted || !audioCtx) return;
+    const paso = musicStep++;
+    const compas = paso % 4;
+
+    // El bajo siempre: es lo que sostiene el fondo cuando no pasa nada.
+    tone({
+        freq: midi(MUSIC_BASS[compas], -1),
+        dur: 0.18,
+        type: 'triangle',
+        gain: 0.05 + musicLevel * 0.012,
+    });
+
+    // Arpegio: entra con la racha viva.
+    if (musicLevel >= 1) {
+        const n = MUSIC_SCALE[(paso * 2) % MUSIC_SCALE.length];
+        tone({ freq: midi(n, 1), dur: 0.12, type: 'square', gain: 0.03 });
+    }
+    // Contramelodía a contratiempo: es lo que da la sensación de que corre.
+    if (musicLevel >= 2 && compas % 2 === 1) {
+        const n = MUSIC_SCALE[(paso * 3 + 2) % MUSIC_SCALE.length];
+        setTimeout(() => tone({ freq: midi(n, 2), dur: 0.08, type: 'square', gain: 0.022 }), musicBeatMs() / 2);
+    }
+    // Brillo arriba del todo cuando vas lanzado.
+    if (musicLevel >= 3 && compas === 0) {
+        tone({ freq: midi(MUSIC_SCALE[0], 2), dur: 0.3, type: 'sine', gain: 0.03 });
+    }
+    // Frenesí cargado: una nota tenida que no está en ningún otro momento, para
+    // que se oiga que lo tienes sin mirar la pantalla.
+    if (musicFrenzy && compas === 2) {
+        tone({ freq: midi(MUSIC_SCALE[4], 2), dur: 0.5, type: 'sine', gain: 0.035 });
+    }
+
+    // El tempo cambia con la racha, así que el temporizador se reprograma en
+    // cada golpe en vez de usar un intervalo fijo.
+    musicTimer = setTimeout(musicTick, musicBeatMs());
+}
+
+function startMusic() {
+    if (musicTimer || sfxMuted) return;
+    unlockAudio();
+    if (!audioCtx) return;
+    musicStep = 0;
+    musicTick();
+}
+
+function stopMusic() {
+    clearTimeout(musicTimer);
+    musicTimer = null;
+    musicLevel = 0;
+    musicFrenzy = false;
+}
+
+/** La racha manda sobre la música. Lo llama `renderCombo`, que ya recibe todo
+ *  lo que hace falta: ni estado nuevo ni sondeos. */
+function musicFromCombo(multX100, frenzyReady) {
+    musicFrenzy = !!frenzyReady;
+    musicLevel = multX100 >= 400 ? 3
+        : multX100 >= 250 ? 2
+        : multX100 >= 150 ? 1
+        : 0;
+}
+
 function toggleMute() {
     sfxMuted = !sfxMuted;
     try { localStorage.setItem('piles.mute', sfxMuted ? '1' : '0'); } catch { /* modo privado */ }
@@ -3075,7 +3226,8 @@ function toggleMute() {
         btn.textContent = sfxMuted ? '🔇' : '🔊';
         btn.title = sfxMuted ? 'Activar sonido' : 'Silenciar';
     }
-    if (!sfxMuted) { unlockAudio(); playSfx('take'); }
+    if (sfxMuted) { stopMusic(); }
+    else { unlockAudio(); playSfx('take'); if (document.getElementById('gameScreen')?.classList.contains('active')) startMusic(); }
 }
 
 // ─── Toques ───────────────────────────────────────────────────────────────
@@ -3218,7 +3370,7 @@ function onPlayerCardClick(index, el) {
     if (!card) return;
     pendingDrop = { index, card };
     markPending(el);
-    playSfx('drop');
+    playSfx('drop', card.id);
     send({ type: 'drop_card', my_card_index: index });
 }
 
@@ -3539,6 +3691,10 @@ function onSwapConflict(players, cardId, durationMs) {
         });
 
         document.getElementById('qteClickBtn').style.display = 'block';
+        // Solo para quien pelea: el que mira no tiene nada que ceder.
+        cancelGiveUpHold();
+        const rendirse = giveUpBtn();
+        if (rendirse) rendirse.hidden = false;
 
         const fill = document.getElementById('qteTimerFill');
         fill.style.width = '100%';
@@ -3653,6 +3809,10 @@ function onQteResolved(winnerName) {
         : null;
 
     document.getElementById('qteClickBtn').style.display = 'none';
+    // Se acabó la pelea: ya no hay nada que ceder.
+    cancelGiveUpHold();
+    const rendirse = giveUpBtn();
+    if (rendirse) rendirse.hidden = true;
     if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
 
     qtePlayers.forEach(name => {
@@ -3670,6 +3830,9 @@ function onQteResolved(winnerName) {
 
 function closeQteOverlay() {
     qteActive = false;
+    cancelGiveUpHold();
+    const rendirse = giveUpBtn();
+    if (rendirse) rendirse.hidden = true;
     // Solo la carta de ESTA pelea: si se vaciara el conjunto entero, cerrar la
     // tuya desmarcaría la carta de la pelea que siguen teniendo otros dos.
     if (qteContestedCard) qteBlockedCards.delete(qteContestedCard.id);
@@ -3696,6 +3859,49 @@ function closeQteOverlay() {
 function sendQteClick() {
     if (qteActive) send({ type: 'qte_click' });
 }
+
+// ─── Ceder la carta que se está peleando ─────────────────────────────────
+//
+// Mantener pulsado, no tocar. Durante una pelea toda la pantalla es el botón de
+// pulsar y además dispara al BAJAR el dedo, así que un botón que se activara con
+// un toque se dispararía solo a los dos segundos de machacar. Un dedo que se
+// queda quieto 700 ms no pasa por accidente mientras machacas.
+const GIVEUP_HOLD_MS = 700;
+let giveUpTimer = null;
+
+function giveUpBtn() { return document.getElementById('qteGiveUpBtn'); }
+
+function cancelGiveUpHold() {
+    clearTimeout(giveUpTimer);
+    giveUpTimer = null;
+    giveUpBtn()?.classList.remove('holding');
+}
+
+(() => {
+    const btn = giveUpBtn();
+    if (!btn) return;
+    btn.style.setProperty('--giveup-ms', GIVEUP_HOLD_MS + 'ms');
+
+    btn.addEventListener('pointerdown', (e) => {
+        // Lo importante de toda esta función: sin esto el mismo gesto sería a
+        // la vez "me rindo" y un click de la pelea, que es contradictorio.
+        e.stopPropagation();
+        e.preventDefault();
+        if (!qteActive) return;
+        btn.classList.add('holding');
+        giveUpTimer = setTimeout(() => {
+            giveUpTimer = null;
+            btn.classList.remove('holding');
+            btn.hidden = true;          // ya está pedido; no se pide dos veces
+            playSfx('drop');
+            send({ type: 'give_up_card' });
+        }, GIVEUP_HOLD_MS);
+    });
+
+    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
+        btn.addEventListener(ev, (e) => { e.stopPropagation(); cancelGiveUpHold(); });
+    }
+})();
 
 // Toda la pantalla cuenta como el botón. `pointerdown` y no `click`: en una
 // pelea a golpes de dedo, esperar al `click` completo (que exige soltar) pierde
@@ -3879,6 +4085,7 @@ function clearMatchNotifications() {
 
 function onGameOver(rankings) {
     gameOver = true;
+    stopMusic();
     closeVerifyOverlay();
     clearMatchNotifications();
     resetCombo();
@@ -3961,6 +4168,7 @@ function claimSessionManagerResult(rankings) {
 }
 
 function onGameCancelled(reason) {
+    stopMusic();
     // Cerrar overlays activos del juego
     closeVerifyOverlay();
     closeQteOverlay();
@@ -3976,6 +4184,7 @@ function onGameCancelled(reason) {
 }
 
 function returnToLobby() {
+    stopMusic();
     gameOver = false;
     isReady = false;
     document.getElementById('gameOverOverlay').classList.remove('active');

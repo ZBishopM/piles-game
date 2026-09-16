@@ -66,6 +66,10 @@ pub enum ClientMessage {
     QteClick,
     /// Soltar el frenesí: bloquea a todos menos a quien tenga el suyo cargado.
     Frenzy,
+    /// Ceder la carta que estás peleando. **No** sales de la partida: sueltas
+    /// esa carta, se la lleva el otro, y vuelves a jugar en el momento sin
+    /// esperar a que acabe el reloj de la pelea.
+    GiveUpCard,
     /// Ping para mantener la conexión viva
     Ping,
 }
