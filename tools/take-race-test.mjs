@@ -7,7 +7,7 @@
 // 300 ms de la ventana de conflicto) ni `swap_failed`. La carta se esfumaba de
 // la mesa por la actualización del otro y tú te quedabas mirando.
 //
-// Uso: node client/take-race-test.mjs [ws://127.0.0.1:3000/ws]
+// Uso: node tools/take-race-test.mjs [ws://127.0.0.1:3000/ws]
 //
 // Necesita el servidor levantado. Desde la raíz del repo:
 //   ./server/target/release/piles-server

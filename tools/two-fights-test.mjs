@@ -9,7 +9,7 @@
 //   - la otra no recibe nunca `qte_resolved` y sus dos jugadores se quedan
 //     colgados.
 //
-// Uso: node client/two-fights-test.mjs [ws://127.0.0.1:3000/ws]
+// Uso: node tools/two-fights-test.mjs [ws://127.0.0.1:3000/ws]
 // Necesita el servidor levantado desde la raíz del repo.
 const URL = process.argv[2] || 'ws://127.0.0.1:3000/ws';
 const dormir = (ms) => new Promise(r => setTimeout(r, ms));

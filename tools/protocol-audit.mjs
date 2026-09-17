@@ -7,7 +7,7 @@ const R = path.join(AQUI, '..', 'server', 'src') + path.sep;
 const msgs = fs.readFileSync(path.join(R, 'game', 'messages.rs'), 'utf8');
 const server = ['websocket.rs', 'bot.rs', 'game/lobby.rs', 'game/models.rs', 'game/deck.rs']
     .map(f => { try { return fs.readFileSync(path.join(R, f), 'utf8'); } catch { return ''; } }).join('\n');
-const client = fs.readFileSync(path.join(AQUI, 'lobby.html'), 'utf8');
+const client = fs.readFileSync(path.join(AQUI, '..', 'client', 'lobby.html'), 'utf8');
 
 // snake_case, que es como viajan por el cable.
 const snake = (s) => s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();

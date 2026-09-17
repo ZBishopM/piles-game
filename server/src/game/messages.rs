@@ -84,7 +84,9 @@ pub enum ClientMessage {
 }
 
 /// Mensajes que el servidor envía al cliente
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// Solo `Serialize`: nada deserializa un `ServerMessage`. El servidor los manda
+// y el cliente los lee en JavaScript.
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     /// Confirmación de lobby creado
@@ -96,7 +98,8 @@ pub enum ServerMessage {
     JoinedLobby {
         lobby_id: String,
         player_id: String,
-        players: Vec<PlayerInfo>,
+        /// Llegó con la partida ya empezada: mira, no juega.
+        spectator: bool,
     },
     /// Lista de lobbies disponibles
     LobbyList {
@@ -107,7 +110,9 @@ pub enum ServerMessage {
         players: Vec<PlayerInfo>,
         ready_count: usize,
         max_players: u8,
-        status: String,
+        /// Cuánta gente está mirando. Se enseña a todos: saber que te ven es
+        /// parte de que haya espectadores.
+        spectators: usize,
     },
     /// El juego ha comenzado
     GameStart {
@@ -143,7 +148,6 @@ pub enum ServerMessage {
     },
     /// Intercambio exitoso
     SwapSuccess {
-        player: String,
         set_index: usize,
         your_new_set: Option<Vec<Option<CardInfo>>>,
         center_cards: Vec<CardInfo>,
@@ -194,10 +198,9 @@ pub enum ServerMessage {
     GameUpdate {
         center_cards: Vec<CardInfo>,
         players_progress: Vec<PlayerProgress>,
+        /// Cuánta gente está mirando la partida.
+        spectators: usize,
     },
-    // `PlayerFinished` vivió aquí sin que nadie lo mandara ni lo escuchara: que
-    // alguien termina se sabe por `SetVerificationResult` y por el puesto que
-    // sale en `PlayerProgress`.
     /// QTE resuelto (broadcast a todos)
     QteResolved {
         /// Qué pelea se acabó. Se difunde a toda la sala, así que sin esto el
@@ -237,8 +240,6 @@ pub enum ServerMessage {
         window_ms: u64,
         /// Puntos que ha dado esta jugada (0 al cortarse).
         points: u32,
-        /// Total acumulado por combo en la partida.
-        total_points: u32,
         /// Tiene un frenesí listo para soltar.
         frenzy_ready: bool,
         /// Lo que cuesta el siguiente, en centésimas. Sube 50 con cada uno
@@ -255,12 +256,10 @@ pub enum ServerMessage {
         countered: Vec<String>,
         /// Quienes se comen el bloqueo.
         stunned: Vec<String>,
-        ms: u64,
     },
     /// El juego ha terminado
     GameOver {
         rankings: Vec<RankingEntry>,
-        your_total_points: Option<u32>,
     },
     /// A alguien se le cayó la conexión en plena partida. Los demás siguen
     /// jugando; este solo avisa de que se le está esperando y cuánto.
@@ -361,7 +360,7 @@ impl From<Card> for CardInfo {
 }
 
 /// Información de un jugador en el lobby
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PlayerInfo {
     pub id: String,
     pub nickname: String,
@@ -372,16 +371,15 @@ pub struct PlayerInfo {
 }
 
 /// Información de un lobby
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct LobbyInfo {
     pub id: String,
     pub player_count: usize,
     pub max_players: u8,
-    pub status: String,
 }
 
 /// Progreso de un jugador
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct PlayerProgress {
     pub nickname: String,
     pub completed_sets: usize,
@@ -392,7 +390,7 @@ pub struct PlayerProgress {
 }
 
 /// Entrada en el ranking final
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RankingEntry {
     pub position: u8,
     pub nickname: String,
@@ -402,4 +400,13 @@ pub struct RankingEntry {
     pub combo_points: u32,
     /// La racha más larga que consiguió en la partida.
     pub best_combo: u32,
+    /// El mejor multiplicador que llegó a tener, en centésimas.
+    ///
+    /// Lo manda el servidor porque el cliente no puede deducirlo: lo intentaba
+    /// con `1 + best_combo / 3` topado en 5, y eso se equivoca por tres sitios
+    /// —`best_combo` es la LONGITUD de la racha, no la suma de ganancias; las
+    /// ganancias son +0,25 / +0,50 / +1,00 según la jugada; y el techo no es 5
+    /// sino `frenzy_cost_x100()`, que sube medio punto por cada frenesí
+    /// gastado—. Tres intercambios daban x1,75 de verdad y pintaba x2.
+    pub best_mult_x100: u32,
 }

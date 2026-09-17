@@ -384,12 +384,6 @@
             z-index: 2;
         }
         .card:active { --scale: 0.96; transition-duration: 0.06s; }
-        .card.selected {
-            outline: 3px solid #fff;
-            box-shadow: 0 0 0 5px rgba(255,255,255,0.25);
-            --lift: -10px;
-            --scale: 1.08;
-        }
         /* Acuse de recibo del toque, antes de que conteste el servidor. Lo que
            se notaba como "no me ha cogido el click" era casi siempre falta de
            esto: entre el toque y la respuesta no pasaba nada en pantalla. */
@@ -501,6 +495,31 @@
             font-size: 0.72rem;
             color: #9aa;
         }
+        .hud-stripe.mirones {
+            justify-content: center;
+            color: #7fb3ff;
+            border-left-color: #7fb3ff;
+        }
+
+        /* Mirando, no jugando: no hay sets propios ni botones que pulsar. */
+        #espectadorBanda {
+            text-align: center;
+            padding: 5px;
+            background: #1b2a4a;
+            color: #7fb3ff;
+            font-size: 0.78rem;
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        #gameScreen.espectador #yourCards,
+        #gameScreen.espectador #setNav,
+        #gameScreen.espectador #flipBtn,
+        #gameScreen.espectador #comboBox,
+        #gameScreen.espectador #frenzyBtn,
+        #gameScreen.espectador .section-head,
+        #gameScreen.espectador #swapHint { display: none; }
+        #gameScreen.espectador .card { cursor: default; }
+
         .hud-stripe.is-me {
             border-left-color: var(--accent);
             color: #eee;
@@ -1560,8 +1579,10 @@ let currentSetIndex = 0;
 let myFlippedSets = Array(6).fill(false);
 // Map<playerName, Map<setIndex, CardInfo|null>>
 const opponentFlippedSets = new Map();
-// Lista de nombres de jugadores (para el panel de oponentes)
-let opponentNames = [];
+// Entraste con la partida ya empezada: miras, no juegas.
+let soyEspectador = false;
+// Cuánta gente está mirando. Llega en `game_update` y `lobby_update`.
+let mirones = 0;
 
 // Selección para intercambio
 
@@ -1587,7 +1608,6 @@ let pingInterval = null;
 let pingSentAt = 0;
 let lastPingAt = 0;
 let lastRtt = null;
-let closedIntentionally = false;
 
 // Reconexión: el overlay ya traía un botón "Reconectar", pero había que
 // encontrarlo y pulsarlo. La partida sigue viva en el servidor y volver es lo
@@ -1713,7 +1733,6 @@ function attemptRejoin() {
 }
 
 function connectWs() {
-    closedIntentionally = false;
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
     const st = document.getElementById('connStatus');
@@ -1755,12 +1774,8 @@ function connectWs() {
     ws.onclose = () => {
         clearInterval(pingInterval);
         st.textContent = '🔌 Desconectado.';
-        if (!closedIntentionally) {
-            // Mostrar overlay de reconexión
-            const overlay = document.getElementById('reconnectOverlay');
-            overlay.style.display = 'flex';
-            scheduleReconnect();
-        }
+        document.getElementById('reconnectOverlay').style.display = 'flex';
+        scheduleReconnect();
     };
 
     ws.onmessage = e => {
@@ -1808,6 +1823,7 @@ function handleMsg(msg) {
         case 'joined_lobby':
             currentLobbyId = msg.lobby_id;
             currentPlayerId = msg.player_id;
+            soyEspectador = !!msg.spectator;
             onEnteredLobby(msg.lobby_id);
             break;
 
@@ -1902,6 +1918,7 @@ function handleMsg(msg) {
             const known = new Set(centerCards.map(c => c.id));
             const arrived = msg.center_cards.find(c => !known.has(c.id));
             centerCards = msg.center_cards;
+            mirones = msg.spectators ?? 0;
             renderPlayersProgress(msg.players_progress);
             // El servidor manda este broadcast también a quien hizo el
             // intercambio, justo detrás de su swap_success. Redibujar otra vez
@@ -2113,6 +2130,9 @@ function joinLobby() {
 function onEnteredLobby(lobbyId) {
     rejoinInFlight = false;
     rememberLobby(lobbyId);
+    // Llegaste con la partida empezada: no hay sala de espera que enseñar, el
+    // `game_start` que viene detrás pinta el tablero.
+    if (soyEspectador) { stopScanner(); return; }
     document.getElementById('lobbyCodeDisplay').textContent = lobbyId;
 
     const qr = document.getElementById('lobbyQr');
@@ -2322,6 +2342,14 @@ function leaveLobby() {
 }
 
 function onLobbyUpdate(msg) {
+    mirones = msg.spectators ?? 0;
+    // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
+    // haber hecho nada.
+    if (soyEspectador && msg.players.some(p => p.id === currentPlayerId)) {
+        soyEspectador = false;
+        aplicarModoEspectador();
+        onEnteredLobby(currentLobbyId);
+    }
     document.getElementById('playerCount').textContent = msg.players.length;
     document.getElementById('maxPlayersDisplay').textContent = msg.max_players;
     document.getElementById('readyCount').textContent =
@@ -2350,8 +2378,14 @@ function onLobbyUpdate(msg) {
     if (msg.players.length > 1) cancelQuickMatchOffer();
     else if (cameFromQuickMatch) armQuickMatchOffer();
 
-    // No redirigir automáticamente si estamos viendo resultados de la partida terminada
-    if (!gameOver && !document.getElementById('lobbyScreen').classList.contains('active')) {
+    // Estar en el tablero manda: un `lobby_update` NUNCA puede sacarte de una
+    // partida. Antes daba igual porque durante una partida no llegaba ninguno;
+    // en cuanto entrar o salir un espectador empezó a difundir uno, esto echaba
+    // del tablero a los cuatro jugadores a la vez. La vuelta a la sala al
+    // terminar la hace `returnToLobby`, no esto.
+    if (!gameOver
+        && !document.getElementById('gameScreen').classList.contains('active')
+        && !document.getElementById('lobbyScreen').classList.contains('active')) {
         showScreen('lobbyScreen');
     }
 }
@@ -2360,7 +2394,10 @@ function onLobbyUpdate(msg) {
 function onGameStart(msg) {
     allSets = msg.your_sets;       // 6 sets
     centerCards = msg.center_cards;
-    currentSetIndex = 0;
+    // El que vuelve a media partida recibe el set en el que estaba. Ponerlo a 0
+    // a secas dejaba al cliente mirando el set 0 mientras el servidor te tenía
+    // en otro: soltabas del set que él creía, no del que veías.
+    currentSetIndex = msg.current_set ?? 0;
     // Una partida nueva no arrastra bloqueos ni movimientos a medias.
     pendingDrop = null;
     pendingTake = null;
@@ -2374,23 +2411,43 @@ function onGameStart(msg) {
     verificationSent = false;
 
     // Registrar oponentes
-    opponentNames = msg.players.filter(n => n !== currentNickname);
-    opponentNames.forEach(name => opponentFlippedSets.set(name, new Map()));
+    msg.players.filter(n => n !== currentNickname)
+               .forEach(name => opponentFlippedSets.set(name, new Map()));
 
     buildSetNav();
     renderCenterCards();
     renderYourCards();
     updateFlipBtn();
     renderPlayersProgress(msg.players.map(n => ({ nickname: n, completed_sets: 0, finished: false, on_fire: false })));
-    renderOpponentPanel();
 
     startMusic();
     // El silencio se recuerda entre partidas.
     const mb = document.getElementById('muteBtn');
     if (mb) { mb.textContent = sfxMuted ? '🔇' : '🔊'; }
 
+    aplicarModoEspectador();
     showScreen('gameScreen');
 }
+
+/** Un espectador no tiene sets ni botones: ve el centro y el marcador.
+ *
+ *  El servidor ya ignora todo lo que mande (hay un guardia en
+ *  `handle_client_message`); esto es para que la interfaz no prometa algo que
+ *  no va a pasar. */
+function aplicarModoEspectador() {
+    const board = document.getElementById('gameScreen');
+    if (board) board.classList.toggle('espectador', soyEspectador);
+    let banda = document.getElementById('espectadorBanda');
+    if (soyEspectador && !banda) {
+        banda = document.createElement('div');
+        banda.id = 'espectadorBanda';
+        banda.textContent = '👁 estás mirando';
+        board.prepend(banda);
+    } else if (!soyEspectador && banda) {
+        banda.remove();
+    }
+}
+
 
 // ─── Renderizado ──────────────────────────────────────────────────────────
 function buildSetNav() {
@@ -2588,6 +2645,17 @@ function renderPlayersProgress(progress) {
 
         hud.appendChild(stripe);
     });
+
+    // Saber que te ven es la mitad de que haya espectadores, así que la cuenta
+    // se enseña a todos. Con cero —el caso normal— no se enseña nada.
+    if (mirones > 0) {
+        const chip = document.createElement('div');
+        chip.className = 'hud-stripe mirones';
+        chip.textContent = `👁 ${mirones}`;
+        chip.title = mirones === 1 ? 'Una persona está mirando'
+                                   : `${mirones} personas están mirando`;
+        hud.appendChild(chip);
+    }
 }
 
 /** Mis propios sets revelados, en el mismo formato que los de los rivales. */
@@ -2871,6 +2939,15 @@ function onDebtForced(card) {
 
 let comboHideTimer = null;
 
+/** Centésimas → "2" o "1,25". Sin decimales de relleno: x2 se lee mejor que
+ *  x2,00, pero x1,25 necesita los suyos. Un solo sitio, porque el visor de
+ *  grabaciones enseñaba x2,00 donde el juego enseña x2 y comparar los dos
+ *  obligaba a traducir de cabeza. */
+function formatMult(x100) {
+    return x100 % 100 === 0 ? String(x100 / 100)
+                            : (x100 / 100).toFixed(2).replace('.', ',');
+}
+
 function renderCombo(msg) {
     const box = document.getElementById('comboBox');
     const mult = document.getElementById('comboMult');
@@ -2907,10 +2984,7 @@ function renderCombo(msg) {
     // En el tablero y no en el cartel: así el color del tramo lo heredan
     // también las cartas y el anillo de aterrizaje sube de temperatura.
     board.dataset.comboTier = String(Math.floor(x100 / 100));
-    // Solo el multiplicador, y sin decimales de relleno: x2 se lee mejor que
-    // x2,00, pero x1,25 necesita los suyos.
-    const entero = x100 % 100 === 0;
-    mult.textContent = `×${entero ? x100 / 100 : (x100 / 100).toFixed(2).replace('.', ',')}`;
+    mult.textContent = `×${formatMult(x100)}`;
 
     mult.classList.remove('bump');
     void mult.offsetWidth;   // reinicia la animación si ya la tenía
@@ -2949,8 +3023,7 @@ function updateFrenzyBtn(ready, coste) {
     const btn = document.getElementById('frenzyBtn');
     if (!btn) return;
     if (coste) {
-        const x = coste % 100 === 0 ? coste / 100 : (coste / 100).toFixed(2).replace('.', ',');
-        btn.title = `Bloquea 2 s a quien no tenga el suyo · el próximo costará ×${x}`;
+        btn.title = `Bloquea 2 s a quien no tenga el suyo · el próximo costará ×${formatMult(coste)}`;
     }
     const antes = !btn.hidden;
     btn.hidden = !ready;
@@ -3370,8 +3443,12 @@ function refuseTap(el) {
     setTimeout(() => el.classList.remove('refused'), 300);
 }
 
-bindTap(document.getElementById('centerCards'), (v, el) => onCenterCardClick(Number(v), el));
-bindTap(document.getElementById('yourCards'), (v, el) => onPlayerCardClick(Number(v), el));
+// Un espectador no juega. El servidor ya lo ignora; esto es para que la
+// interfaz no prometa algo que no va a pasar.
+bindTap(document.getElementById('centerCards'),
+        (v, el) => { if (!soyEspectador) onCenterCardClick(Number(v), el); });
+bindTap(document.getElementById('yourCards'),
+        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); });
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
@@ -3596,14 +3673,10 @@ function onSetFlipped(playerName, setIndex, cards) {
         } else {
             playerMap.delete(setIndex);
         }
-        renderOpponentPanel();
+        // Los sets revelados viven en el marcador de arriba: repintarlo es todo
+        // lo que hay que hacer cuando alguien enseña uno.
+        renderPlayersProgress(null);
     }
-}
-
-/** Los sets revelados ya viven en el marcador de arriba, así que repintarlo es
- *  todo lo que hay que hacer cuando alguien enseña uno. */
-function renderOpponentPanel() {
-    renderPlayersProgress(null);
 }
 
 // ─── QTE ─────────────────────────────────────────────────────────────────
@@ -3941,23 +4014,13 @@ document.addEventListener('keydown', (e) => {
 // ─── Verificación ────────────────────────────────────────────────────────
 let verificationSent = false;
 
-/** Enseñar los 6 sets ES pedir la verificación.
- *
- *  Había además un botón de "Solicitar verificación" que no se podía pulsar
- *  nunca: estaba deshabilitado mientras faltara algún set por enseñar, y en
- *  cuanto se enseñaba el sexto esta función mandaba la petición sola y lo
- *  volvía a deshabilitar. No existía ningún momento en que sirviera de algo. */
+/** Enseñar los 6 sets ES pedir la verificación; no hay botón. */
 function checkAutoVerify() {
     if (verificationSent) return;
     if (myFlippedSets.length === 6 && myFlippedSets.every(f => f)) {
-        requestVerification();
+        verificationSent = true;
+        send({ type: 'request_verification' });
     }
-}
-
-function requestVerification() {
-    if (verificationSent) return;
-    verificationSent = true;
-    send({ type: 'request_verification' });
 }
 
 function openVerifyOverlay(playerName) {
@@ -3992,10 +4055,9 @@ function openVerifyOverlay(playerName) {
         if (previous) previous.remove();
         const notif = document.createElement('div');
         notif.className = 'verify-notif';
-        notif.dataset.player = playerName;
         notif.innerHTML = `
             <div class="vnotif-header">🔍 ${playerName} verificando...</div>
-            <div class="vnotif-sets" id="vnotif-${playerName}">
+            <div class="vnotif-sets">
                 ${Array.from({length:6}, (_, i) => `<span id="vnotif-${playerName}-${i}" title="Set ${i+1}">⏳</span>`).join('')}
             </div>
         `;
@@ -4112,12 +4174,11 @@ function onGameOver(rankings) {
         div.className = 'ranking-entry';
         // El desglose del combo importa: un total a secas no premia haber
         // jugado deprisa, y es lo que hace querer encadenar la próxima vez.
-        // Mismo tramo y mismo tope que el servidor (models.rs:
-        // combo_multiplier). Sin el tope, una racha larga mostraría un x7 que
-        // el servidor nunca pagó.
-        const bestMult = Math.min(1 + Math.floor(entry.best_combo / 3), 5);
+        // El multiplicador lo manda el servidor. Antes se calculaba aquí con
+        // `1 + best_combo/3` topado en 5, y se equivocaba: `best_combo` cuenta
+        // jugadas y el multiplicador suma ganancias distintas por jugada.
         const combo = entry.combo_points > 0
-            ? `<span class="rank-combo">🔥 +${entry.combo_points} · mejor x${bestMult}</span>`
+            ? `<span class="rank-combo">🔥 +${entry.combo_points} · mejor ×${formatMult(entry.best_mult_x100 ?? 100)}</span>`
             : '';
         div.innerHTML = `
             <span class="rank-pos">${medals[entry.position - 1] || entry.position}</span>

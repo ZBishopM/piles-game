@@ -4,7 +4,6 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
 /// Cuánto sobrevive un lobby vacío antes de reciclarse.
@@ -19,16 +18,15 @@ const EMPTY_LOBBY_TTL: Duration = Duration::from_secs(30 * 60);
 pub const GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 /// Estado de un lobby
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum LobbyStatus {
     Waiting,   // Esperando jugadores
     Ready,     // Todos listos, próximo a iniciar
     Playing,   // Juego en progreso
-    Finished,  // Juego terminado
 }
 
 /// Información de un jugador en el lobby
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct LobbyPlayer {
     pub id: Uuid,
     pub nickname: String,
@@ -37,12 +35,10 @@ pub struct LobbyPlayer {
     /// pelea de cartas. Es el castigo por perder — y el aviso: no hay ningún
     /// texto que diga "has perdido", se nota porque el tablero se apaga.
     /// Se comprueba en el servidor, así que no basta con tocar el cliente.
-    #[serde(skip)]
     pub stunned_until: Option<Instant>,
     /// Desde cuándo se le cayó la conexión en plena partida. Mientras esté
     /// puesto, su sitio y sus cartas siguen ahí: los demás pueden seguir
     /// jugando y él tiene `GRACE_PERIOD` para volver.
-    #[serde(skip)]
     pub disconnected_at: Option<Instant>,
     /// Es un bot. Para el resto del servidor da igual —juega por el mismo
     /// camino que una persona—, pero hace falta para poder echarlo, para
@@ -54,9 +50,10 @@ pub struct LobbyPlayer {
 /// Cuánto dura el bloqueo tras perder una pelea.
 ///
 /// 3 s en una partida donde un set se completa en segundos es un castigo de
-/// verdad. Ya no hay forma de escaquearse: ceder la carta se quitó, porque
-/// rendirse era justo la manera segura de proteger una racha, y pelear es lo
-/// que queremos que se haga.
+/// verdad. Ceder la carta (`GiveUpCard`) **no** pasa por aquí: quien cede
+/// pierde la carta pero no se bloquea ni pierde la racha. Lo que se gana
+/// rindiéndose son los segundos que ibas a pasar machacando una pelea perdida;
+/// si además costara el bloqueo no lo usaría nadie. Ver `run_qte`.
 ///
 /// Es más corto que `COMBO_WINDOW` (4 s) a propósito: el bloqueo no debe
 /// comerse la racha por sí solo, así que perder la corta por regla explícita
@@ -77,7 +74,7 @@ pub const STUN_DURATION: Duration = Duration::from_secs(3);
 pub const DEBT_DEADLINE: Duration = Duration::from_secs(3);
 
 /// Representa un lobby de juego
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct Lobby {
     pub id: String,
     pub players: Vec<LobbyPlayer>,
@@ -92,12 +89,17 @@ pub struct Lobby {
     /// lista, una sala compartida por QR entre amigos quedaría abierta a
     /// cualquiera sin que nadie lo hubiera pedido.
     pub is_public: bool,
-    #[serde(skip)]
     pub game_state: Option<GameState>,
+    /// Quien llegó con la partida ya empezada. Mira, no juega.
+    ///
+    /// Lista aparte y **no** dentro de `players` a propósito: `players` manda
+    /// en el tamaño del mazo, en `is_full`, en el recuento de "listos", en los
+    /// rankings y en el umbral que cancela la partida. Meter aquí a un mirón
+    /// rompería las cinco cosas a la vez.
+    pub spectators: Vec<LobbyPlayer>,
     /// Desde cuándo el lobby está vacío. Se mantiene reutilizable un rato
     /// para que quien se desconecta pueda volver a su misma sala; pasado
     /// `EMPTY_LOBBY_TTL` se recicla.
-    #[serde(skip)]
     pub empty_since: Option<Instant>,
 }
 
@@ -111,35 +113,69 @@ impl Lobby {
             status: LobbyStatus::Waiting,
             is_public: true,
             game_state: None,
+            spectators: Vec::new(),
             empty_since: None,
         }
     }
 
-    /// Agrega un jugador al lobby
-    pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<(), String> {
-        if self.players.len() >= self.max_players as usize {
-            return Err("Lobby lleno".to_string());
-        }
-
-        if self.status != LobbyStatus::Waiting {
-            return Err("El juego ya ha comenzado".to_string());
-        }
-
-        if self.players.iter().any(|p| p.nickname == nickname) {
+    /// Agrega un jugador al lobby. `true` si entró **mirando**.
+    ///
+    /// Llegar con la partida empezada ya no es un error: antes devolvía "El
+    /// juego ya ha comenzado" y te quedabas fuera mirando una pantalla de
+    /// error. Ahora entras igual, sin jugar. Que un espectador le sople cartas
+    /// a alguien es un riesgo asumido: esto es para jugar entre amigos.
+    pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<bool, String> {
+        if self.players.iter().chain(&self.spectators).any(|p| p.nickname == nickname) {
             return Err("Nickname ya en uso".to_string());
         }
 
-        self.players.push(LobbyPlayer {
+        let nuevo = LobbyPlayer {
             id: player_id,
             nickname,
             is_ready: false,
             stunned_until: None,
             disconnected_at: None,
             is_bot: false,
-        });
-        self.empty_since = None;
+        };
 
-        Ok(())
+        // Con partida en curso —o sin sitio en la mesa— se entra a mirar.
+        if self.status == LobbyStatus::Playing {
+            self.spectators.push(nuevo);
+            self.empty_since = None;
+            return Ok(true);
+        }
+
+        if self.players.len() >= self.max_players as usize {
+            return Err("Lobby lleno".to_string());
+        }
+
+        self.players.push(nuevo);
+        self.empty_since = None;
+        Ok(false)
+    }
+
+    /// ¿Está mirando en vez de jugando?
+    pub fn is_spectator(&self, player_id: &Uuid) -> bool {
+        self.spectators.iter().any(|s| s.id == *player_id)
+    }
+
+    /// Los espectadores pasan a jugadores cuando la sala vuelve a estar en
+    /// espera. Devuelve a quienes no cupieron, que se quedan fuera.
+    ///
+    /// Sin esto se quedarían mirando para siempre una sala que ya no juega.
+    pub fn promote_spectators(&mut self) -> Vec<LobbyPlayer> {
+        let mut fuera = Vec::new();
+        for s in std::mem::take(&mut self.spectators) {
+            if self.players.len() < self.max_players as usize {
+                self.players.push(s);
+            } else {
+                fuera.push(s);
+            }
+        }
+        if !self.players.is_empty() {
+            self.empty_since = None;
+        }
+        fuera
     }
 
     /// Marca un jugador como listo
@@ -163,6 +199,12 @@ impl Lobby {
     /// Elimina un jugador del lobby (por desconexión o salida)
     /// Devuelve el nickname del jugador eliminado, si existía
     pub fn remove_player(&mut self, player_id: &Uuid) -> Option<String> {
+        // Un espectador sale sin más: no tiene cartas, no cuenta para nada y
+        // nadie le está esperando.
+        if let Some(pos) = self.spectators.iter().position(|s| s.id == *player_id) {
+            return Some(self.spectators.remove(pos).nickname);
+        }
+
         let pos = self.players.iter().position(|p| p.id == *player_id)?;
         let nickname = self.players.remove(pos).nickname;
 
@@ -174,9 +216,7 @@ impl Lobby {
         // Un lobby vacío NO se da por terminado: quien se desconecta (o
         // cierra la pestaña sin querer) tiene que poder volver a su misma
         // sala, y los demás tienen que poder seguir entrando con el mismo
-        // código. Marcarlo Finished aquí lo mataba para siempre —
-        // add_player() rechaza todo lo que no esté en Waiting, así que la
-        // sala quedaba inaccesible incluso para su propio creador.
+        // código. Marcarlo como terminado lo mataba para siempre.
         if self.players.is_empty() {
             self.status = LobbyStatus::Waiting;
             self.game_state = None;
@@ -217,11 +257,7 @@ impl Lobby {
             .collect();
 
         // Crear el estado del juego
-        self.game_state = Some(GameState::new(
-            self.id.clone(),
-            player_states,
-            center_cards.to_vec()
-        ));
+        self.game_state = Some(GameState::new(player_states, center_cards.to_vec()));
 
         self.status = LobbyStatus::Playing;
 
@@ -391,12 +427,12 @@ impl LobbyManager {
         player_id: Uuid,
         nickname: String,
         live: &HashSet<Uuid>,
-    ) -> Result<Lobby, String> {
+    ) -> Result<(Lobby, bool), String> {
         let mut lobbies = self.lobbies.write().await;
         let lobby = lobbies.get_mut(lobby_id)
             .ok_or("Lobby no encontrado")?;
 
-        let abandoned: Vec<Uuid> = lobby.players.iter()
+        let abandoned: Vec<Uuid> = lobby.players.iter().chain(&lobby.spectators)
             .filter(|p| p.nickname == nickname && !live.contains(&p.id))
             .map(|p| p.id)
             .collect();
@@ -404,8 +440,8 @@ impl LobbyManager {
             lobby.remove_player(&stale_id);
         }
 
-        lobby.add_player(player_id, nickname)?;
-        Ok(lobby.clone())
+        let mirando = lobby.add_player(player_id, nickname)?;
+        Ok((lobby.clone(), mirando))
     }
 
     /// Salas a las que se puede entrar desde la lista pública: en espera, no
@@ -501,7 +537,7 @@ mod tests {
         let live: HashSet<Uuid> = [alive].into_iter().collect();
 
         let reconnected = Uuid::new_v4();
-        let lobby = manager.join_lobby(&lobby_id, reconnected, "Ana".to_string(), &live).await
+        let (lobby, _) = manager.join_lobby(&lobby_id, reconnected, "Ana".to_string(), &live).await
             .expect("volver a entrar con el propio nombre tras recargar");
         assert_eq!(lobby.players.len(), 2, "Ana recupera su sitio en vez de duplicarse");
         assert!(lobby.players.iter().any(|p| p.id == reconnected));
@@ -511,6 +547,99 @@ mod tests {
         let impostor = Uuid::new_v4();
         let live: HashSet<Uuid> = [alive, reconnected].into_iter().collect();
         assert!(manager.join_lobby(&lobby_id, impostor, "Beto".to_string(), &live).await.is_err());
+    }
+
+    /// Una sala con dos jugadores y la partida ya en marcha.
+    fn playing_lobby() -> (Lobby, Uuid, Uuid) {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        lobby.add_player(a, "Ana".to_string()).unwrap();
+        lobby.add_player(b, "Beto".to_string()).unwrap();
+        lobby.set_player_ready(&a, true).unwrap();
+        lobby.set_player_ready(&b, true).unwrap();
+        lobby.start_game().unwrap();
+        (lobby, a, b)
+    }
+
+    // Llegar tarde ya no es un error: se entra a mirar.
+    #[test]
+    fn joining_a_running_match_makes_you_a_spectator() {
+        let (mut lobby, _, _) = playing_lobby();
+        let mirón = Uuid::new_v4();
+
+        assert_eq!(lobby.add_player(mirón, "Caro".to_string()), Ok(true),
+                   "con la partida en curso se entra mirando");
+        assert!(lobby.is_spectator(&mirón));
+        assert_eq!(lobby.players.len(), 2, "el mirón NO se sienta a la mesa");
+        assert_eq!(lobby.game_state.as_ref().unwrap().players.len(), 2,
+                   "ni entra en la partida: el mazo ya está repartido");
+    }
+
+    // Lo que hace peligroso meter espectadores en `players`: cuentan para el
+    // aforo y para el "todos listos", y arrancarían partidas que no deben.
+    #[test]
+    fn spectators_count_for_nothing() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 2);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        lobby.add_player(a, "Ana".to_string()).unwrap();
+        lobby.add_player(b, "Beto".to_string()).unwrap();
+        lobby.set_player_ready(&a, true).unwrap();
+        lobby.set_player_ready(&b, true).unwrap();
+        lobby.start_game().unwrap();
+
+        lobby.add_player(Uuid::new_v4(), "Caro".to_string()).unwrap();
+        assert!(lobby.is_full(), "el aforo lo marcan los jugadores, no los mirones");
+        assert_eq!(lobby.ready_count(), 0, "un mirón no cuenta como listo");
+    }
+
+    // Si no, se quedarían mirando para siempre una sala que ya no juega.
+    #[test]
+    fn spectators_sit_down_when_the_match_ends() {
+        let (mut lobby, _, _) = playing_lobby();
+        let mirón = Uuid::new_v4();
+        lobby.add_player(mirón, "Caro".to_string()).unwrap();
+
+        lobby.status = LobbyStatus::Waiting;
+        assert!(lobby.promote_spectators().is_empty(), "hay sitio para los tres");
+        assert!(!lobby.is_spectator(&mirón));
+        assert!(lobby.players.iter().any(|p| p.id == mirón));
+    }
+
+    // La mesa llena manda: no se echa a nadie para hacerle sitio a un mirón.
+    #[test]
+    fn spectators_with_no_seat_are_left_out() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 2);
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        lobby.add_player(a, "Ana".to_string()).unwrap();
+        lobby.add_player(b, "Beto".to_string()).unwrap();
+        lobby.set_player_ready(&a, true).unwrap();
+        lobby.set_player_ready(&b, true).unwrap();
+        lobby.start_game().unwrap();
+        let mirón = Uuid::new_v4();
+        lobby.add_player(mirón, "Caro".to_string()).unwrap();
+
+        lobby.status = LobbyStatus::Waiting;
+        let fuera = lobby.promote_spectators();
+        assert_eq!(fuera.len(), 1);
+        assert_eq!(fuera[0].id, mirón);
+        assert_eq!(lobby.players.len(), 2);
+    }
+
+    // Salir mirando no es abandonar: no hay cartas que retirar ni a quien
+    // esperar, así que la partida ni se entera.
+    #[test]
+    fn a_spectator_leaving_does_not_touch_the_match() {
+        let (mut lobby, _, _) = playing_lobby();
+        let mirón = Uuid::new_v4();
+        lobby.add_player(mirón, "Caro".to_string()).unwrap();
+
+        assert_eq!(lobby.remove_player(&mirón), Some("Caro".to_string()));
+        assert!(lobby.spectators.is_empty());
+        assert_eq!(lobby.status, LobbyStatus::Playing, "la partida sigue");
+        assert_eq!(lobby.game_state.as_ref().unwrap().players.len(), 2);
     }
 
     // Perder una pelea bloquea unos segundos. Es el único aviso de que has

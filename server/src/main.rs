@@ -41,8 +41,7 @@ async fn main() {
 
     // Crear estado compartido de la aplicación
     let app_state = AppState::new();
-    // Recoge las grabaciones de partidas que se quedaron a medias. No hace
-    // nada si no se está grabando.
+    // Recoge las grabaciones de partidas que se quedaron a medias.
     app_state.spawn_recording_sweeper();
 
     // Configurar CORS para permitir conexiones desde el frontend
@@ -88,13 +87,9 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
-/// Las grabaciones que hay. 404 si no se está grabando: sin `PILES_REC=1` el
-/// endpoint no existe, así que en producción no hay nada que pedir.
+/// Las grabaciones que hay.
 async fn list_recordings(State(state): State<AppState>) -> Response {
-    let Some(rec) = state.rec.as_ref() else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let lista = record::list(rec.dir());
+    let lista = record::list(state.rec.dir());
     (
         [(header::CACHE_CONTROL, "no-store")],
         axum::Json(lista),
@@ -103,14 +98,11 @@ async fn list_recordings(State(state): State<AppState>) -> Response {
 
 /// Una grabación entera, tal cual está en disco.
 async fn get_recording(State(state): State<AppState>, Path(file): Path<String>) -> Response {
-    let Some(rec) = state.rec.as_ref() else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
     // Se valida el nombre, no se limpia: limpiar es como se cuelan los `..`.
     if !record::valid_name(&file) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    match std::fs::read_to_string(rec.dir().join(&file)) {
+    match std::fs::read_to_string(state.rec.dir().join(&file)) {
         Ok(texto) => (
             [
                 (header::CONTENT_TYPE, "application/x-ndjson; charset=utf-8"),

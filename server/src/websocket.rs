@@ -52,8 +52,8 @@ pub struct AppState {
     pub connections: Arc<RwLock<HashMap<Uuid, ClientSender>>>,
     /// Intentos de coger carta: lobby_id -> card_id -> TakeIntent
     pub take_intents: Arc<RwLock<HashMap<String, HashMap<u32, TakeIntent>>>>,
-    /// Grabador de partidas, si está encendido (`PILES_REC=1`).
-    pub rec: Option<Arc<crate::record::Recorder>>,
+    /// Grabador de partidas. Siempre activo: es la función, no una opción.
+    pub rec: Arc<crate::record::Recorder>,
     /// Partidas que se están grabando ahora mismo: lobby -> estado.
     pub grabando: Arc<RwLock<HashMap<String, RecState>>>,
 }
@@ -75,14 +75,22 @@ pub struct RecState {
 /// Cada cuánto se guarda el estado entero.
 const KEYFRAME_EVERY: Duration = Duration::from_millis(2000);
 
+/// Lo que dura una pelea. Estaba escrito a mano en tres sitios —el estado, el
+/// mensaje que lo anuncia y el bucle que lo cuenta—, así que cambiarlo pedía
+/// acertar los tres.
+const QTE_MS: u64 = 3000;
+/// Cada cuánto se manda el marcador durante la pelea.
+const QTE_TICK_MS: u64 = 500;
+
 impl AppState {
     pub fn new() -> Self {
         Self {
             lobby_manager: Arc::new(LobbyManager::new()),
             connections: Arc::new(RwLock::new(HashMap::new())),
             take_intents: Arc::new(RwLock::new(HashMap::new())),
-            rec: crate::record::Recorder::start(std::path::PathBuf::from("recordings"))
-                .map(Arc::new),
+            rec: Arc::new(crate::record::Recorder::new(
+                std::path::PathBuf::from("recordings"),
+            )),
             grabando: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -95,9 +103,6 @@ impl AppState {
     /// que cancela la partida, y el fichero se quedaría abierto para siempre.
     /// Esto lo recoge unos segundos después.
     pub fn spawn_recording_sweeper(&self) {
-        if self.rec.is_none() {
-            return;
-        }
         let state = self.clone();
         tokio::spawn(async move {
             loop {
@@ -126,7 +131,10 @@ impl AppState {
 
             let connections = self.connections.read().await;
 
-            for player in &lobby.players {
+            // Los espectadores reciben lo mismo que la sala, y solo eso: como
+            // nunca pasan por `send_to_player`, no les llega ninguna mano
+            // privada. El filtro lo hace la forma del protocolo, no un `if`.
+            for player in lobby.players.iter().chain(&lobby.spectators) {
                 if let Some(sender) = connections.get(&player.id) {
                     let _ = sender.send(message.clone());
                 }
@@ -150,15 +158,10 @@ impl AppState {
 // devuelve nada que haya que comprobar. Grabar no puede romper una partida.
 
 impl AppState {
-    fn rec_on(&self) -> bool {
-        self.rec.is_some()
-    }
-
     /// Empieza a grabar. Se llama justo al arrancar la partida, antes de
     /// mandarle a cada uno su `GameStart`, para que esos mensajes privados
     /// —que traen la mano de cada jugador— entren en el fichero.
     async fn rec_open(&self, lobby_id: &str, lobby: &crate::game::Lobby) {
-        let Some(rec) = &self.rec else { return };
         let Some(gs) = lobby.game_state.as_ref() else { return };
 
         let started_ms = crate::record::now_ms();
@@ -195,7 +198,7 @@ impl AppState {
             })).collect::<Vec<_>>(),
             "cards": cards,
         });
-        rec.open(&file, format!("{cabecera}\n"));
+        self.rec.open(&file, format!("{cabecera}\n"));
 
         let ahora = Instant::now();
         self.grabando.write().await.insert(lobby_id.to_string(), RecState {
@@ -209,8 +212,6 @@ impl AppState {
 
     /// Un mensaje que va a toda la sala, más el fotograma clave si toca.
     async fn rec_broadcast(&self, lobby_id: &str, lobby: &crate::game::Lobby, msg: &ServerMessage) {
-        if !self.rec_on() { return; }
-        let Some(rec) = &self.rec else { return };
         let mut mapa = self.grabando.write().await;
         let Some(est) = mapa.get_mut(lobby_id) else { return };
 
@@ -220,7 +221,7 @@ impl AppState {
         if final_de_partida || est.last_key.elapsed() >= KEYFRAME_EVERY {
             if let Some(gs) = lobby.game_state.as_ref() {
                 let linea = keyframe_json(gs, est.t0.elapsed().as_millis() as u64);
-                rec.line(&est.file, linea);
+                self.rec.line(&est.file, linea);
                 est.last_key = Instant::now();
             }
         }
@@ -231,14 +232,12 @@ impl AppState {
             "w": crate::record::now_ms(),
             "m": msg,
         });
-        rec.line(&est.file, format!("{linea}\n"));
+        self.rec.line(&est.file, format!("{linea}\n"));
     }
 
     /// Un mensaje que va a UNA persona. Es la mitad que ningún cliente puede
     /// grabar por su cuenta, y por eso esto vive en el servidor.
     async fn rec_private(&self, player_id: &Uuid, msg: &ServerMessage) {
-        if !self.rec_on() { return; }
-        let Some(rec) = &self.rec else { return };
         let mapa = self.grabando.read().await;
         // El mapa tiene una entrada por partida en curso: buscar ahí es más
         // barato que mantener un índice jugador→sala aparte.
@@ -250,15 +249,14 @@ impl AppState {
             "to": est.nicks.get(player_id),
             "m": msg,
         });
-        rec.line(&est.file, format!("{linea}\n"));
+        self.rec.line(&est.file, format!("{linea}\n"));
     }
 
-    /// Lo que MANDA un jugador. No se pidió, pero "¿llegó mi toque?" es la
-    /// mitad de cualquier fallo que se compare con un vídeo del móvil, y los
-    /// bots pasan por aquí también, así que sus decisiones quedan gratis.
+    /// Lo que MANDA un jugador: la "línea de tiempo de acciones". "¿Llegó mi
+    /// toque?" es la mitad de cualquier fallo que se compare con un vídeo del
+    /// móvil, y los bots pasan por aquí también, así que sus decisiones quedan
+    /// grabadas gratis.
     async fn rec_in(&self, player_id: &Uuid, msg: &ClientMessage) {
-        if !self.rec_on() { return; }
-        let Some(rec) = &self.rec else { return };
         let mapa = self.grabando.read().await;
         let Some(est) = mapa.values().find(|e| e.nicks.contains_key(player_id)) else { return };
         let linea = serde_json::json!({
@@ -268,14 +266,12 @@ impl AppState {
             "from": est.nicks.get(player_id),
             "m": msg,
         });
-        rec.line(&est.file, format!("{linea}\n"));
+        self.rec.line(&est.file, format!("{linea}\n"));
     }
 
     /// El ping que informa el propio cliente. Es lo que dice si una pelea se
     /// perdió por lentitud de dedos o de red.
     async fn rec_ping(&self, player_id: &Uuid, rtt_ms: u32) {
-        if !self.rec_on() { return; }
-        let Some(rec) = &self.rec else { return };
         let mapa = self.grabando.read().await;
         let Some(est) = mapa.values().find(|e| e.nicks.contains_key(player_id)) else { return };
         let linea = serde_json::json!({
@@ -284,14 +280,13 @@ impl AppState {
             "player": est.nicks.get(player_id),
             "rtt": rtt_ms,
         });
-        rec.line(&est.file, format!("{linea}\n"));
+        self.rec.line(&est.file, format!("{linea}\n"));
     }
 
     /// Cierra la grabación. Hay que llamarlo por los DOS caminos por los que
     /// acaba una partida —final normal y cancelación—: si falta uno, ese
     /// fichero se queda abierto para siempre. Es idempotente.
     async fn rec_close(&self, lobby_id: &str, reason: &str) {
-        let Some(rec) = &self.rec else { return };
         let Some(est) = self.grabando.write().await.remove(lobby_id) else { return };
         let linea = serde_json::json!({
             "t": "end",
@@ -299,8 +294,8 @@ impl AppState {
             "w": crate::record::now_ms(),
             "reason": reason,
         });
-        rec.line(&est.file, format!("{linea}\n"));
-        rec.close(&est.file);
+        self.rec.line(&est.file, format!("{linea}\n"));
+        self.rec.close(&est.file);
     }
 }
 
@@ -384,7 +379,6 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 id: l.id,
                 player_count: l.players.len(),
                 max_players: l.max_players,
-                status: format!("{:?}", l.status),
             })
             .collect(),
     };
@@ -474,7 +468,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
 
                 if lobby.players.is_empty() {
-                    // Lobby vacío: guardarlo como Finished y limpiar intents
+                    // Lobby vacío: se queda en `Waiting` a propósito (ver
+                    // `remove_player`) para que quien se cayó pueda volver a
+                    // su misma sala. Aquí solo se limpian los intents.
                     state.lobby_manager.update_lobby(lobby).await;
                     state.take_intents.write().await.remove(lobby_id);
                 } else {
@@ -487,14 +483,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     }).collect();
                     let ready_count = lobby.ready_count();
                     let max_players = lobby.max_players;
-                    let status = format!("{:?}", lobby.status).to_lowercase();
+                    let mirones = lobby.spectators.len();
                     state.lobby_manager.update_lobby(lobby).await;
 
                     state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
                         players: player_infos,
                         ready_count,
                         max_players,
-                        status,
+                        spectators: mirones,
                     }).await;
                 }
             }
@@ -504,9 +500,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
 }
 
-/// Centro y progreso tal y como hay que mandarlos al cliente.
-fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>) {
-    let Some(gs) = lobby.game_state.as_ref() else { return (vec![], vec![]) };
+/// Centro, progreso y cuánta gente mira: los tres campos de un `GameUpdate`.
+///
+/// Los mirones viajan aquí y no en un mensaje aparte porque esto ya sale en
+/// cada movimiento de carta; un mensaje propio sería otra cosa que mantener al
+/// día para enseñar un número.
+fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>, usize) {
+    let mirones = lobby.spectators.len();
+    let Some(gs) = lobby.game_state.as_ref() else { return (vec![], vec![], mirones) };
     let center = gs.center_cards.iter().map(|&c| CardInfo::from(c)).collect();
     let progress = gs.players.iter().map(|p| PlayerProgress {
         nickname: p.nickname.clone(),
@@ -514,7 +515,7 @@ fn snapshot(lobby: &crate::game::Lobby) -> (Vec<CardInfo>, Vec<PlayerProgress>) 
         finished: p.finished_position.is_some(),
         on_fire: p.is_on_fire(),
     }).collect();
-    (center, progress)
+    (center, progress, mirones)
 }
 
 /// Maneja un mensaje del cliente y envía respuestas vía broadcast
@@ -529,6 +530,21 @@ pub(crate) async fn handle_client_message(
     // Lo que manda cada jugador, grabado antes de atenderlo. Los bots pasan
     // por aquí también, así que sus decisiones quedan registradas igual.
     state.rec_in(&player_id, &msg).await;
+
+    // Un espectador mira y poco más. Un solo guardia aquí en vez de nueve
+    // comprobaciones repartidas por `drop_card`, `take_card`, `qte_click`,
+    // `frenzy`, `give_up_card`, `flip_set`, `switch_set`,
+    // `request_verification` y `set_ready`: un mensaje nuevo queda cubierto sin
+    // que nadie tenga que acordarse.
+    if !matches!(msg, ClientMessage::Ping { .. } | ClientMessage::ListLobbies) {
+        if let Some(id) = current_lobby.as_deref() {
+            if state.lobby_manager.get_lobby(id).await
+                .is_some_and(|l| l.is_spectator(&player_id))
+            {
+                return;
+            }
+        }
+    }
 
     match msg {
         ClientMessage::CreateLobby { nickname, max_players, is_public } => {
@@ -548,19 +564,14 @@ pub(crate) async fn handle_client_message(
                     match state.lobby_manager
                         .join_lobby(&lobby_id, player_id, nickname.clone(), &live).await
                     {
-                        Ok(lobby) => {
+                        // `fullest_open_lobby` solo devuelve salas en espera, así
+                        // que por aquí nunca se entra a mirar.
+                        Ok((_, mirando)) => {
                             *current_lobby = Some(lobby_id.clone());
-                            let players: Vec<PlayerInfo> = lobby.players.iter()
-                                .map(|p| PlayerInfo {
-                                    id: p.id.to_string(),
-                                    nickname: p.nickname.clone(),
-                                    is_ready: p.is_ready,
-                                    is_bot: p.is_bot,
-                                }).collect();
                             state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                                 lobby_id: lobby_id.clone(),
                                 player_id: player_id.to_string(),
-                                players,
+                                spectator: mirando,
                             }).await;
                             send_lobby_update(state, &lobby_id).await;
                         }
@@ -595,13 +606,7 @@ pub(crate) async fn handle_client_message(
                             ));
                         let names: Vec<String> = lobby.players.iter()
                             .map(|p| p.nickname.clone()).collect();
-                        let infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-                            id: p.id.to_string(),
-                            nickname: p.nickname.clone(),
-                            is_ready: p.is_ready,
-                            is_bot: p.is_bot,
-                        }).collect();
-                        let (center, _) = snapshot(&lobby);
+                        let (center, _, _) = snapshot(&lobby);
                         state.lobby_manager.update_lobby(lobby).await;
                         state.connections.write().await.remove(&old_id);
 
@@ -609,7 +614,8 @@ pub(crate) async fn handle_client_message(
                         state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                             lobby_id: lobby_id.clone(),
                             player_id: player_id.to_string(),
-                            players: infos,
+                            // Recupera su asiento, no entra a mirar.
+                            spectator: false,
                         }).await;
                         // El tablero entero tal y como está ahora: es lo que
                         // faltaba para poder reanudar una partida en curso.
@@ -630,22 +636,28 @@ pub(crate) async fn handle_client_message(
             let live: std::collections::HashSet<Uuid> =
                 state.connections.read().await.keys().copied().collect();
             match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
-                Ok(lobby) => {
+                Ok((lobby, mirando)) => {
                     *current_lobby = Some(lobby_id.clone());
-
-                    let players: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-                        id: p.id.to_string(),
-                        nickname: p.nickname.clone(),
-                        is_ready: p.is_ready,
-                        is_bot: p.is_bot,
-                    }).collect();
 
                     // Enviar confirmación al jugador que se unió
                     state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                         lobby_id: lobby_id.clone(),
                         player_id: player_id.to_string(),
-                        players,
+                        spectator: mirando,
                     }).await;
+
+                    // Quien entra a mirar necesita el tablero de una vez: a
+                    // partir de ahí las difusiones lo mantienen al día. Sin
+                    // sets propios, porque no tiene.
+                    if mirando {
+                        let (center, _, _) = snapshot(&lobby);
+                        state.send_to_player(&player_id, ServerMessage::GameStart {
+                            your_sets: Vec::new(),
+                            center_cards: center,
+                            current_set: 0,
+                            players: lobby.players.iter().map(|p| p.nickname.clone()).collect(),
+                        }).await;
+                    }
 
                     // Broadcast actualización a todos los jugadores del lobby
                     send_lobby_update(&state, &lobby_id).await;
@@ -693,7 +705,6 @@ pub(crate) async fn handle_client_message(
                 id: l.id,
                 player_count: l.players.len(),
                 max_players: l.max_players,
-                status: format!("{:?}", l.status),
             }).collect();
 
             state.send_to_player(&player_id, ServerMessage::LobbyList { lobbies: lobby_infos }).await;
@@ -958,15 +969,10 @@ pub(crate) async fn handle_client_message(
                     return;
                 }
             };
-            let (new_center, players_progress) = snapshot(&lobby);
-            let nickname = lobby.players.iter()
-                .find(|p| p.id == player_id)
-                .map(|p| p.nickname.clone())
-                .unwrap_or_default();
+            let (new_center, players_progress, mirones) = snapshot(&lobby);
             state.lobby_manager.update_lobby(lobby).await;
 
             state.send_to_player(&player_id, ServerMessage::SwapSuccess {
-                player: nickname,
                 set_index,
                 your_new_set: Some(new_set),
                 center_cards: new_center.clone(),
@@ -977,12 +983,12 @@ pub(crate) async fn handle_client_message(
             state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
                 center_cards: new_center,
                 players_progress,
+                spectators: mirones,
             }).await;
 
             tokio::spawn(run_debt_deadline(state.clone(), lobby_id, player_id));
         }
 
-        // ── Coger una carta del centro para tapar el hueco ──
         // ── Coger una carta del centro para tapar el hueco ──
         // Aquí es donde se pelea: si dos jugadores van a por la misma carta
         // con menos de CONFLICT_WINDOW de diferencia, se resuelve a clicks.
@@ -1076,7 +1082,6 @@ pub(crate) async fn handle_client_message(
                                 ],
                                 card_id,
                                 clicks: std::collections::HashMap::new(),
-                                duration_ms: 3000,
                                 conceded_by: None,
                             });
                         }
@@ -1086,7 +1091,7 @@ pub(crate) async fn handle_client_message(
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::SwapConflict {
                         players: vec![me.nickname.clone(), them.nickname.clone()],
                         card_id,
-                        qte_duration: 3000,
+                        qte_duration: QTE_MS,
                     }).await;
 
                     let state_clone = state.clone();
@@ -1272,7 +1277,6 @@ pub(crate) async fn handle_client_message(
                 player: nombre,
                 countered: pararon.into_iter().map(|(_, n)| n).collect(),
                 stunned: bloqueados.into_iter().map(|(_, n)| n).collect(),
-                ms: FRENZY_STUN.as_millis() as u64,
             }).await;
         }
 
@@ -1358,16 +1362,16 @@ async fn run_verification(
 
                 if let Some(player) = game_state.find_player_mut(&player_id) {
                     player.is_verifying = false;
-                    player.finished_at = Some(Instant::now());
                     player.finished_position = Some(position);
                 }
                 game_state.rankings.push(player_id);
 
                 let game_over = game_state.is_finished();
-                let rankings_snapshot: Vec<(Uuid, String, u32, u32)> = game_state.rankings.iter()
+                let rankings_snapshot: Vec<(Uuid, String, u32, u32, u32)> = game_state.rankings.iter()
                     .filter_map(|pid| {
                         game_state.players.iter().find(|p| p.id == *pid)
-                            .map(|p| (*pid, p.nickname.clone(), p.combo_points, p.best_combo))
+                            .map(|p| (*pid, p.nickname.clone(), p.combo_points, p.best_combo,
+                                      p.best_mult_x100))
                     })
                     .collect();
 
@@ -1383,18 +1387,18 @@ async fn run_verification(
                     // la carrera sigue siendo lo que más puntúa, y la racha es
                     // el premio por jugarla deprisa.
                     let rankings: Vec<RankingEntry> = rankings_snapshot.iter().enumerate()
-                        .map(|(idx, (_, nickname, combo_points, best_combo))| RankingEntry {
+                        .map(|(idx, (_, nickname, combo_points, best_combo, best_mult))| RankingEntry {
                             position: idx as u8 + 1,
                             nickname: nickname.clone(),
                             points: calculate_points(idx as u8 + 1) + combo_points,
                             combo_points: *combo_points,
                             best_combo: *best_combo,
+                            best_mult_x100: *best_mult,
                         })
                         .collect();
 
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameOver {
                         rankings,
-                        your_total_points: None,
                     }).await;
 
                     // Cerrar la grabación AQUÍ: el `GameOver` de arriba ya
@@ -1409,6 +1413,10 @@ async fn run_verification(
                         for player in lobby.players.iter_mut() {
                             player.is_ready = false;
                         }
+                        // Quien estaba mirando se sienta a la mesa: la sala ya
+                        // no juega, así que seguir de mirón no significaría
+                        // nada. Los que no quepan salen.
+                        let sin_sitio = lobby.promote_spectators();
                         let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
                             id: p.id.to_string(),
                             nickname: p.nickname.clone(),
@@ -1423,8 +1431,13 @@ async fn run_verification(
                             players: player_infos,
                             ready_count: 0,
                             max_players,
-                            status: "waiting".to_string(),
+                            spectators: 0,
                         }).await;
+                        for s in &sin_sitio {
+                            state.send_to_player(&s.id, ServerMessage::Error {
+                                message: "La sala se llenó al acabar la partida".to_string(),
+                            }).await;
+                        }
                     }
                 }
             }
@@ -1501,15 +1514,10 @@ async fn execute_delayed_take(
     };
 
     // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
-    let (new_center, players_progress) = snapshot(&lobby);
-    let nickname = lobby.players.iter()
-        .find(|p| p.id == player_id)
-        .map(|p| p.nickname.clone())
-        .unwrap_or_default();
+    let (new_center, players_progress, mirones) = snapshot(&lobby);
     state.lobby_manager.update_lobby(lobby).await;
 
     state.send_to_player(&player_id, ServerMessage::SwapSuccess {
-        player: nickname,
         set_index,
         your_new_set: Some(new_set),
         center_cards: new_center.clone(),
@@ -1520,6 +1528,7 @@ async fn execute_delayed_take(
     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
         center_cards: new_center,
         players_progress,
+        spectators: mirones,
     }).await;
 }
 
@@ -1633,7 +1642,7 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             award_combo(gs, &player_id, gain, completed)
         };
 
-        let (new_center, players_progress) = snapshot(&lobby);
+        let (new_center, players_progress, mirones) = snapshot(&lobby);
         let nickname = lobby.players.iter()
             .find(|p| p.id == player_id)
             .map(|p| p.nickname.clone())
@@ -1648,7 +1657,6 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             card: CardInfo::from(card),
         }).await;
         state.send_to_player(&player_id, ServerMessage::SwapSuccess {
-            player: nickname,
             set_index,
             your_new_set: Some(new_set),
             center_cards: new_center.clone(),
@@ -1659,6 +1667,7 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
         state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
             center_cards: new_center,
             players_progress,
+            spectators: mirones,
         }).await;
         return;
     }
@@ -1675,6 +1684,8 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     for p in lobby.players.iter_mut() {
         p.is_ready = false;
     }
+    // La sala vuelve a estar en espera, así que los mirones se sientan.
+    let sin_sitio = lobby.promote_spectators();
     let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
         id: p.id.to_string(),
         nickname: p.nickname.clone(),
@@ -1692,8 +1703,13 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
         players: player_infos,
         ready_count: 0,
         max_players,
-        status: "waiting".to_string(),
+        spectators: 0,
     }).await;
+    for s in &sin_sitio {
+        state.send_to_player(&s.id, ServerMessage::Error {
+            message: "La sala se llenó al acabar la partida".to_string(),
+        }).await;
+    }
 }
 
 /// Espera a quien se cayó y, si no vuelve, redimensiona la partida.
@@ -1757,7 +1773,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
             .map(|p| (p.id, p.sets.iter().map(|s| set_to_info(s)).collect()))
             .collect())
         .unwrap_or_default();
-    let (new_center, players_progress) = snapshot(&lobby);
+    let (new_center, players_progress, mirones) = snapshot(&lobby);
     state.lobby_manager.update_lobby(lobby).await;
     state.take_intents.write().await.remove(&lobby_id);
 
@@ -1774,16 +1790,10 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
         center_cards: new_center,
         players_progress,
+        spectators: mirones,
     }).await;
 }
 
-/// Saca la carta del centro y la mete en el hueco que ese jugador debe.
-/// `None` si la carta ya no está o el jugador no debe nada.
-///
-/// El tercer valor dice si esa carta **completó** el set. Es el único sitio
-/// donde una carta entra en un hueco, así que es también el único momento en
-/// que un set puede pasar a estar completo: detectarlo aquí evita recalcularlo
-/// por todos lados.
 /// ¿Le impide jugar a este jugador la pelea que haya en curso?
 ///
 /// Solo a quien pelea, y solo sobre la carta en disputa. Antes una pelea
@@ -1801,6 +1811,13 @@ fn qte_blocks(
         || card_id.is_some_and(|c| game_state.qte_for_card(c).is_some())
 }
 
+/// Saca la carta del centro y la mete en el hueco que ese jugador debe.
+/// `None` si la carta ya no está o el jugador no debe nada.
+///
+/// El tercer valor dice si esa carta **completó** el set. Es el único sitio
+/// donde una carta entra en un hueco, así que es también el único momento en
+/// que un set puede pasar a estar completo: detectarlo aquí evita recalcularlo
+/// por todos lados.
 fn take_card_into_slot(
     game_state: &mut crate::game::models::GameState,
     player_id: Uuid,
@@ -1848,7 +1865,6 @@ fn combo_update_for(p: &crate::game::models::PlayerState, points: u32) -> Server
         multiplier_x100: p.combo_multiplier_x100(),
         window_ms: COMBO_WINDOW.as_millis() as u64,
         points,
-        total_points: p.combo_points,
         frenzy_ready: p.frenzy_ready,
         // Lo que costará el siguiente. Sube medio punto cada vez, y el jugador
         // tiene que poder verlo: si no, la barra parece que se atasca antes de
@@ -1875,7 +1891,6 @@ fn break_combo(
         multiplier_x100: COMBO_BASE_X100,
         window_ms: 0,
         points: 0,
-        total_points: p.combo_points,
         // Un frenesí ya ganado no se pierde por perder una pelea.
         frenzy_ready: p.frenzy_ready,
         frenzy_cost_x100: p.frenzy_cost_x100(),
@@ -1914,9 +1929,9 @@ async fn run_qte(
     p_a: QtePlayerData,
     p_b: QtePlayerData,
 ) {
-    // 6 updates × 500ms = 3 segundos, o menos si alguien cede la carta.
-    for _ in 0..6 {
-        sleep(Duration::from_millis(500)).await;
+    // Marcador cada tick hasta agotar la pelea, o menos si alguien cede.
+    for _ in 0..(QTE_MS / QTE_TICK_MS) {
+        sleep(Duration::from_millis(QTE_TICK_MS)).await;
         let mut cedida = false;
         if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
             if let Some(gs) = &lobby.game_state {
@@ -2025,6 +2040,7 @@ async fn run_qte(
                 card_id, winner.nickname
             );
         }
+        let mirones = lobby.spectators.len();
         state.lobby_manager.update_lobby(lobby).await;
 
         // Broadcast: esta pelea se acabó. Va con la carta porque puede haber
@@ -2038,7 +2054,6 @@ async fn run_qte(
         // pase lo que pase, que es lo que impide que nadie se quede colgado.
         if let Some((winner_set, winner_new_set, _, _)) = awarded {
             state.send_to_player(&winner.player_id, ServerMessage::SwapSuccess {
-                player: winner.nickname,
                 set_index: winner_set,
                 your_new_set: Some(winner_new_set),
                 center_cards: new_center.clone(),
@@ -2067,6 +2082,7 @@ async fn run_qte(
         state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
             center_cards: new_center,
             players_progress,
+            spectators: mirones,
         }).await;
     }
 }
@@ -2094,7 +2110,7 @@ async fn send_lobby_update(state: &AppState, lobby_id: &str) {
             players,
             ready_count: lobby.ready_count(),
             max_players: lobby.max_players,
-            status: format!("{:?}", lobby.status),
+            spectators: lobby.spectators.len(),
         };
 
         state.broadcast_to_lobby(lobby_id, update_msg).await;
@@ -2111,12 +2127,11 @@ mod qte_scope_tests {
         let players = fighters.iter()
             .map(|id| PlayerState::new(*id, "x".to_string(), sets))
             .collect();
-        let mut gs = GameState::new("l".to_string(), players, vec![Card::new(card_id, 3)]);
+        let mut gs = GameState::new(players, vec![Card::new(card_id, 3)]);
         gs.active_qtes.push(QteState {
             participants: fighters.iter().map(|id| (*id, "x".to_string())).collect(),
             card_id,
             clicks: std::collections::HashMap::new(),
-            duration_ms: 3000,
             conceded_by: None,
         });
         gs
@@ -2195,7 +2210,6 @@ mod qte_scope_tests {
         let a = Uuid::new_v4();
         let sets = [[Card::new(0, 1); 4]; 6];
         let gs = GameState::new(
-            "l".to_string(),
             vec![PlayerState::new(a, "x".to_string(), sets)],
             vec![Card::new(7, 3)],
         );

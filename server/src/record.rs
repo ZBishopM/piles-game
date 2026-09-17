@@ -71,18 +71,19 @@ pub struct Recorder {
 }
 
 impl Recorder {
-    /// Arranca el hilo de escritura. `None` si no hay que grabar.
+    /// Arranca el hilo de escritura.
     ///
-    /// Se enciende con `PILES_REC=1`. Apagado por defecto a propósito: en
-    /// producción se juegan partidas de verdad y nadie ha pedido que queden
-    /// guardadas en disco.
-    pub fn start(dir: PathBuf) -> Option<Self> {
-        if std::env::var("PILES_REC").ok().as_deref() != Some("1") {
-            return None;
-        }
+    /// No hay interruptor: grabar es la función, y una variable de entorno que
+    /// hay que acordarse de poner en el servidor es un paso extra que sólo
+    /// sirve para que un día no esté puesta y no haya grabación de la partida
+    /// que justo hacía falta.
+    ///
+    /// Si el directorio no se puede crear tampoco devuelve nada raro: se avisa,
+    /// el hilo no consigue abrir ningún fichero y lo dice. Un `Option` aquí
+    /// obligaba a comprobarlo en nueve sitios para el mismo resultado.
+    pub fn new(dir: PathBuf) -> Self {
         if let Err(e) = std::fs::create_dir_all(&dir) {
             tracing::warn!("no se pudo crear {}: {e}; no se grabará", dir.display());
-            return None;
         }
         prune(&dir, KEEP);
 
@@ -123,7 +124,7 @@ impl Recorder {
         });
 
         tracing::info!("📼 grabando partidas en {}", dir.display());
-        Some(Self { tx, dir })
+        Self { tx, dir }
     }
 
     pub fn dir(&self) -> &Path {

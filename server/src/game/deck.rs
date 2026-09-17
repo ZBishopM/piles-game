@@ -265,7 +265,7 @@ mod tests {
         let players: Vec<PlayerState> = sets.into_iter().enumerate()
             .map(|(i, s)| PlayerState::new(Uuid::new_v4(), format!("P{i}"), s))
             .collect();
-        GameState::new("TEST".to_string(), players, center.to_vec())
+        GameState::new(players, center.to_vec())
     }
 
     /// Todas las cartas que siguen en juego, en manos o en el centro.

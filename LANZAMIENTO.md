@@ -52,8 +52,21 @@ sitios la gente decide con la imagen.
 **Que aguante que entren a la vez.** Ahora mismo es un VPS de 2 núcleos
 compartido con producción y con el correo (ver `DEPLOY.md`). Antes de mandar
 gente hay que saber cuántas partidas simultáneas aguanta. Es una prueba que se
-puede hacer con los mismos scripts de `client/*-test.mjs` lanzando varias salas
+puede hacer con los mismos scripts de `tools/*-test.mjs` lanzando varias salas
 a la vez.
+
+**Cerrar las grabaciones y el modo espectador.** Las dos cosas están bien entre
+amigos y mal en abierto, y hay que decidirlo antes de mandar a nadie:
+
+- El servidor graba **todas** las partidas en `recordings/`, y esa grabación
+  lleva la mano de cada jugador. `/api/recordings` no pide nada: quien tenga el
+  enlace la abre. Antes de abrir el juego hay que pedir sesión en esos dos
+  endpoints, o dejar de grabar las salas públicas.
+- Cualquiera que tenga el código de una sala puede entrar a mirar una partida
+  en curso. Se hizo así a propósito —entre amigos da igual que un espectador le
+  sople cartas a alguien—, pero con desconocidos es una forma de hacer trampas
+  que no cuesta nada. Lo mínimo sería que solo se pueda mirar en salas privadas,
+  o que quien hospeda lo pueda apagar.
 
 **Un sitio tuyo donde recoger a quien le guste.** La recomendación central de
 Chris Zukowski (el analista de marketing indie más citado, que publica sobre

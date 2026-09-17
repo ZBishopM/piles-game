@@ -8,7 +8,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-const html = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), 'lobby.html'), 'utf8');
+const html = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html'), 'utf8');
 const src = html.match(/function bindTap\(container, handler\) \{[\s\S]*?\n\}/);
 if (!src) { console.log('FALLO: no se encontró bindTap'); process.exit(1); }
 

@@ -91,10 +91,12 @@ sola carta.
 
 ## 📼 Grabar partidas y verlas después
 
-Apagado por defecto. Se enciende con `PILES_REC=1` en el entorno del servidor;
-sin eso no graba nada y los endpoints devuelven 404.
+Siempre activo, sin nada que encender. **Antes hacía falta `PILES_REC=1`**, y el
+resultado fue el previsible: nunca se puso en beta, así que la función estuvo
+apagada desde que se subió. Un paso extra que hay que recordar es un paso que
+se olvida.
 
-    PILES_REC=1 ./server/target/release/piles-server
+    ./server/target/release/piles-server
     # jugar una partida, y luego:
     #   http://<host>/replay.html
 
@@ -109,25 +111,23 @@ la **hora de reloj** para cuadrarlo con un vídeo del móvil. El botón
 "aquí es 0:00 del vídeo" marca el momento en que empezaste a grabar con el
 teléfono y a partir de ahí enseña también el tiempo del vídeo.
 
-**Lo que hace que valga la pena**: el visor reconstruye lo que el servidor le
-dijo a cada jugador y lo compara con el estado que el servidor tenía. Si no
-cuadran, sale en "desajustes" — que es exactamente la clase de fallo que más
-ha costado encontrar aquí. La comprobación **no** simula las reglas del juego a
-propósito: eso sería escribir una segunda versión del juego, y sus fallos
-parecerían fallos de verdad.
-
-- `node client/recording-check.mjs` — dice si una grabación tiene lo que el
-  visor necesita (cabecera, mapa de cartas, mensajes privados, fotogramas,
-  cierre).
-- `replay.html?test` — comprueba que el detector de desajustes salta con un
-  fallo plantado. Un detector que nunca salta no sirve de nada.
+**Las vueltas atrás salen marcadas**, que es lo que más cuesta ver en un vídeo:
+pediste una carta y llegaste tarde (`swap_failed` con `kind: gone`), la jugada
+rompía una regla, o el plazo de 3 s te asignó una carta. En el móvil las tres se
+ven igual, como un parpadeo raro.
 
 Se guardan **las 10 últimas**; las viejas se borran solas. La máquina no tiene
 swap y también lleva producción y el correo: un disco lleno se los lleva.
 
-Ojo con esto antes de abrir el juego a gente (ver `LANZAMIENTO.md`): una
-grabación contiene la mano de todos los jugadores, y ahora mismo la puede abrir
-cualquiera que tenga el enlace.
+⚠️ **Ahora graba también producción.** Una grabación contiene la mano de todos
+los jugadores y la puede abrir cualquiera que tenga el enlace. Es aceptable
+jugando entre amigos, que es lo que hay hoy, pero **hay que cerrarlo antes de
+abrir el juego a desconocidos**: pedir sesión en `/api/recordings`, o no grabar
+salas públicas. Ver `LANZAMIENTO.md`.
+
+Hubo un detector de desajustes (comparaba lo reconstruido con el fotograma
+clave) y un `replay.html?test` que lo probaba. Se quitaron: nadie los pidió y
+en ninguna partida encontraron nada.
 
 ---
 
@@ -161,27 +161,55 @@ Así que el paso que falta no es otro script, es **abrir el juego y jugar**:
 Dos revisiones que no cambian nada, solo miran. Conviene pasarlas al quitar una
 función o cambiar el protocolo:
 
-- `node client/dead-wiring-audit.mjs` — funciones que no llama nadie, `onclick`
+- `node tools/dead-wiring-audit.mjs` — funciones que no llama nadie, `onclick`
   que apuntan a funciones que no existen, ids y clases que ya no están.
-- `node client/protocol-audit.mjs` — variantes de `ClientMessage` y
+- `node tools/protocol-audit.mjs` — variantes de `ClientMessage` y
   `ServerMessage` que nadie manda o nadie escucha.
 
 Ojo con los falsos positivos: los ids formados con plantillas
 (`` `vicon-${i}` ``) salen siempre, y `.css`/`.md`/`.webp` son extensiones
 dentro de comentarios. Lo que hay que mirar son las dos primeras secciones.
 
+**Y ojo con lo que NO ven.** `protocol-audit` compara variantes, no campos, así
+que ocho campos que el cliente no leía nunca —`GameOver.your_total_points`,
+`ComboUpdate.total_points`, `LobbyUpdate.status`, `SwapSuccess.player`,
+`FrenzyFired.ms`…— pasaron por delante sin que dijeran nada. Para el servidor
+hay un truco mejor: quitar los `#[derive(Serialize)]` de las estructuras que no
+viajan por el cable. El derive cuenta como "lectura" y tapa el aviso de
+`never read`; sin él, el compilador encuentra los campos muertos solo.
+
 Ya encontraron: el botón de "Solicitar verificación", que no se podía pulsar
 nunca —se deshabilitaba solo y la verificación se pedía sola al enseñar el sexto
 set—, y `PlayerFinished`, un mensaje que no mandaba ni escuchaba nadie.
+
+Pendientes, encontrados en la revisión del 2026-09-16 y **sin arreglar**:
+
+- [ ] `id="qbnFill"` duplicado (`lobby.html`, aviso de pelea ajena): con dos
+      peleas de espectador a la vez hay dos elementos con el mismo id. Hoy
+      funciona porque la búsqueda va acotada al aviso, pero es HTML inválido.
+      Debería ser una clase.
+- [ ] `cameFromQuickMatch` nunca vuelve a `false` (`lobby.html`): tras una
+      partida rápida, cualquier `lobby_update` con un jugador o menos vuelve a
+      ofrecer bots.
+- [ ] `replay.html` no está enlazado desde ningún sitio: solo se llega
+      escribiendo la URL. El "historial en el perfil" se quedó a medias.
 
 ---
 
 ## 🖱️ Toques
 
-`client/tap-test.mjs` — `node client/tap-test.mjs`. Saca `bindTap` del propio
+Las herramientas viven en `tools/`, no en `client/`. El binario sirve `client/`
+entera, así que ahí dentro cualquiera se las podía descargar desde internet.
+
+`tools/tap-test.mjs` — `node tools/tap-test.mjs`. Saca `bindTap` del propio
 `lobby.html`, así que no se queda vieja: si cambia la función, prueba la nueva.
 
-`client/two-fights-test.mjs` — `node client/two-fights-test.mjs`, con el servidor
+`tools/spectator-test.mjs` — `node tools/spectator-test.mjs`, con el servidor
+levantado. Alguien entra en una partida ya empezada: comprueba que recibe el
+tablero sin sets propios, que a los que juegan les llega la cuenta de mirones,
+que no le llega ningún mensaje privado, y que lo que mande no mueve nada.
+
+`tools/two-fights-test.mjs` — `node tools/two-fights-test.mjs`, con el servidor
 levantado. Cuatro jugadores, dos peleas a la vez por cartas distintas. Cuenta
 cuántas peleas se resuelven y cuántos clicks cuentan **en cada una**.
 
@@ -190,7 +218,7 @@ Ojo con lo que se afirma aquí: `qte_resolved` se difunde a TODA la sala, así q
 los cuatro igual—. La primera versión de este test pasaba con el fallo delante.
 Hay que contar resoluciones y clicks por pareja.
 
-`client/take-race-test.mjs` — `node client/take-race-test.mjs`, con el servidor
+`tools/take-race-test.mjs` — `node tools/take-race-test.mjs`, con el servidor
 levantado desde la raíz del repo. Reproduce con dos clientes de verdad el caso
 que confundía jugando: eliges una carta y desaparece sin pelea y sin aviso.
 

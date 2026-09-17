@@ -106,7 +106,6 @@
     }
     .sets-nav button.actual { border-color: var(--accent); color: #fff; }
     .sets-nav button.enseniado::after { content: " 👁"; }
-    .sets-nav button.roto { border-color: var(--bad); }
 
     /* Marcador, como el HUD del juego */
     .hud { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px; }
@@ -119,7 +118,6 @@
     }
     .franja.yo { border-left-color: var(--accent); color: #eee; }
     .franja .nom { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .franja .pts { font-weight: bold; font-variant-numeric: tabular-nums; }
     .punto { width: 9px; height: 13px; border-radius: 2px; background: #0f1830;
              box-shadow: inset 0 0 0 1px var(--line); }
     .punto.on { background: var(--accent); }
@@ -140,7 +138,6 @@
     .ev.clave { color: #777; }
     .ev.vuelta { color: var(--warn); }
     .aviso { font-size: 0.74rem; padding: 2px 0; cursor: pointer; }
-    .aviso.desajuste { color: var(--bad); }
     .aviso.vuelta { color: var(--warn); }
     .estado { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: #aaa; }
     .estado b { color: #eee; }
@@ -171,6 +168,13 @@ function inclinacion(id) {
         dy: (((h >> 16) % 101) / 100 - 0.5) * 10,
     };
 }
+/** Igual que `formatMult` en lobby.html, y por el mismo motivo: si el visor
+ *  enseña ×2,00 donde el juego enseña ×2, compararlos con el vídeo del móvil
+ *  obliga a traducir de cabeza, que es justo lo que esto viene a evitar. */
+function formatMult(x100) {
+    return x100 % 100 === 0 ? String(x100 / 100)
+                            : (x100 / 100).toFixed(2).replace('.', ',');
+}
 
 const mmss = (ms) => {
     const s = Math.floor(ms / 1000);
@@ -183,9 +187,7 @@ async function pintarLista() {
     let datos;
     try {
         const r = await fetch('/api/recordings');
-        if (!r.ok) throw new Error(r.status === 404
-            ? 'La grabación está apagada en este servidor (hace falta PILES_REC=1).'
-            : `El servidor respondió ${r.status}.`);
+        if (!r.ok) throw new Error(`El servidor respondió ${r.status}.`);
         datos = await r.json();
     } catch (e) {
         app.innerHTML = `<p class="vacio">${e.message || 'No se pudo conectar.'}</p>`;
@@ -209,7 +211,7 @@ async function pintarLista() {
 let lineas = [], cab = null, idx = 0, reproduciendo = null, videoT0 = null;
 let asiento = null;        // desde qué silla se mira
 let verVerdad = false;     // enseñar también lo que ese jugador NO veía
-let vueltas = [], desajustes = [];
+let vueltas = [];
 
 async function cargar(fichero) {
     const r = await fetch(`/api/recordings/${encodeURIComponent(fichero)}`);
@@ -228,7 +230,6 @@ async function cargar(fichero) {
            ?? (cab.players || [])[0]?.nick ?? null;
 
     vueltas = buscarVueltas();
-    desajustes = buscarDesajustes();
     montar();
     const primerKey = lineas.findIndex(l => l.t === 'key');
     ir(primerKey === -1 ? 0 : primerKey);
@@ -264,30 +265,10 @@ function buscarVueltas() {
     return out;
 }
 
-/** Lo que el servidor DIJO frente a lo que el servidor TENÍA.
- *
- *  Solo se recomponen los mensajes que llevan cartas. Nada de simular reglas:
+/** El tablero en el evento `i`: se parte del fotograma clave anterior y se
+ *  aplican los mensajes que llevan cartas. No se simulan reglas a propósito —
  *  eso sería escribir otra versión del juego, y sus fallos parecerían fallos
  *  de verdad. */
-function buscarDesajustes() {
-    const out = [];
-    for (let i = 0; i < lineas.length; i++) {
-        if (lineas[i].t !== 'key') continue;
-        const previo = estadoEn(i - 1);
-        if (!previo) continue;
-        for (const [nick, p] of Object.entries(lineas[i].players || {})) {
-            const mio = previo.players[nick];
-            if (!mio) continue;
-            for (let s = 0; s < 6; s++) for (let h = 0; h < 4; h++) {
-                const a = mio.sets[s]?.[h] ?? null, b = p.sets[s]?.[h] ?? null;
-                if (a !== b) out.push({ i, ms: lineas[i].ms, nick, set: s, hueco: h,
-                                        dijo: a, tenia: b });
-            }
-        }
-    }
-    return out;
-}
-
 function estadoEn(i) {
     let base = null, baseIdx = 0;
     for (let k = i; k >= 0; k--) if (lineas[k].t === 'key') { base = lineas[k]; baseIdx = k; break; }
@@ -363,7 +344,6 @@ function montar() {
           <div class="eventos" id="eventos"></div>
           <div class="avisos"><h2>vueltas atrás <span class="vacio" id="nVueltas"></span></h2>
             <div id="listaVueltas"></div></div>
-          <div class="avisos"><h2>desajustes</h2><div id="listaDesajustes"></div></div>
         </div>
       </div>`;
 
@@ -411,13 +391,7 @@ function montar() {
               : v.tipo === 'forzada' ? 'carta asignada por el plazo' : v.motivo}
             ${v.pidio ? `<span class="vacio">(pidió ${v.pidio})</span>` : ''}</div>`).join('')
         : '<p class="vacio">Ninguna.</p>';
-    $('#listaDesajustes').innerHTML = desajustes.length
-        ? desajustes.slice(0, 40).map(d => `<div class="aviso desajuste" data-i="${d.i}">
-            ${mmss(d.ms)} · ${d.nick} set ${d.set+1} hueco ${d.hueco+1}:
-            le dijo ${d.dijo ?? '—'}, tenía ${d.tenia ?? '—'}</div>`).join('')
-        : '<p class="vacio">Ninguno. Lo que mandó y lo que tenía coinciden.</p>';
     app.querySelectorAll('.aviso').forEach(a => a.onclick = () => ir(+a.dataset.i));
-    window.__vueltas = vueltas; window.__desajustes = desajustes;
 }
 
 function alternarPlay() {
@@ -490,7 +464,7 @@ function pintar(est, pings) {
         const puntos = (p.flip || []).map(v => `<i class="punto${v ? ' on' : ''}"></i>`).join('');
         f.innerHTML = `<span class="nom">${nick}</span>
             <span style="display:flex;gap:2px">${puntos}</span>
-            <span class="mult">×${((p.mult ?? 100)/100).toFixed(2).replace('.',',')}</span>
+            <span class="mult">×${formatMult(p.mult ?? 100)}</span>
             ${p.frenzy ? '🌈' : ''}${p.fin ? ` 🏁${p.fin}º` : ''}
             <span class="ping ${rtt === undefined ? '' : rtt > 300 ? 'malo' : rtt > 150 ? 'medio' : ''}">
               ${rtt === undefined ? '—' : rtt + 'ms'}</span>`;
@@ -504,14 +478,11 @@ function pintar(est, pings) {
     if (!yo) { $('#etiSets').textContent = 'Sus sets'; return; }
     $('#etiSets').textContent = `Sets de ${asiento}`;
 
-    const rotos = new Set(desajustes.filter(d => d.nick === asiento &&
-        Math.abs(d.i - idx) < 3).map(d => d.set));
     const actual = yo.__ver ?? yo.cur ?? 0;
     for (let i = 0; i < 6; i++) {
         const b = document.createElement('button');
         b.className = (i === actual ? 'actual ' : '') +
-                      (yo.flip?.[i] ? 'enseniado ' : '') +
-                      (rotos.has(i) ? 'roto' : '');
+                      (yo.flip?.[i] ? 'enseniado' : '');
         b.textContent = `Set ${i+1}`;
         b.onclick = () => { yo.__ver = i; pintar(est, pings); };
         nav.appendChild(b);
@@ -526,7 +497,7 @@ function pintar(est, pings) {
     const deuda = yo.owed ? `debe una carta (set ${yo.owed[0]+1}, hueco ${yo.owed[1]+1})` : 'sin deuda';
     estado.innerHTML = `<span><b>${asiento}</b></span>
         <span>${deuda}</span>
-        <span>multiplicador <b>×${((yo.mult ?? 100)/100).toFixed(2).replace('.',',')}</b></span>
+        <span>multiplicador <b>×${formatMult(yo.mult ?? 100)}</b></span>
         <span>puntos <b>${yo.pts ?? 0}</b></span>
         ${yo.verif ? '<span>verificando</span>' : ''}
         ${yo.fin ? `<span>terminó <b>${yo.fin}º</b></span>` : ''}`;
@@ -557,30 +528,7 @@ function pintar(est, pings) {
 
 // ─── Arranque ─────────────────────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
-if (params.has('test')) {
-    // El detector de desajustes tiene que saltar con un fallo plantado. Uno
-    // que no salta nunca no comprueba nada.
-    cab = { cards: {}, players: [], lobby: 'TEST', started_ms: 0 };
-    const vacios = () => [[null,null,null,null],[null,null,null,null],[null,null,null,null],
-                          [null,null,null,null],[null,null,null,null],[null,null,null,null]];
-    const conAna = (primer) => { const s = vacios(); s[0] = primer; return s; };
-    lineas = [
-        { t: 'header' },
-        { t: 'key', ms: 0, center: [], qtes: [], players: { Ana: {
-            sets: conAna([1,2,3,4]), flip: [false,false,false,false,false,false], mult: 100 } } },
-        { t: 'out', ms: 10, to: 'Ana', m: { type: 'swap_success', set_index: 0,
-            your_new_set: [{id:1},{id:2},{id:3},{id:99}], center_cards: [] } },
-        { t: 'out', ms: 12, to: 'Ana', m: { type: 'swap_failed', kind: 'gone', reason: 'x' } },
-        { t: 'key', ms: 20, center: [], qtes: [], players: { Ana: {
-            sets: conAna([1,2,3,4]), flip: [false,false,false,false,false,false], mult: 100 } } },
-    ];
-    const d = buscarDesajustes(), v = buscarVueltas();
-    const okD = d.length === 1 && d[0].nick === 'Ana' && d[0].dijo === 99 && d[0].tenia === 4;
-    const okV = v.length === 1 && v[0].quien === 'Ana' && v[0].tipo === 'tarde';
-    app.innerHTML = `<p style="color:${okD && okV ? 'var(--ok)' : 'var(--bad)'}">
-        ${okD ? 'OK · desajustes' : 'FALLO · desajustes: ' + JSON.stringify(d)}<br>
-        ${okV ? 'OK · vueltas atrás' : 'FALLO · vueltas: ' + JSON.stringify(v)}</p>`;
-} else if (params.has('f')) {
+if (params.has('f')) {
     cargar(params.get('f'));
 } else {
     pintarLista();

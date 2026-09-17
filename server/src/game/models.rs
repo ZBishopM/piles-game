@@ -104,7 +104,7 @@ pub fn get_clothing_name(clothing_type: u8) -> &'static str {
 }
 
 /// Estado de un jugador individual
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PlayerState {
     pub id: Uuid,
     pub nickname: String,
@@ -117,9 +117,6 @@ pub struct PlayerState {
     pub flipped_sets: [bool; 6],
     /// Si está en proceso de verificación
     pub is_verifying: bool,
-    /// Momento en que terminó
-    #[serde(skip)]
-    pub finished_at: Option<Instant>,
     /// Posición final (1, 2, o 3)
     pub finished_position: Option<u8>,
     /// Hueco que quedó libre al soltar una carta, `(set, carta)`. Mientras
@@ -130,7 +127,6 @@ pub struct PlayerState {
     /// asigna una del centro al azar: si no, con varios jugadores soltando y
     /// sin prisa por coger, el centro se queda permanentemente con 7 u 8
     /// cartas y nadie puede leer la mesa.
-    #[serde(skip)]
     pub owed_since: Option<Instant>,
     /// Jugadas encadenadas ahora mismo. El servidor es el único que lo
     /// calcula: si el cliente llevara la cuenta, el multiplicador sería un
@@ -139,20 +135,21 @@ pub struct PlayerState {
     /// Multiplicador actual en centésimas. Arranca en 100 (x1).
     pub combo_mult_x100: u32,
     /// Cuándo se corta la racha si no haces nada.
-    #[serde(skip)]
     pub combo_expires_at: Option<Instant>,
     /// La racha más larga de la partida, para el resumen final.
     pub best_combo: u32,
+    /// El multiplicador más alto que llegó a tener, en centésimas. No se puede
+    /// deducir de `best_combo`: la racha cuenta jugadas y el multiplicador suma
+    /// ganancias distintas por jugada.
+    pub best_mult_x100: u32,
     /// Puntos acumulados por combo. Se suman a los del puesto final.
     pub combo_points: u32,
     /// Prenda que acaba de soltar. Recogerla otra vez no es avanzar.
-    #[serde(skip)]
     pub last_dropped_type: Option<u8>,
     /// Cambios seguidos que no han mejorado ningún set.
     ///
     /// Es el freno contra el farmeo: mover cartas de acá para allá sin acercar
     /// ningún set paga cada vez menos. Avanzar de verdad lo pone a cero.
-    #[serde(skip)]
     pub idle_swaps: u32,
     /// Tiene un frenesí cargado, listo para soltarlo o para parar el de otro.
     pub frenzy_ready: bool,
@@ -165,7 +162,6 @@ pub struct PlayerState {
     /// la racha por algo que no depende de ti — y encima justo cuando estás
     /// haciendo lo que el juego quiere que hagas. Mientras esto tenga valor la
     /// racha está congelada y no vence.
-    #[serde(skip)]
     pub combo_frozen: Option<Duration>,
 }
 
@@ -178,11 +174,11 @@ impl PlayerState {
             current_set_index: 0,
             flipped_sets: [false; 6],
             is_verifying: false,
-            finished_at: None,
             finished_position: None,
             owed_slot: None,
             owed_since: None,
             combo: 0,
+            best_mult_x100: COMBO_BASE_X100,
             combo_mult_x100: COMBO_BASE_X100,
             combo_expires_at: None,
             best_combo: 0,
@@ -316,6 +312,9 @@ impl PlayerState {
         }
         let tope = self.frenzy_cost_x100();
         self.combo_mult_x100 = (self.combo_mult_x100 + gain_x100).min(tope);
+        if self.combo_mult_x100 > self.best_mult_x100 {
+            self.best_mult_x100 = self.combo_mult_x100;
+        }
 
         // La ventana solo se renueva si la jugada valía algo.
         //
@@ -393,7 +392,7 @@ impl PlayerState {
 }
 
 /// Estado del Quick Time Event
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct QteState {
     /// Participantes del QTE (player_id, nickname)
     pub participants: Vec<(Uuid, String)>,
@@ -402,8 +401,6 @@ pub struct QteState {
     pub card_id: u32,
     /// Clicks por jugador
     pub clicks: std::collections::HashMap<Uuid, u32>,
-    /// Duración del QTE en milisegundos (ej: 3000ms)
-    pub duration_ms: u64,
     /// Quién ha cedido la carta, si alguien lo ha hecho.
     ///
     /// En cuanto aparece, la pelea se resuelve sin esperar al reloj y gana el
@@ -415,9 +412,8 @@ pub struct QteState {
 }
 
 /// Estado completo del juego
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct GameState {
-    pub lobby_id: String,
     pub players: Vec<PlayerState>,
     /// El centro empieza con 4 pero crece: al soltar una carta se añade aquí
     /// y cualquiera puede cogerla. Cada deuda pendiente es una carta de más.
@@ -436,9 +432,8 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new(lobby_id: String, players: Vec<PlayerState>, center_cards: Vec<Card>) -> Self {
+    pub fn new(players: Vec<PlayerState>, center_cards: Vec<Card>) -> Self {
         Self {
-            lobby_id,
             players,
             center_cards,
             rankings: Vec::new(),

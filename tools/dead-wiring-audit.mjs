@@ -3,7 +3,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-const P = path.join(path.dirname(fileURLToPath(import.meta.url)), 'lobby.html');
+const P = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html');
 const s = fs.readFileSync(P, 'utf8');
 const js = s.slice(s.indexOf('<script>') + 8, s.lastIndexOf('</script>'));
 const html = s.slice(s.indexOf('<body>'), s.indexOf('<script>'));
