@@ -5,16 +5,21 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Piles! · grabaciones</title>
 <!--
-  Visor de partidas grabadas, para ponerlo al lado de un vídeo del móvil y
-  encontrar el momento exacto en que dejan de coincidir.
+  Ver una partida YA TERMINADA, desde el asiento de cualquiera de los que
+  jugaron, para poder ponerla al lado del vídeo del móvil.
 
-  Es una página aparte y no una pantalla más de lobby.html a propósito: ese
-  fichero son 4200 líneas del juego en vivo, o sea justo lo que estamos
-  intentando depurar. Un fallo aquí no puede permitirse romper una partida.
+  No es un espectador en directo y no pretende serlo: lee ficheros guardados y
+  nada más. Una partida en curso no se mira desde aquí.
 
-  El precio es duplicar el cálculo del sprite (ocho líneas que no cambian desde
-  hace meses). Si cambia la hoja `cards.webp`, hay que tocarlo en los dos
-  sitios: aquí y en `applyCardSprite` de lobby.html.
+  Se parece al juego a propósito. Si el tablero se pintara como una tabla de
+  depuración habría que traducir mentalmente entre lo que se ve aquí y lo que
+  se ve en el vídeo, y esa traducción es justo donde se escapan los fallos.
+
+  Es una página aparte de lobby.html porque ese fichero es el juego en vivo, o
+  sea lo que estamos depurando: un fallo aquí no puede romper una partida. El
+  precio es duplicar el sprite y la inclinación de las cartas (unas quince
+  líneas que no cambian desde hace meses). Si cambia `cards.webp` o
+  `thrownStyle`, hay que tocarlo en los dos sitios.
 -->
 <style>
     :root {
@@ -23,127 +28,157 @@
     }
     * { box-sizing: border-box; }
     body {
-        margin: 0; padding: 12px;
+        margin: 0; padding: 10px;
         background: var(--bg); color: #ddd;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
         font-size: 14px;
     }
-    h1 { font-size: 1.1rem; margin: 0 0 12px; color: var(--accent); }
+    h1 { font-size: 1.05rem; margin: 0 0 10px; color: var(--accent); }
     a { color: var(--accent); }
+    .vacio { color: #666; font-size: 0.8rem; }
 
-    /* ── Lista de grabaciones ── */
     table { border-collapse: collapse; width: 100%; max-width: 900px; }
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
     th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; }
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: var(--panel); }
 
-    /* ── Visor ── */
     .barra {
-        display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-        background: var(--panel); border-radius: 10px; padding: 10px; margin-bottom: 10px;
+        display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+        background: var(--panel); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px;
     }
-    .reloj { font-variant-numeric: tabular-nums; font-size: 1.05rem; }
-    .reloj small { color: #888; font-size: 0.72rem; display: block; }
-    input[type=range] { flex: 1; min-width: 220px; }
+    .reloj { font-variant-numeric: tabular-nums; font-size: 1rem; }
+    .reloj small { color: #888; font-size: 0.68rem; display: block; }
+    input[type=range] { flex: 1; min-width: 200px; }
     button {
         background: var(--line); color: #ddd; border: none;
-        border-radius: 6px; padding: 7px 12px; cursor: pointer;
+        border-radius: 6px; padding: 6px 11px; cursor: pointer; font-size: 0.85rem;
     }
     button:hover { background: #3a3a7a; }
-    input[type=text] {
-        background: #0f1830; border: 1px solid var(--line); color: #ddd;
-        border-radius: 6px; padding: 6px 8px; width: 110px;
-    }
+    button.on { background: var(--accent); color: #101020; }
+
+    /* ── Quién mira ── */
+    .asientos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .asientos .quien { font-size: 0.72rem; color: #888; margin-right: 2px; }
 
     .cols { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
-    .tablero { flex: 1 1 560px; min-width: 300px; }
-    .lateral { flex: 0 1 340px; min-width: 260px; }
+    .tablero { flex: 1 1 520px; min-width: 300px; }
+    .lateral { flex: 0 1 330px; min-width: 250px; }
 
-    .jugador {
-        background: var(--panel); border-radius: 10px;
-        padding: 8px 10px; margin-bottom: 8px;
+    /* ── El tablero, como en el juego ── */
+    .etiqueta {
+        font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
+        color: #888; margin: 10px 0 5px;
     }
-    .jugador h2 {
-        font-size: 0.85rem; margin: 0 0 6px;
-        display: flex; align-items: center; gap: 10px;
+    .fila-cartas {
+        display: grid; gap: 7px;
+        grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
     }
-    .jugador h2 .nick { flex: 1; }
-    .mult { color: var(--accent); font-variant-numeric: tabular-nums; }
-    .ping { font-variant-numeric: tabular-nums; font-size: 0.78rem; color: #888; }
-    .ping.medio { color: var(--warn); }
-    .ping.malo { color: var(--bad); }
+    #misCartas { grid-template-columns: repeat(4, 1fr); max-width: 380px; }
 
-    .sets { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; }
-    .set {
-        border: 1px solid var(--line); border-radius: 6px; padding: 3px;
-        cursor: pointer; background: #0f1830;
-    }
-    /* Un set enseñado se ve encendido; uno oculto, apagado. Así se lee de un
-       vistazo qué veían los demás en ese instante, frente a lo que había. */
-    .set.revelado { border-color: var(--accent); background: #16213e; }
-    .set.diverge { border-color: var(--bad); box-shadow: 0 0 0 2px rgba(220,53,69,0.4); }
-    .set .fila { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; }
-
-    /* Misma hoja que el juego: 16 columnas × 13 filas. */
     .carta {
         aspect-ratio: 10361 / 16000;
-        border-radius: 3px;
+        border-radius: 7px;
         background-color: #fff;
         background-image: url("cards.webp");
         background-repeat: no-repeat;
         background-size: 1600% 1300%;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        position: relative;
     }
-    .carta.hueco { background: #0a1020; box-shadow: inset 0 0 0 1px var(--line); }
-    .centro { display: flex; flex-wrap: wrap; gap: 4px; }
-    .centro .carta { width: 38px; }
+    .carta.hueco { background: #0f1830; box-shadow: inset 0 0 0 1px var(--line); }
+    /* Misma inclinación determinista que en el juego: la misma carta sale
+       torcida igual aquí que en el vídeo que estás comparando. */
+    .carta.tirada { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+    .carta.peleada { outline: 3px solid var(--bad); }
+    .carta.peleada::after {
+        content: "PELEADA"; position: absolute; left: 50%; top: 50%;
+        transform: translate(-50%,-50%) rotate(-8deg);
+        background: var(--bad); color: #fff; font-size: 0.55rem; font-weight: bold;
+        padding: 1px 5px; border-radius: 4px;
+    }
 
-    .eventos {
-        background: var(--panel); border-radius: 10px; padding: 8px;
-        max-height: 60vh; overflow-y: auto; font-family: ui-monospace, monospace;
-        font-size: 0.72rem;
+    /* Botones de set, como los del juego */
+    .sets-nav { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; }
+    .sets-nav button {
+        flex: 1; min-width: 46px; border: 2px solid var(--line);
+        background: var(--panel); font-size: 0.75rem; padding: 7px 4px;
     }
+    .sets-nav button.actual { border-color: var(--accent); color: #fff; }
+    .sets-nav button.enseniado::after { content: " 👁"; }
+    .sets-nav button.roto { border-color: var(--bad); }
+
+    /* Marcador, como el HUD del juego */
+    .hud { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px; }
+    @media (min-width: 760px) { .hud { grid-template-columns: repeat(4, minmax(0,1fr)); } }
+    .franja {
+        display: flex; align-items: center; gap: 6px; min-width: 0;
+        padding: 4px 8px; border-radius: 6px; background: var(--panel);
+        border-left: 3px solid transparent; font-size: 0.72rem; color: #9aa;
+        cursor: pointer;
+    }
+    .franja.yo { border-left-color: var(--accent); color: #eee; }
+    .franja .nom { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .franja .pts { font-weight: bold; font-variant-numeric: tabular-nums; }
+    .punto { width: 9px; height: 13px; border-radius: 2px; background: #0f1830;
+             box-shadow: inset 0 0 0 1px var(--line); }
+    .punto.on { background: var(--accent); }
+    .mult { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .ping { font-variant-numeric: tabular-nums; font-size: 0.72rem; }
+    .ping.medio { color: var(--warn); } .ping.malo { color: var(--bad); }
+
+    .avisos { background: var(--panel); border-radius: 10px; padding: 8px; margin-top: 8px; }
+    .avisos h2 { font-size: 0.78rem; margin: 0 0 6px; }
+    .eventos { background: var(--panel); border-radius: 10px; padding: 8px;
+               max-height: 46vh; overflow-y: auto;
+               font-family: ui-monospace, monospace; font-size: 0.7rem; }
     .ev { padding: 2px 4px; border-radius: 4px; cursor: pointer; white-space: nowrap;
           overflow: hidden; text-overflow: ellipsis; }
     .ev:hover { background: var(--line); }
     .ev.actual { background: var(--accent); color: #101020; }
     .ev.dentro { color: #7fd1a0; }
-    .ev.clave { color: #888; }
-
-    .avisos { background: var(--panel); border-radius: 10px; padding: 8px; margin-top: 8px; }
-    .avisos .aviso { color: var(--bad); font-size: 0.76rem; padding: 2px 0; cursor: pointer; }
-    .vacio { color: #666; font-size: 0.8rem; }
+    .ev.clave { color: #777; }
+    .ev.vuelta { color: var(--warn); }
+    .aviso { font-size: 0.74rem; padding: 2px 0; cursor: pointer; }
+    .aviso.desajuste { color: var(--bad); }
+    .aviso.vuelta { color: var(--warn); }
+    .estado { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: #aaa; }
+    .estado b { color: #eee; }
 </style>
 </head>
 <body>
 
-<h1>📼 Piles! · grabaciones</h1>
+<h1>📼 Piles! · partidas terminadas</h1>
 <div id="app"><p class="vacio">Cargando…</p></div>
 
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const app = $('#app');
 
-// ─── Hoja de sprites ──────────────────────────────────────────────────────
-// Copiado de `applyCardSprite` en lobby.html. Se duplica a propósito: ver el
-// comentario de arriba del fichero.
+// ── Copiado de lobby.html: sprite e inclinación ──
 const SPRITE_COLS = 16, SPRITE_ROWS = 13;
 function pintarCarta(el, tipo, id) {
-    const variante = (id ?? 0) % 4;
-    const col = (tipo % 4) * 4 + variante;
+    const col = (tipo % 4) * 4 + ((id ?? 0) % 4);
     const fila = Math.floor(tipo / 4);
     el.style.backgroundPosition =
         `${(col / (SPRITE_COLS - 1)) * 100}% ${(fila / (SPRITE_ROWS - 1)) * 100}%`;
 }
+function inclinacion(id) {
+    const h = (id * 2654435761) >>> 0;
+    return {
+        rot: ((h % 241) / 240 - 0.5) * 24,
+        dx: (((h >> 8) % 101) / 100 - 0.5) * 10,
+        dy: (((h >> 16) % 101) / 100 - 0.5) * 10,
+    };
+}
 
 const mmss = (ms) => {
     const s = Math.floor(ms / 1000);
-    return `${String(Math.floor(s / 60)).padStart(2,'0')}:${String(s % 60).padStart(2,'0')}` +
-           `.${String(ms % 1000).padStart(3,'0')}`;
+    return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
 };
 const horaDe = (ms) => new Date(ms).toLocaleTimeString('es-ES', { hour12: false });
 
-// ─── Lista ────────────────────────────────────────────────────────────────
+// ─── Lista de partidas ────────────────────────────────────────────────────
 async function pintarLista() {
     let datos;
     try {
@@ -156,205 +191,233 @@ async function pintarLista() {
         app.innerHTML = `<p class="vacio">${e.message || 'No se pudo conectar.'}</p>`;
         return;
     }
-    if (!datos.length) {
-        app.innerHTML = '<p class="vacio">Todavía no hay ninguna partida grabada.</p>';
-        return;
-    }
-    app.innerHTML = `
-        <table>
-          <thead><tr><th>Cuándo</th><th>Sala</th><th>Jugadores</th><th>Duró</th><th>Tamaño</th></tr></thead>
-          <tbody>${datos.map(d => `
-            <tr data-f="${d.file}">
-              <td>${new Date(d.started_ms).toLocaleString('es-ES')}</td>
-              <td>${d.lobby ?? '—'}</td>
-              <td>${(d.players || []).map(p => p.nick).join(', ')}</td>
-              <td>${mmss(d.dur_ms || 0)}</td>
-              <td>${Math.round((d.bytes || 0) / 1024)} KB</td>
-            </tr>`).join('')}
-          </tbody>
-        </table>`;
+    if (!datos.length) { app.innerHTML = '<p class="vacio">Todavía no hay partidas grabadas.</p>'; return; }
+    app.innerHTML = `<table>
+        <thead><tr><th>Cuándo</th><th>Sala</th><th>Jugadores</th><th>Duró</th><th>Tamaño</th></tr></thead>
+        <tbody>${datos.map(d => `<tr data-f="${d.file}">
+            <td>${new Date(d.started_ms).toLocaleString('es-ES')}</td>
+            <td>${d.lobby ?? '—'}</td>
+            <td>${(d.players||[]).map(p=>p.nick).join(', ')}</td>
+            <td>${mmss(d.dur_ms||0)}</td><td>${Math.round((d.bytes||0)/1024)} KB</td>
+          </tr>`).join('')}</tbody></table>`;
     app.querySelectorAll('tbody tr').forEach(tr => {
         tr.onclick = () => { location.search = `?f=${encodeURIComponent(tr.dataset.f)}`; };
     });
 }
 
-// ─── Visor ────────────────────────────────────────────────────────────────
+// ─── Estado del visor ─────────────────────────────────────────────────────
 let lineas = [], cab = null, idx = 0, reproduciendo = null, videoT0 = null;
+let asiento = null;        // desde qué silla se mira
+let verVerdad = false;     // enseñar también lo que ese jugador NO veía
+let vueltas = [], desajustes = [];
 
 async function cargar(fichero) {
     const r = await fetch(`/api/recordings/${encodeURIComponent(fichero)}`);
     if (!r.ok) { app.innerHTML = '<p class="vacio">No se encontró esa grabación.</p>'; return; }
     const texto = await r.text();
-
-    // Se parsea línea a línea y se tira la que esté a medias. Una grabación
-    // cortada de golpe —que es el caso que más interesa— siempre acaba así.
     lineas = [];
     for (const l of texto.split('\n')) {
         if (!l.trim()) continue;
+        // Una grabación cortada de golpe deja la última línea a medias: se
+        // tira esa y se sigue, que es para lo que se guarda en JSONL.
         try { lineas.push(JSON.parse(l)); } catch { /* cola truncada */ }
     }
     cab = lineas.find(l => l.t === 'header');
     if (!cab) { app.innerHTML = '<p class="vacio">La grabación no tiene cabecera.</p>'; return; }
+    asiento = (cab.players || []).find(p => !p.bot)?.nick
+           ?? (cab.players || [])[0]?.nick ?? null;
 
-    montarVisor();
-    // Se empieza en el primer fotograma, no en la línea 0: antes de él no hay
-    // estado que pintar y el visor salía en blanco.
+    vueltas = buscarVueltas();
+    desajustes = buscarDesajustes();
+    montar();
     const primerKey = lineas.findIndex(l => l.t === 'key');
     ir(primerKey === -1 ? 0 : primerKey);
 }
 
-/** El estado en el evento `i`: último fotograma clave y desde ahí hacia
- *  delante. Es para lo que existen los fotogramas. */
+/** Jugadas que se deshicieron.
+ *
+ *  Es lo que en el juego se ve como una carta que ibas a coger y se esfuma: el
+ *  cliente pinta el movimiento por adelantado y el servidor lo rechaza. Aquí
+ *  sale marcado, porque desde el vídeo del móvil se ve como un parpadeo raro y
+ *  sin esto no hay forma de saber si fue eso o un fallo de pintado. */
+function buscarVueltas() {
+    const out = [];
+    for (let i = 0; i < lineas.length; i++) {
+        const l = lineas[i];
+        if (l.t !== 'out' || !l.m) continue;
+        if (l.m.type === 'swap_failed') {
+            // Qué pidió justo antes, para poder contarlo.
+            let pidio = null;
+            for (let k = i - 1; k >= 0 && i - k < 40; k--) {
+                const p = lineas[k];
+                if (p.t === 'in' && p.from === l.to &&
+                    (p.m?.type === 'take_card' || p.m?.type === 'drop_card')) { pidio = p; break; }
+            }
+            out.push({ i, ms: l.ms, quien: l.to, tipo: l.m.kind === 'gone' ? 'tarde' : 'regla',
+                       motivo: l.m.reason, pidio: pidio?.m?.type });
+        }
+        if (l.m.type === 'debt_forced') {
+            out.push({ i, ms: l.ms, quien: l.to, tipo: 'forzada',
+                       motivo: 'se acabó el plazo y el servidor le asignó una carta' });
+        }
+    }
+    return out;
+}
+
+/** Lo que el servidor DIJO frente a lo que el servidor TENÍA.
+ *
+ *  Solo se recomponen los mensajes que llevan cartas. Nada de simular reglas:
+ *  eso sería escribir otra versión del juego, y sus fallos parecerían fallos
+ *  de verdad. */
+function buscarDesajustes() {
+    const out = [];
+    for (let i = 0; i < lineas.length; i++) {
+        if (lineas[i].t !== 'key') continue;
+        const previo = estadoEn(i - 1);
+        if (!previo) continue;
+        for (const [nick, p] of Object.entries(lineas[i].players || {})) {
+            const mio = previo.players[nick];
+            if (!mio) continue;
+            for (let s = 0; s < 6; s++) for (let h = 0; h < 4; h++) {
+                const a = mio.sets[s]?.[h] ?? null, b = p.sets[s]?.[h] ?? null;
+                if (a !== b) out.push({ i, ms: lineas[i].ms, nick, set: s, hueco: h,
+                                        dijo: a, tenia: b });
+            }
+        }
+    }
+    return out;
+}
+
 function estadoEn(i) {
     let base = null, baseIdx = 0;
-    for (let k = i; k >= 0; k--) {
-        if (lineas[k].t === 'key') { base = lineas[k]; baseIdx = k; break; }
-    }
+    for (let k = i; k >= 0; k--) if (lineas[k].t === 'key') { base = lineas[k]; baseIdx = k; break; }
     if (!base) return null;
-
-    // Copia, que luego se toca.
     const est = {
         center: base.center.slice(),
-        players: Object.fromEntries(Object.entries(base.players).map(([n, p]) => [n, {
-            ...p, sets: p.sets.map(s => s.slice()),
-        }])),
+        players: Object.fromEntries(Object.entries(base.players).map(([n, p]) =>
+            [n, { ...p, sets: p.sets.map(s => s.slice()) }])),
         qtes: base.qtes || [],
     };
-
-    // Desde el fotograma hasta `i` solo se aplican los mensajes que TRAEN
-    // cartas. Nada de reglas, ni de combos, ni de deudas: reimplementar el
-    // juego aquí sería escribir una segunda versión con sus propios fallos, y
-    // sus fallos parecerían fallos del juego.
     for (let k = baseIdx + 1; k <= i; k++) {
         const l = lineas[k];
         if (l.t !== 'out' || !l.m) continue;
         const m = l.m, quien = l.to;
-        if (m.type === 'game_update' || m.type === 'sets_resynced') {
-            if (m.center_cards) est.center = m.center_cards.map(c => c.id);
-        }
+        if ((m.type === 'game_update' || m.type === 'sets_resynced') && m.center_cards)
+            est.center = m.center_cards.map(c => c.id);
+        if (m.type === 'swap_conflict') est.qtes = [{ card: m.card_id, players: m.players }];
+        if (m.type === 'qte_resolved') est.qtes = est.qtes.filter(q => q.card !== m.card_id);
         if (!quien || !est.players[quien]) continue;
         const p = est.players[quien];
         if (m.type === 'set_switched' && m.cards) {
-            p.sets[m.set_index] = m.cards.map(c => c ? c.id : null);
-            p.cur = m.set_index;
+            p.sets[m.set_index] = m.cards.map(c => c ? c.id : null); p.cur = m.set_index;
         }
         if (m.type === 'swap_success' && m.your_new_set) {
             p.sets[m.set_index] = m.your_new_set.map(c => c ? c.id : null);
             if (m.center_cards) est.center = m.center_cards.map(c => c.id);
         }
-        if (m.type === 'sets_resynced' && m.your_sets) {
+        if (m.type === 'sets_resynced' && m.your_sets)
             p.sets = m.your_sets.map(s => s.map(c => c ? c.id : null));
-        }
     }
     return est;
 }
 
-/** Lo que el servidor le dijo a cada uno, frente a lo que el servidor tenía.
- *
- *  Esto NO comprueba si la simulación es correcta —no hay simulación—, sino si
- *  lo que salió por el cable difiere del estado real. Que es exactamente la
- *  clase de fallo que se busca. */
-function divergencias() {
-    const fuera = [];
-    for (let i = 0; i < lineas.length; i++) {
-        if (lineas[i].t !== 'key') continue;
-        const previo = estadoEn(i - 1);
-        if (!previo) continue;
-        const real = lineas[i];
-        for (const [nick, p] of Object.entries(real.players)) {
-            const mio = previo.players[nick];
-            if (!mio) continue;
-            for (let s = 0; s < 6; s++) {
-                for (let h = 0; h < 4; h++) {
-                    const a = mio.sets[s]?.[h] ?? null, b = p.sets[s]?.[h] ?? null;
-                    if (a !== b) {
-                        fuera.push({ i, nick, set: s, hueco: h, cliente: a, servidor: b,
-                                     ms: real.ms });
-                    }
-                }
-            }
-        }
-    }
-    return fuera;
-}
-
 function pingsEn(i) {
     const out = {};
-    for (let k = 0; k <= i; k++) {
-        const l = lineas[k];
-        if (l.t === 'ping') out[l.player] = l.rtt;
-    }
+    for (let k = 0; k <= i; k++) if (lineas[k].t === 'ping') out[lineas[k].player] = lineas[k].rtt;
     return out;
 }
 
-function montarVisor() {
-    const jugadores = (cab.players || []).map(p => p.nick);
+// ─── Montaje ──────────────────────────────────────────────────────────────
+function montar() {
+    const nicks = (cab.players || []).map(p => p.nick);
     app.innerHTML = `
       <div class="barra">
         <a href="?">← lista</a>
         <strong>${cab.lobby}</strong>
         <span class="vacio">${new Date(cab.started_ms).toLocaleString('es-ES')}</span>
         <button id="play">▶</button>
-        <input type="range" id="scrub" min="0" max="${lineas.length - 1}" value="0">
+        <input type="range" id="scrub" min="0" max="${lineas.length-1}" value="0">
         <div class="reloj"><span id="tRel">00:00.000</span><small>desde el inicio</small></div>
-        <div class="reloj"><span id="tAbs">—</span><small>reloj (para el vídeo)</small></div>
+        <div class="reloj"><span id="tAbs">—</span><small>reloj · para el vídeo</small></div>
         <div class="reloj"><span id="tVid">—</span><small>vídeo</small></div>
-        <button id="marcar" title="Marca este momento como el 0:00 del vídeo">⇥ aquí es 0:00 del vídeo</button>
+        <button id="marcar" title="Marca este instante como el 0:00 del vídeo del móvil">⇥ 0:00 del vídeo</button>
         <button id="prev">◀</button><button id="next">▶</button>
         <span class="vacio" id="cuenta"></span>
       </div>
+      <div class="barra asientos">
+        <span class="quien">mirando desde:</span>
+        ${nicks.map(n => `<button class="silla" data-n="${n}">${n}</button>`).join('')}
+        <button id="verdad" title="Enseña también lo que este jugador NO podía ver">👁 ver la verdad</button>
+      </div>
       <div class="cols">
         <div class="tablero">
-          <div class="jugador"><h2>centro</h2><div class="centro" id="centro"></div></div>
-          <div id="jugadores"></div>
+          <div class="hud" id="hud"></div>
+          <p class="etiqueta">Cartas del centro</p>
+          <div class="fila-cartas" id="centro"></div>
+          <p class="etiqueta" id="etiSets">Sus sets</p>
+          <div class="sets-nav" id="setsNav"></div>
+          <div class="fila-cartas" id="misCartas"></div>
+          <div class="estado" id="estadoJug"></div>
         </div>
         <div class="lateral">
           <div class="eventos" id="eventos"></div>
-          <div class="avisos" id="detalle"><p class="vacio">Toca un set para verlo.</p></div>
-          <div class="avisos"><h2 style="font-size:.8rem;margin:0 0 6px">desajustes</h2>
-            <div id="listaAvisos"><p class="vacio">—</p></div></div>
+          <div class="avisos"><h2>vueltas atrás <span class="vacio" id="nVueltas"></span></h2>
+            <div id="listaVueltas"></div></div>
+          <div class="avisos"><h2>desajustes</h2><div id="listaDesajustes"></div></div>
         </div>
       </div>`;
 
-    $('#scrub').oninput = (e) => ir(+e.target.value);
+    $('#scrub').oninput = e => ir(+e.target.value);
     $('#prev').onclick = () => ir(idx - 1);
     $('#next').onclick = () => ir(idx + 1);
-    $('#marcar').onclick = () => { videoT0 = lineas[idx].ms ?? 0; ir(idx); };
     $('#play').onclick = alternarPlay;
-    document.addEventListener('keydown', (e) => {
+    $('#marcar').onclick = () => { videoT0 = lineas[idx].ms ?? 0; ir(idx); };
+    $('#verdad').onclick = () => {
+        verVerdad = !verVerdad;
+        $('#verdad').classList.toggle('on', verVerdad);
+        ir(idx);
+    };
+    app.querySelectorAll('.silla').forEach(b => {
+        b.onclick = () => { asiento = b.dataset.n; ir(idx); };
+    });
+    document.addEventListener('keydown', e => {
         if (e.target.tagName === 'INPUT') return;
         if (e.key === 'ArrowRight') { e.preventDefault(); ir(idx + 1); }
         if (e.key === 'ArrowLeft') { e.preventDefault(); ir(idx - 1); }
-        if (e.key === 'j') ir(idx - 10);
         if (e.key === 'k') ir(idx + 10);
+        if (e.key === 'j') ir(idx - 10);
         if (e.key === ' ') { e.preventDefault(); alternarPlay(); }
     });
 
-    // La lista de eventos se pinta una vez; después solo cambia el resaltado.
+    const vueltaEn = new Set(vueltas.map(v => v.i));
     $('#eventos').innerHTML = lineas.map((l, i) => {
         const et = l.t === 'in' ? `→ ${l.m?.type || '?'} (${l.from})`
-                 : l.t === 'key' ? '· fotograma'
+                 : l.t === 'key' ? '· estado'
                  : l.t === 'ping' ? `· ping ${l.player} ${l.rtt}ms`
                  : l.t === 'header' ? '· cabecera'
                  : l.t === 'end' ? `· fin (${l.reason})`
                  : `${l.m?.type || '?'}${l.to ? ' → ' + l.to : ''}`;
-        const clase = l.t === 'in' ? 'dentro' : (l.t === 'key' || l.t === 'ping') ? 'clave' : '';
-        return `<div class="ev ${clase}" data-i="${i}">${String(i).padStart(4)} ${mmss(l.ms || 0)} ${et}</div>`;
+        const cls = vueltaEn.has(i) ? 'vuelta'
+                  : l.t === 'in' ? 'dentro'
+                  : (l.t === 'key' || l.t === 'ping') ? 'clave' : '';
+        return `<div class="ev ${cls}" data-i="${i}">${String(i).padStart(4)} ${mmss(l.ms||0)} ${et}</div>`;
     }).join('');
-    $('#eventos').querySelectorAll('.ev').forEach(e => {
-        e.onclick = () => ir(+e.dataset.i);
-    });
+    $('#eventos').querySelectorAll('.ev').forEach(e => e.onclick = () => ir(+e.dataset.i));
 
-    const div = divergencias();
-    $('#listaAvisos').innerHTML = div.length
-        ? div.slice(0, 40).map(d => `<div class="aviso" data-i="${d.i}">
-             ${mmss(d.ms)} · ${d.nick} set ${d.set + 1} hueco ${d.hueco + 1}:
-             cliente ${d.cliente ?? '—'}, servidor ${d.servidor ?? '—'}</div>`).join('')
-        : '<p class="vacio">Ninguno. Lo que el servidor mandó y lo que tenía coinciden.</p>';
-    $('#listaAvisos').querySelectorAll('.aviso').forEach(a => {
-        a.onclick = () => ir(+a.dataset.i);
-    });
-    window.__divergencias = div;   // para el modo ?test
+    $('#nVueltas').textContent = `(${vueltas.length})`;
+    $('#listaVueltas').innerHTML = vueltas.length
+        ? vueltas.slice(0, 40).map(v => `<div class="aviso vuelta" data-i="${v.i}">
+            ${mmss(v.ms)} · ${v.quien}: ${v.tipo === 'tarde' ? 'llegó tarde a la carta'
+              : v.tipo === 'forzada' ? 'carta asignada por el plazo' : v.motivo}
+            ${v.pidio ? `<span class="vacio">(pidió ${v.pidio})</span>` : ''}</div>`).join('')
+        : '<p class="vacio">Ninguna.</p>';
+    $('#listaDesajustes').innerHTML = desajustes.length
+        ? desajustes.slice(0, 40).map(d => `<div class="aviso desajuste" data-i="${d.i}">
+            ${mmss(d.ms)} · ${d.nick} set ${d.set+1} hueco ${d.hueco+1}:
+            le dijo ${d.dijo ?? '—'}, tenía ${d.tenia ?? '—'}</div>`).join('')
+        : '<p class="vacio">Ninguno. Lo que mandó y lo que tenía coinciden.</p>';
+    app.querySelectorAll('.aviso').forEach(a => a.onclick = () => ir(+a.dataset.i));
+    window.__vueltas = vueltas; window.__desajustes = desajustes;
 }
 
 function alternarPlay() {
@@ -362,9 +425,9 @@ function alternarPlay() {
     $('#play').textContent = '⏸';
     const paso = () => {
         if (idx >= lineas.length - 1) { alternarPlay(); return; }
-        const ahora = lineas[idx].ms ?? 0, siguiente = lineas[idx + 1].ms ?? ahora;
+        const a = lineas[idx].ms ?? 0, b = lineas[idx+1].ms ?? a;
         ir(idx + 1);
-        reproduciendo = setTimeout(paso, Math.min(1500, Math.max(16, siguiente - ahora)));
+        reproduciendo = setTimeout(paso, Math.min(1500, Math.max(16, b - a)));
     };
     reproduciendo = setTimeout(paso, 16);
 }
@@ -373,129 +436,150 @@ function ir(n) {
     idx = Math.max(0, Math.min(lineas.length - 1, n));
     const l = lineas[idx];
     $('#scrub').value = idx;
-    $('#cuenta').textContent = `evento ${idx + 1}/${lineas.length}`;
+    $('#cuenta').textContent = `evento ${idx+1}/${lineas.length}`;
     $('#tRel').textContent = mmss(l.ms || 0);
     $('#tAbs').textContent = l.w ? horaDe(l.w) : '—';
-    $('#tVid').textContent = videoT0 === null ? '—' : mmss(Math.max(0, (l.ms || 0) - videoT0));
+    $('#tVid').textContent = videoT0 === null ? '—' : mmss(Math.max(0, (l.ms||0) - videoT0));
 
-    const act = $('#eventos .ev.actual');
-    if (act) act.classList.remove('actual');
+    $('#eventos .ev.actual')?.classList.remove('actual');
     const nuevo = $(`#eventos .ev[data-i="${idx}"]`);
     if (nuevo) { nuevo.classList.add('actual'); nuevo.scrollIntoView({ block: 'nearest' }); }
+    app.querySelectorAll('.silla').forEach(b => b.classList.toggle('on', b.dataset.n === asiento));
 
-    pintarEstado(estadoEn(idx), pingsEn(idx));
+    pintar(estadoEn(idx), pingsEn(idx));
 }
 
-/** El detalle de un set, abajo del todo del panel lateral. */
-function mostrarSet(nick, i, ids, revelado) {
-    const caja = $('#detalle');
-    if (!caja) return;
-    caja.innerHTML = `<h2 style="font-size:.8rem;margin:0 0 6px">
-        ${nick} · set ${i + 1}${revelado ? ' (enseñado)' : ''}</h2>`;
-    const fila = document.createElement('div');
-    fila.style.cssText = 'display:grid;grid-template-columns:repeat(4,1fr);gap:4px';
-    ids.forEach(id => {
-        const d = document.createElement('div');
-        if (id === null || id === undefined) {
-            d.className = 'carta hueco';
-        } else {
-            d.className = 'carta';
-            const info = cab.cards?.[String(id)];
-            if (info) pintarCarta(d, info.c, id);
-        }
-        fila.appendChild(d);
-    });
-    caja.appendChild(fila);
-    const nombres = document.createElement('p');
-    nombres.className = 'vacio';
-    nombres.style.marginBottom = '0';
-    nombres.textContent = ids.map(id => id === null ? '(hueco)'
-        : `${cab.cards?.[String(id)]?.n ?? '?'} #${id}`).join(' · ');
-    caja.appendChild(nombres);
+function carta(id, opts = {}) {
+    const d = document.createElement('div');
+    if (id === null || id === undefined) { d.className = 'carta hueco'; return d; }
+    d.className = 'carta' + (opts.tirada ? ' tirada' : '') + (opts.peleada ? ' peleada' : '');
+    const info = cab.cards?.[String(id)];
+    if (info) { pintarCarta(d, info.c, id); d.title = `${info.n} · #${id}`; }
+    if (opts.tirada) {
+        const t = inclinacion(id);
+        d.style.setProperty('--rot', `${t.rot}deg`);
+        d.style.setProperty('--dx', `${t.dx}%`);
+        d.style.setProperty('--dy', `${t.dy}%`);
+    }
+    return d;
 }
 
-function pintarEstado(est, pings) {
+function pintar(est, pings) {
     if (!est) {
-        // Antes del primer fotograma no hay estado. Decirlo, en vez de dejar
-        // el tablero en blanco como si la grabación estuviera rota.
         $('#centro').innerHTML = '';
-        $('#jugadores').innerHTML =
-            '<p class="vacio">Aún no hay estado: el primer fotograma llega más adelante.</p>';
+        $('#misCartas').innerHTML = '';
+        $('#hud').innerHTML = '<p class="vacio">Todavía no hay estado: el primero llega más adelante.</p>';
         return;
     }
-    const carta = (id) => {
-        const d = document.createElement('div');
-        d.className = 'carta';
-        if (id === null || id === undefined) { d.className += ' hueco'; return d; }
-        const info = cab.cards?.[String(id)];
-        if (info) { pintarCarta(d, info.c, id); d.title = `${info.n} (#${id})`; }
-        return d;
-    };
+    const peleadas = new Set((est.qtes || []).map(q => q.card));
 
+    // ── Centro, tal y como se ve en la mesa ──
     const centro = $('#centro');
     centro.innerHTML = '';
-    est.center.forEach(id => centro.appendChild(carta(id)));
+    est.center.forEach(id => centro.appendChild(carta(id, { tirada: true, peleada: peleadas.has(id) })));
 
-    const cont = $('#jugadores');
-    cont.innerHTML = '';
+    // ── Marcador ──
+    const hud = $('#hud');
+    hud.innerHTML = '';
     for (const [nick, p] of Object.entries(est.players)) {
         const rtt = pings[nick];
-        const clase = rtt === undefined ? '' : rtt > 300 ? 'malo' : rtt > 150 ? 'medio' : '';
-        const caja = document.createElement('div');
-        caja.className = 'jugador';
-        caja.innerHTML = `<h2><span class="nick">${nick}</span>
-            <span class="mult">×${((p.mult ?? 100) / 100).toFixed(2).replace('.', ',')}</span>
-            ${p.frenzy ? '🌈' : ''}
-            ${p.fin ? `<span>🏁 ${p.fin}º</span>` : ''}
-            <span class="ping ${clase}">${rtt === undefined ? '—' : rtt + ' ms'}</span></h2>`;
-        const sets = document.createElement('div');
-        sets.className = 'sets';
-        p.sets.forEach((s, i) => {
-            const d = document.createElement('div');
-            // Un set que el jugador había enseñado se marca. Las cartas se ven
-            // TODAS igualmente: esto es para depurar, taparlas sería absurdo.
-            d.className = 'set' + (p.flip?.[i] ? ' revelado' : '');
-            d.title = `${nick} · set ${i + 1}` + (p.flip?.[i] ? ' (enseñado)' : '');
-            const fila = document.createElement('div');
-            fila.className = 'fila';
-            s.forEach(id => fila.appendChild(carta(id)));
-            d.appendChild(fila);
-            // Panel, no `alert`: un diálogo del navegador bloquea la página
-            // entera hasta que alguien lo cierra, y aquí lo normal es ir
-            // abriendo sets uno detrás de otro mientras se compara con el
-            // vídeo.
-            d.onclick = () => mostrarSet(nick, i, s, !!p.flip?.[i]);
-            sets.appendChild(d);
-        });
-        caja.appendChild(sets);
-        cont.appendChild(caja);
+        const f = document.createElement('div');
+        f.className = 'franja' + (nick === asiento ? ' yo' : '');
+        f.title = `Mirar la partida desde ${nick}`;
+        f.onclick = () => { asiento = nick; ir(idx); };
+        const puntos = (p.flip || []).map(v => `<i class="punto${v ? ' on' : ''}"></i>`).join('');
+        f.innerHTML = `<span class="nom">${nick}</span>
+            <span style="display:flex;gap:2px">${puntos}</span>
+            <span class="mult">×${((p.mult ?? 100)/100).toFixed(2).replace('.',',')}</span>
+            ${p.frenzy ? '🌈' : ''}${p.fin ? ` 🏁${p.fin}º` : ''}
+            <span class="ping ${rtt === undefined ? '' : rtt > 300 ? 'malo' : rtt > 150 ? 'medio' : ''}">
+              ${rtt === undefined ? '—' : rtt + 'ms'}</span>`;
+        hud.appendChild(f);
+    }
+
+    // ── La mano de quien mira ──
+    const yo = est.players[asiento];
+    const nav = $('#setsNav'), mias = $('#misCartas');
+    nav.innerHTML = ''; mias.innerHTML = '';
+    if (!yo) { $('#etiSets').textContent = 'Sus sets'; return; }
+    $('#etiSets').textContent = `Sets de ${asiento}`;
+
+    const rotos = new Set(desajustes.filter(d => d.nick === asiento &&
+        Math.abs(d.i - idx) < 3).map(d => d.set));
+    const actual = yo.__ver ?? yo.cur ?? 0;
+    for (let i = 0; i < 6; i++) {
+        const b = document.createElement('button');
+        b.className = (i === actual ? 'actual ' : '') +
+                      (yo.flip?.[i] ? 'enseniado ' : '') +
+                      (rotos.has(i) ? 'roto' : '');
+        b.textContent = `Set ${i+1}`;
+        b.onclick = () => { yo.__ver = i; pintar(est, pings); };
+        nav.appendChild(b);
+    }
+    (yo.sets[actual] || []).forEach(id => mias.appendChild(carta(id)));
+
+    // ── Lo que no se ve desde esa silla ──
+    // Sin esto el tablero sería el del juego y ya; con esto se puede comparar
+    // lo que ese jugador veía con lo que había de verdad, que es la diferencia
+    // que delata un fallo.
+    const estado = $('#estadoJug');
+    const deuda = yo.owed ? `debe una carta (set ${yo.owed[0]+1}, hueco ${yo.owed[1]+1})` : 'sin deuda';
+    estado.innerHTML = `<span><b>${asiento}</b></span>
+        <span>${deuda}</span>
+        <span>multiplicador <b>×${((yo.mult ?? 100)/100).toFixed(2).replace('.',',')}</b></span>
+        <span>puntos <b>${yo.pts ?? 0}</b></span>
+        ${yo.verif ? '<span>verificando</span>' : ''}
+        ${yo.fin ? `<span>terminó <b>${yo.fin}º</b></span>` : ''}`;
+
+    if (verVerdad) {
+        const otros = document.createElement('div');
+        otros.style.cssText = 'margin-top:10px';
+        otros.innerHTML = '<p class="etiqueta">Lo que no veía: manos del resto</p>';
+        for (const [nick, p] of Object.entries(est.players)) {
+            if (nick === asiento) continue;
+            const t = document.createElement('p');
+            t.className = 'vacio'; t.style.margin = '6px 0 3px';
+            t.textContent = nick;
+            otros.appendChild(t);
+            const rej = document.createElement('div');
+            rej.className = 'fila-cartas';
+            rej.style.gridTemplateColumns = 'repeat(auto-fill, minmax(34px, 1fr))';
+            p.sets.forEach((s, si) => s.forEach(id => {
+                const c = carta(id);
+                if (!p.flip?.[si]) c.style.opacity = '0.55';   // estaba boca abajo
+                rej.appendChild(c);
+            }));
+            otros.appendChild(rej);
+        }
+        estado.after(otros);
     }
 }
 
 // ─── Arranque ─────────────────────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
 if (params.has('test')) {
-    // Comprobación mínima del detector: un registro de mentira donde el
-    // fotograma NO cuadra con lo que se mandó. Si esto no salta, el detector
-    // no vale para nada y más vale saberlo.
+    // El detector de desajustes tiene que saltar con un fallo plantado. Uno
+    // que no salta nunca no comprueba nada.
     cab = { cards: {}, players: [], lobby: 'TEST', started_ms: 0 };
+    const vacios = () => [[null,null,null,null],[null,null,null,null],[null,null,null,null],
+                          [null,null,null,null],[null,null,null,null],[null,null,null,null]];
+    const conAna = (primer) => { const s = vacios(); s[0] = primer; return s; };
     lineas = [
-        cab && { t: 'header' },
-        { t: 'key', ms: 0, center: [], players: { Ana: { sets: [[1,2,3,4],[null,null,null,null],
-            [null,null,null,null],[null,null,null,null],[null,null,null,null],[null,null,null,null]],
-            flip: [false,false,false,false,false,false], mult: 100 } }, qtes: [] },
+        { t: 'header' },
+        { t: 'key', ms: 0, center: [], qtes: [], players: { Ana: {
+            sets: conAna([1,2,3,4]), flip: [false,false,false,false,false,false], mult: 100 } } },
         { t: 'out', ms: 10, to: 'Ana', m: { type: 'swap_success', set_index: 0,
             your_new_set: [{id:1},{id:2},{id:3},{id:99}], center_cards: [] } },
-        // El servidor dice que el hueco 4 es 4, pero a Ana le dijo que era 99.
-        { t: 'key', ms: 20, center: [], players: { Ana: { sets: [[1,2,3,4],[null,null,null,null],
-            [null,null,null,null],[null,null,null,null],[null,null,null,null],[null,null,null,null]],
-            flip: [false,false,false,false,false,false], mult: 100 } }, qtes: [] },
+        { t: 'out', ms: 12, to: 'Ana', m: { type: 'swap_failed', kind: 'gone', reason: 'x' } },
+        { t: 'key', ms: 20, center: [], qtes: [], players: { Ana: {
+            sets: conAna([1,2,3,4]), flip: [false,false,false,false,false,false], mult: 100 } } },
     ];
-    const d = divergencias();
-    const ok = d.length === 1 && d[0].nick === 'Ana' && d[0].cliente === 99 && d[0].servidor === 4;
-    app.innerHTML = `<p style="color:${ok ? 'var(--ok)' : 'var(--bad)'}">
-        ${ok ? 'OK · el detector de desajustes salta cuando debe'
-             : 'FALLO · el detector no encontró el desajuste plantado: ' + JSON.stringify(d)}</p>`;
+    const d = buscarDesajustes(), v = buscarVueltas();
+    const okD = d.length === 1 && d[0].nick === 'Ana' && d[0].dijo === 99 && d[0].tenia === 4;
+    const okV = v.length === 1 && v[0].quien === 'Ana' && v[0].tipo === 'tarde';
+    app.innerHTML = `<p style="color:${okD && okV ? 'var(--ok)' : 'var(--bad)'}">
+        ${okD ? 'OK · desajustes' : 'FALLO · desajustes: ' + JSON.stringify(d)}<br>
+        ${okV ? 'OK · vueltas atrás' : 'FALLO · vueltas: ' + JSON.stringify(v)}</p>`;
 } else if (params.has('f')) {
     cargar(params.get('f'));
 } else {
