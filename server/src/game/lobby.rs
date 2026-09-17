@@ -413,6 +413,21 @@ impl LobbyManager {
         lobbies.insert(lobby.id.clone(), lobby);
     }
 
+    /// Modifica un lobby **dentro** del candado.
+    ///
+    /// `get_lobby` + `update_lobby` es sacar una copia y volcarla entera, así
+    /// que dos mensajes a la vez se pisan: el segundo en volcar borra lo que
+    /// escribió el primero. Da igual casi siempre porque los mensajes van
+    /// espaciados — menos durante una pelea, donde el rival manda un
+    /// `qte_click` cada pocas decenas de milisegundos. Ceder la carta se perdía
+    /// ahí: escribías `conceded_by` y el siguiente click del otro lo borraba.
+    ///
+    /// Úsalo para cualquier cambio pequeño que compita con otro.
+    pub async fn mutate<T>(&self, lobby_id: &str, f: impl FnOnce(&mut Lobby) -> T) -> Option<T> {
+        let mut lobbies = self.lobbies.write().await;
+        lobbies.get_mut(lobby_id).map(f)
+    }
+
     /// Agrega un jugador a un lobby
     /// `live` son los player_id que todavía tienen socket abierto.
     ///
@@ -547,6 +562,67 @@ mod tests {
         let impostor = Uuid::new_v4();
         let live: HashSet<Uuid> = [alive, reconnected].into_iter().collect();
         assert!(manager.join_lobby(&lobby_id, impostor, "Beto".to_string(), &live).await.is_err());
+    }
+
+    /// El fallo del botón de ceder la carta, en pequeño: mientras tú te rindes,
+    /// el rival está machacando clicks. Cada click leía una copia de la sala y
+    /// la volcaba entera, así que el primer click posterior a tu rendición la
+    /// borraba y la pelea seguía como si nada.
+    #[tokio::test]
+    async fn a_click_does_not_undo_a_concession() {
+        let manager = LobbyManager::new();
+        let lobby_id = manager.create_lobby(4, true).await;
+        let ana = Uuid::new_v4();
+        let beto = Uuid::new_v4();
+        manager.join_lobby(&lobby_id, ana, "Ana".to_string(), &HashSet::new()).await.unwrap();
+        manager.join_lobby(&lobby_id, beto, "Beto".to_string(), &HashSet::new()).await.unwrap();
+        manager.mutate(&lobby_id, |l| {
+            l.status = LobbyStatus::Ready;
+            l.start_game().unwrap();
+            l.game_state.as_mut().unwrap().active_qtes.push(crate::game::QteState {
+                participants: vec![(ana, "Ana".into()), (beto, "Beto".into())],
+                card_id: 7,
+                clicks: std::collections::HashMap::new(),
+                conceded_by: None,
+            });
+        }).await.unwrap();
+
+        // Ana cede, y Beto sigue machacando: los dos pasan por `mutate`, que es
+        // lo que hacen los manejadores de verdad.
+        manager.mutate(&lobby_id, |l| {
+            l.game_state.as_mut().unwrap().active_qtes[0].conceded_by = Some(ana);
+        }).await.unwrap();
+        for _ in 0..5 {
+            manager.mutate(&lobby_id, |l| {
+                let q = &mut l.game_state.as_mut().unwrap().active_qtes[0];
+                *q.clicks.entry(beto).or_insert(0) += 1;
+            }).await.unwrap();
+        }
+
+        let qte = manager.get_lobby(&lobby_id).await.unwrap()
+            .game_state.unwrap().active_qtes.remove(0);
+        assert_eq!(qte.conceded_by, Some(ana),
+                   "los clicks del rival borraron la rendición");
+        assert_eq!(qte.clicks.get(&beto), Some(&5), "y sus clicks siguen contando");
+    }
+
+    /// Y por qué no vale `get_lobby` + `update_lobby` para esto: deja claro,
+    /// con la secuencia exacta, que volcar una copia entera borra lo que otro
+    /// escribió mientras tanto. Si algún día alguien vuelve a ese patrón en el
+    /// camino de la pelea, esto explica lo que va a pasar.
+    #[tokio::test]
+    async fn writing_back_a_whole_clone_loses_concurrent_changes() {
+        let manager = LobbyManager::new();
+        let lobby_id = manager.create_lobby(4, true).await;
+        manager.join_lobby(&lobby_id, Uuid::new_v4(), "Ana".to_string(), &HashSet::new())
+            .await.unwrap();
+
+        let copia = manager.get_lobby(&lobby_id).await.unwrap();   // copia vieja
+        manager.mutate(&lobby_id, |l| l.max_players = 7).await.unwrap();
+        manager.update_lobby(copia).await;                         // se vuelca encima
+
+        assert_ne!(manager.get_lobby(&lobby_id).await.unwrap().max_players, 7,
+                   "si esto deja de perderse, `mutate` ya no hace falta");
     }
 
     /// Una sala con dos jugadores y la partida ya en marcha.

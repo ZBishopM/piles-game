@@ -204,6 +204,22 @@ entera, así que ahí dentro cualquiera se las podía descargar desde internet.
 `tools/tap-test.mjs` — `node tools/tap-test.mjs`. Saca `bindTap` del propio
 `lobby.html`, así que no se queda vieja: si cambia la función, prueba la nueva.
 
+`tools/giveup-test.mjs` — `node tools/giveup-test.mjs`, con el servidor levantado.
+Uno cede la carta mientras el otro machaca: la pelea tiene que cortarse al
+momento y no llegar a los 3 s del reloj.
+
+**Y por qué lleva además una comprobación estática del CSS**: el botón de ceder
+no funcionaba en el móvil y pasaba todas las pruebas. Faltaba
+`touch-action: none`. Sin eso, el navegador trata el dedo apoyado como el
+principio de un desplazamiento, se queda el gesto y manda `pointercancel`, que
+corta la cuenta de 700 ms. `preventDefault()` en `pointerdown` **no** lo evita.
+Un navegador automatizado no hace gestos de verdad, así que mandar eventos
+sintéticos nunca lo habría visto: ese fallo solo se puede cazar leyendo el CSS
+o con un teléfono en la mano.
+
+Lo mismo con `setPointerCapture`: el círculo mide 52 px y un pulgar apoyado
+700 ms se mueve; sin capturar el puntero, `pointerleave` cortaba la cuenta.
+
 `tools/spectator-test.mjs` — `node tools/spectator-test.mjs`, con el servidor
 levantado. Alguien entra en una partida ya empezada: comprueba que recibe el
 tablero sin sets propios, que a los que juegan les llega la cuenta de mirones,

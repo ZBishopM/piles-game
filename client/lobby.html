@@ -706,6 +706,10 @@
             cursor: pointer;
             user-select: none;
             -webkit-user-select: none;
+            /* Machacar la pantalla no puede desplazar la página: si el
+               navegador decide que el dedo estaba haciendo scroll, se queda el
+               gesto y manda `pointercancel`. Aquí no hay nada que desplazar. */
+            touch-action: none;
             /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
                en mitad de la pelea. */
             -webkit-touch-callout: none;
@@ -748,6 +752,14 @@
             cursor: pointer;
             opacity: 0.55;
             overflow: hidden;
+            /* LO QUE HACÍA QUE NO FUNCIONARA EN EL MÓVIL.
+               Sin esto el navegador trata el dedo apoyado como el principio de
+               un desplazamiento; en cuanto lo decide se queda el gesto y manda
+               `pointercancel`, que corta la cuenta de 700 ms. `preventDefault()`
+               en `pointerdown` NO evita eso: solo lo evita `touch-action`.
+               Por eso pasaba las pruebas —el navegador automatizado no hace
+               gestos de verdad— y fallaba en la mano. */
+            touch-action: none;
             /* Sin esto, iOS saca su menú de "copiar" al mantener pulsado, que
                es justo el gesto que pide este botón. */
             -webkit-touch-callout: none;
@@ -3976,6 +3988,10 @@ function cancelGiveUpHold() {
         e.stopPropagation();
         e.preventDefault();
         if (!qteActive) return;
+        // Capturar el puntero: el círculo mide 52 px y un pulgar apoyado 700 ms
+        // se mueve. Sin esto el primer temblor salía del botón, saltaba
+        // `pointerleave` y se cortaba la cuenta sin que se notara por qué.
+        try { btn.setPointerCapture(e.pointerId); } catch { /* da igual */ }
         btn.classList.add('holding');
         giveUpTimer = setTimeout(() => {
             giveUpTimer = null;
@@ -3986,7 +4002,11 @@ function cancelGiveUpHold() {
         }, GIVEUP_HOLD_MS);
     });
 
-    for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) {
+    // `pointerleave` ya NO cancela: con el puntero capturado los eventos siguen
+    // llegando al botón aunque el dedo se salga, que es lo que se quiere.
+    // Levantar el dedo sí cancela, y `pointercancel` queda de red por si el
+    // sistema se lleva el gesto de todas formas.
+    for (const ev of ['pointerup', 'pointercancel']) {
         btn.addEventListener(ev, (e) => { e.stopPropagation(); cancelGiveUpHold(); });
     }
 })();

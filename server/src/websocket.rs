@@ -1189,26 +1189,23 @@ pub(crate) async fn handle_client_message(
         }
 
         ClientMessage::QteClick => {
-            if let Some(ref lobby_id) = *current_lobby {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
-                    let mut updated = false;
-                    if let Some(gs) = lobby.game_state.as_mut() {
-                        // El click va a LA pelea de quien lo manda, no a la
-                        // única que hubiera guardada. Con dos peleas a la vez,
-                        // buscar "la pelea activa" hacía que los clicks de una
-                        // de las dos parejas no contaran absolutamente nada.
-                        let mia = gs.active_qtes.iter_mut()
-                            .find(|q| q.participants.iter().any(|(id, _)| *id == player_id));
-                        if let Some(qte) = mia {
-                            *qte.clicks.entry(player_id).or_insert(0) += 1;
-                            updated = true;
-                        }
-                    }
-                    if updated {
-                        state.lobby_manager.update_lobby(lobby).await;
-                    }
+            let Some(ref lobby_id) = *current_lobby else { return };
+            // `mutate` y no `get_lobby` + `update_lobby`: esto llega cada pocas
+            // decenas de milisegundos mientras alguien machaca, y volcar una
+            // copia entera de la sala borraba lo que hubiera escrito otro
+            // mensaje entre medias. Así se perdían las rendiciones.
+            state.lobby_manager.mutate(lobby_id, |lobby| {
+                let Some(gs) = lobby.game_state.as_mut() else { return };
+                // El click va a LA pelea de quien lo manda, no a la única que
+                // hubiera guardada. Con dos peleas a la vez, buscar "la pelea
+                // activa" hacía que los clicks de una de las dos parejas no
+                // contaran absolutamente nada.
+                let mia = gs.active_qtes.iter_mut()
+                    .find(|q| q.participants.iter().any(|(id, _)| *id == player_id));
+                if let Some(qte) = mia {
+                    *qte.clicks.entry(player_id).or_insert(0) += 1;
                 }
-            }
+            }).await;
         }
 
         // ── Soltar el frenesí ──
@@ -1291,21 +1288,20 @@ pub(crate) async fn handle_client_message(
         // la pareja equivocada.
         ClientMessage::GiveUpCard => {
             let Some(ref lobby_id) = *current_lobby else { return };
-            let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
-            let mut cedida = false;
-            if let Some(gs) = lobby.game_state.as_mut() {
+            let cedida = state.lobby_manager.mutate(lobby_id, |lobby| {
+                let Some(gs) = lobby.game_state.as_mut() else { return false };
                 let mia = gs.active_qtes.iter_mut()
                     .find(|q| q.participants.iter().any(|(id, _)| *id == player_id));
-                if let Some(qte) = mia {
-                    if qte.conceded_by.is_none() {
+                match mia {
+                    Some(qte) if qte.conceded_by.is_none() => {
                         qte.conceded_by = Some(player_id);
-                        cedida = true;
+                        true
                     }
+                    _ => false,
                 }
-            }
+            }).await.unwrap_or(false);
             if cedida {
                 tracing::info!("🏳️ {} cede la carta en {}", player_id, lobby_id);
-                state.lobby_manager.update_lobby(lobby).await;
             }
         }
 
