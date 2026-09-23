@@ -1,0 +1,72 @@
+name: CI
+
+# Tests y build en cada push a beta/master y en cada PR. En beta, si todo pasa,
+# despliega en https://beta.piles.danassistantassistant.website. Producción
+# (master) sigue siendo manual: ver DEPLOY.md, "CI y deploy".
+#
+# El deploy no hace nada hasta que el repo tenga la variable DEPLOY_HOST y el
+# secret SSH_KEY, así que un fork sin VPS nunca falla por esto.
+
+on:
+  push:
+    branches: [beta, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test + build (+ deploy beta)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+
+      - name: Tests
+        run: cargo test --locked
+
+      - name: Build release
+        run: cargo build --release --locked
+
+      # --- Deploy a beta: solo push a beta, y solo si el repo está configurado ---
+
+      - name: Configure SSH agent
+        if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Deploy beta
+        if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+          SHA: ${{ github.sha }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          DEST="bicho@$HOST"
+          # El binario se compila aquí: el VPS no tiene swap y compilar allí
+          # compite con el correo y la base de datos.
+          scp target/release/piles-server "$DEST:piles-beta/server/target/release/piles-server.new"
+          ssh "$DEST" bash -s -- "$SHA" <<'EOF'
+          set -e
+          cd ~/piles-beta
+          git fetch -q origin beta
+          git merge -q --ff-only "$1"
+          mv server/target/release/piles-server.new server/target/release/piles-server
+          pm2 restart piles-beta --update-env >/dev/null
+          sleep 2
+          curl -fsS http://127.0.0.1:3010/health >/dev/null
+          echo "beta en $(git log -1 --format=%h)"
+          EOF

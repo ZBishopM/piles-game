@@ -55,7 +55,8 @@ git commit -am "..."
 git push origin beta
 ```
 
-**2. Desplegar en beta** — dentro del VPS, tras `ssh bicho@167.233.88.83`:
+**2. Desplegar en beta** — lo hace el CI solo al hacer push a `beta` (ver
+[CI y deploy](#ci-y-deploy)). A mano, dentro del VPS, tras `ssh bicho@167.233.88.83`:
 
 ```bash
 cd ~/piles-beta && git pull --ff-only
@@ -100,6 +101,21 @@ sobre algo que importa.
 
 **`sudo` pide contraseña.** Cualquier cosa de nginx, certbot o `/var/www` la
 tiene que ejecutar una persona; no se puede automatizar desde aquí.
+
+### CI y deploy
+
+`.github/workflows/ci.yml`:
+
+- Cada push a `beta`/`master` y cada PR: `cargo test --locked` → `cargo build --release --locked` (en `server/`, Ubuntu 24.04; el VPS tiene glibc 2.43, compatible).
+- Push a `beta` en verde: `scp` del binario a `~/piles-beta/server/target/release/piles-server.new` → `git merge --ff-only <sha>` → `mv` sobre el binario → `pm2 restart piles-beta` → `curl /health` en 3010. En el VPS no se compila nada.
+- `master` **no** se despliega solo: pasos 4-6 de arriba.
+- Configuración en GitHub (Settings → Secrets and variables → Actions):
+  - variable `DEPLOY_HOST` = `167.233.88.83`
+  - secret `SSH_KEY` = clave privada cuya pública está en `~/.ssh/authorized_keys` de `bicho`
+  - sin `DEPLOY_HOST`, el deploy se salta.
+- Relanzar: Actions → CI → Run workflow (sobre `beta`). `workflow_dispatch` no despliega; para eso, push.
+- Revertir beta: `git revert <commit>` + push a `beta`.
+- Fuera del CI: `cargo fmt --check` y `cargo clippy -D warnings` (hoy no pasan).
 
 ### Levantar otro entorno desde cero
 
