@@ -91,7 +91,7 @@ http get http://localhost:3000/health   # → OK
 
 ## 📝 Backlog
 
-Ver `TODO.md` — tiene el estado real: qué falta probar con jugadores de verdad, qué mecánicas están a medias y qué bugs se conocen (reconexión aún manual, sin anti-cheat en las peleas, tablero sin adaptar a móvil).
+Ver `TODO.md` — tiene el estado real: qué falta probar con jugadores de verdad, qué mecánicas están a medias y qué bugs se conocen (entre ellos, sin anti-cheat en las peleas).
 
 ## 🚢 Deploy
 

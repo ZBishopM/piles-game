@@ -388,7 +388,8 @@ impl Bot {
     /// cuartas copias que los demás esperan se quedan muertas en el montón de
     /// basura. No sirvió: medido sobre 3 minutos, ni así cerró nadie un set, y
     /// el desvío costaba un turno de cambio de set cada vez. Se vuelve a lo
-    /// simple. Lo que impide cerrar está en el reparto, no aquí: ver TODO.md.
+    /// simple. No es el reparto: las cuartas copias quedan muertas en los sets
+    /// que el bot no toca nunca. Ver TODO.md.
     fn force_drop(&self, rng: &mut impl Rng) -> Option<ClientMessage> {
         if !self.playing || self.stunned() || self.fighting || self.owes() {
             return None;

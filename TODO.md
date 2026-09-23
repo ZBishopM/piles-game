@@ -267,7 +267,7 @@ son CC0 (uso comercial, sin atribución) y servirían. Si algún día se quieren
 muestras de verdad, el único sitio que hay que tocar es `playSfx`.
 
 - [ ] Ajustar volúmenes jugando. Están puestos a oído, sin nadie delante.
-- [ ] El silencio se recuerda en `localStorage` (`piles.mute`).
+- [x] El silencio se recuerda en `localStorage` (`piles.mute`).
 
 ---
 
@@ -415,8 +415,8 @@ Los resultados que se guardan van a Session Manager, no aquí.
 
 ## ✨ Polish / mejoras futuras
 
-- [ ] **Sonido**. Es la mitad que falta del impacto: lo visual ya está, y sin
-      audio la pelea sigue siendo muda. Referencia: Balatro, donde cada carta
+- [x] **Sonido** — hecho, sintetizado con WebAudio (ver 🔊 Sonido). Era la
+      mitad que faltaba del impacto. Referencia: Balatro, donde cada carta
       tiene su golpe seco y el acierto sube de tono al encadenar.
       - Momentos que piden sonido: soltar carta, coger carta, empezar pelea,
         cada click durante la pelea, ganar pelea, perder (el bloqueo), set
