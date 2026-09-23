@@ -37,8 +37,13 @@ Servidor, WebSocket (`/ws`) y frontend quedan todos en `http://localhost:3000` �
 
 - `GET /health` — health check
 - `GET /api/qr/:lobby_code` — SVG con el QR de invitación de la sala
+- `GET /api/recordings` — lista las partidas grabadas
+- `GET /api/recordings/:file` — devuelve una grabación (la usa `replay.html`)
 - `GET /ws` — WebSocket del juego (lobbies, intercambios, QTE, verificación)
 - todo lo demás — estático, servido desde `client/`
+
+Las grabaciones tienen ruta propia a propósito: viven fuera de `client/`, así que
+`ServeDir` no las alcanza y hay que servirlas a mano.
 
 ## 📁 Estructura del proyecto
 
@@ -47,16 +52,22 @@ piles-game/
 ├── server/              # Backend Rust (Axum)
 │   ├── src/
 │   │   ├── main.rs      # Entry point, rutas, sirve client/ como estático
-│   │   ├── websocket.rs # Lógica de conexión/lobby/QTE/verificación
-│   │   └── game/        # Modelos, mazo, lobbies (deck.rs, models.rs, lobby.rs)
+│   │   ├── websocket.rs # Conexión, lobby, QTE y verificación — el 60% del backend
+│   │   ├── bot.rs       # Jugador artificial que rellena huecos en la sala
+│   │   ├── record.rs    # Vuelca cada partida a recordings/*.jsonl
+│   │   └── game/        # deck.rs, models.rs, lobby.rs, messages.rs
 │   └── Cargo.toml
 ├── client/                     # Frontend estático (lo sirve el propio binario)
 │   ├── lobby.html              # TODA la UI: menú, sala y partida, en un fichero
+│   ├── replay.html             # Reproduce una grabación de recordings/
 │   ├── index.html              # Redirección a /lobby.html
 │   ├── cards.webp              # Hoja de sprites: 50 prendas × 4 colores + reverso
 │   └── qr-scanner*.min.js      # qr-scanner 1.4.2 (nimiq, MIT), vendorizado
+├── recordings/                 # Partidas grabadas (.jsonl), servidas por /api/recordings
+├── tools/                      # Arneses de prueba en Node: tap, take-race, spectator…
 ├── .env.example
 ├── DEPLOY.md                   # Entornos (producción/beta) y cómo desplegar
+├── arquitectura-piles.html     # Diagrama de arquitectura en ejecución (abrir en el navegador)
 └── TODO.md                     # Backlog real y priorizado — léelo antes que este README
 ```
 

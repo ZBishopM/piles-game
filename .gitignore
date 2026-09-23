@@ -36,3 +36,6 @@ yarn.lock
 
 # Docker
 docker-compose.override.yml
+
+# Capturas de comprobación que genera archify
+arquitectura-piles.visual-check.*
