@@ -68,25 +68,29 @@ pm2 restart piles-beta
 
 **3. Probar** en https://beta.piles.danassistantassistant.website
 
-**4. Promover a producción** — en tu máquina. Cada línea corre solo si la
-anterior fue bien, así que un merge fallido detiene el push:
+**4. Promover a producción** — con `.github/workflows/promote.yml`, que pide
+aprobación:
 
-```nu
-git checkout master
-git merge beta --ff-only
-git push origin master
-```
+- GitHub: Actions → **Promote to production** → Run workflow (sobre `master`;
+  `sha` vacío = HEAD de beta) → cuando pida revisión, **Approve and deploy**
+  (también desde la app de GitHub en el móvil).
+- O desde la terminal: `gh workflow run promote.yml -R ZBishopM/piles-game`
+  (opcional `-f sha=<commit>`). Queda esperando la aprobación en GitHub.
 
-**5. Comprobar que no hay nadie jugando ANTES de reiniciar** — desde tu
-máquina:
+Promueve el **mismo binario** que el CI compiló para ese commit en beta; no se
+compila nada nuevo. Espera hasta 10 min si hay partidas en curso en :3000.
+Si `/health` no responde tras reiniciar, **vuelve solo** al commit y al binario
+anteriores. Si sale bien, mueve `master` a ese commit: **`master` = lo que hay
+en producción**, no se empuja a mano.
 
-```nu
-ssh bicho@167.233.88.83 "ss -tn state established '( sport = :3000 )'"
-```
+Volver a una versión anterior: relanzar el workflow con el `sha` anterior
+(tiene que ser ancestro de beta; el binario se conserva 90 días).
 
-**6. Desplegar en producción** — dentro del VPS:
+**Emergencia (sin GitHub)**, dentro del VPS. Primero comprobar que no hay
+nadie jugando:
 
 ```bash
+ss -tn state established '( sport = :3000 )'
 cd /var/www/piles-game && git pull --ff-only
 cd server && nice -n 19 ~/.cargo/bin/cargo build --release -j 1
 pm2 restart piles-game
@@ -106,9 +110,9 @@ tiene que ejecutar una persona; no se puede automatizar desde aquí.
 
 `.github/workflows/ci.yml`:
 
-- Cada push a `beta`/`master` y cada PR: `cargo test --locked` → `cargo build --release --locked` (en `server/`, Ubuntu 24.04; el VPS tiene glibc 2.43, compatible).
-- Push a `beta` en verde: `scp` del binario a `~/piles-beta/server/target/release/piles-server.new` → `git merge --ff-only <sha>` → `mv` sobre el binario → `pm2 restart piles-beta` → `curl /health` en 3010. En el VPS no se compila nada.
-- `master` **no** se despliega solo: pasos 4-6 de arriba.
+- Cada push a `beta`/`master` y cada PR: job `build` → `cargo test --locked` → `cargo build --release --locked` (en `server/`, Ubuntu 24.04; el VPS tiene glibc 2.43, compatible) → sube el binario como artifact `piles-server` (90 días).
+- Push a `beta` en verde: job `deploy-beta` (environment `beta`) baja el artifact → `scp` a `~/piles-beta/server/target/release/piles-server.new` → `git merge --ff-only <sha>` → `chmod 755` (el artifact pierde el bit de ejecución) → `mv` → `pm2 restart piles-beta` → `curl /health` en 3010. En el VPS no se compila nada.
+- Producción: solo con `promote.yml` (paso 4). Environment `production` en Settings → Environments: revisor obligatorio ZBishopM, solo desde la rama `master`.
 - Configuración en GitHub (Settings → Secrets and variables → Actions):
   - variable `DEPLOY_HOST` = `167.233.88.83`
   - secret `SSH_KEY` = clave privada cuya pública está en `~/.ssh/authorized_keys` de `bicho`

@@ -1,0 +1,131 @@
+name: Promote to production
+
+# Promueve a producción un commit que ya pasó por beta, con el MISMO binario
+# que compiló el CI para ese commit (build once, deploy many). El job de
+# producción usa el environment `production`, que exige aprobación manual.
+#
+# Uso: Actions → Promote to production → Run workflow (sha vacío = HEAD de
+# beta) → aprobar. Vuelta atrás: relanzar con el sha anterior.
+# Tras un deploy correcto, master apunta al sha: master = lo que hay en prod.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit de beta a promover (vacío = HEAD de beta)"
+        required: false
+        default: ""
+
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  resolve:
+    name: Resolver commit y artifact
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      run_id: ${{ steps.pick.outputs.run_id }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -e
+          git fetch -q origin beta master
+          SHA=$(git rev-parse "${INPUT_SHA:-origin/beta}^{commit}")
+          git merge-base --is-ancestor "$SHA" origin/beta \
+            || { echo "::error::$SHA no está en beta: primero pasa por beta"; exit 1; }
+          git merge-base --is-ancestor origin/master "$SHA" \
+            || { echo "::error::master no es ancestro de $SHA: no sería fast-forward"; exit 1; }
+          RUN=$(gh run list --workflow ci.yml --branch beta --commit "$SHA" --status success \
+                  --json databaseId --jq '.[0].databaseId')
+          [ -n "$RUN" ] || { echo "::error::$SHA no tiene un CI verde en beta"; exit 1; }
+          echo "Promoviendo $(git log -1 --format='%h %s' "$SHA") con el binario del run $RUN"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "run_id=$RUN" >> "$GITHUB_OUTPUT"
+
+  production:
+    name: Deploy producción
+    needs: resolve
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: https://piles.danassistantassistant.website
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: piles-server
+          run-id: ${{ needs.resolve.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY }}
+
+      - name: Deploy (espera jugadores, respaldo, vuelta atrás si falla)
+        env:
+          HOST: ${{ vars.DEPLOY_HOST }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+          DEST="bicho@$HOST"
+          scp piles-server "$DEST:/var/www/piles-game/server/target/release/piles-server.new"
+          ssh "$DEST" bash -s -- "$SHA" <<'EOF'
+          set -eu
+          SHA=$1
+          cd /var/www/piles-game
+          BIN=server/target/release/piles-server
+
+          # Reiniciar corta las partidas en curso: esperar hasta 10 min.
+          for i in $(seq 1 20); do
+            n=$(ss -Htn state established '( sport = :3000 )' | wc -l)
+            [ "$n" -eq 0 ] && break
+            echo "hay $n conexiones en :3000, esperando ($i/20)"; sleep 30
+          done
+          if [ "$n" -gt 0 ]; then
+            rm -f "$BIN.new"; echo "::error::siguen jugando: no se toca nada"; exit 1
+          fi
+
+          PREV=$(git rev-parse HEAD)
+          cp -p "$BIN" "$BIN.antes-${PREV:0:7}"
+          git fetch -q origin
+          git merge -q --ff-only "$SHA"
+          chmod 755 "$BIN.new"          # el artifact no conserva el bit de ejecución
+          mv "$BIN.new" "$BIN"
+          pm2 restart piles-game >/dev/null
+
+          ok=0
+          for i in $(seq 1 10); do
+            sleep 1
+            curl -fsS -o /dev/null http://127.0.0.1:3000/health && { ok=1; break; }
+          done
+          if [ "$ok" -ne 1 ]; then
+            echo "::error::/health no responde: volviendo a ${PREV:0:7}"
+            git reset -q --hard "$PREV"
+            cp -p "$BIN.antes-${PREV:0:7}" "$BIN"
+            pm2 restart piles-game >/dev/null
+            exit 1
+          fi
+          echo "producción en $(git log -1 --format='%h %s')"
+          EOF
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: master = producción
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: git push origin "$SHA:refs/heads/master"

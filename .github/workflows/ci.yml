@@ -1,8 +1,9 @@
 name: CI
 
-# Tests y build en cada push a beta/master y en cada PR. En beta, si todo pasa,
-# despliega en https://beta.piles.danassistantassistant.website. Producción
-# (master) sigue siendo manual: ver DEPLOY.md, "CI y deploy".
+# Tests y build en cada push a beta/master y en cada PR. El binario se sube
+# como artifact: es el MISMO que después promueve promote.yml a producción
+# (build once, deploy many). En beta se despliega solo en
+# https://beta.piles.danassistantassistant.website. Ver DEPLOY.md, "CI y deploy".
 #
 # El deploy no hace nada hasta que el repo tenga la variable DEPLOY_HOST y el
 # secret SSH_KEY, así que un fork sin VPS nunca falla por esto.
@@ -18,8 +19,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
-    name: Test + build (+ deploy beta)
+  build:
+    name: Test + build
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -39,16 +40,30 @@ jobs:
       - name: Build release
         run: cargo build --release --locked
 
-      # --- Deploy a beta: solo push a beta, y solo si el repo está configurado ---
+      - uses: actions/upload-artifact@v7
+        with:
+          name: piles-server
+          path: server/target/release/piles-server
+          if-no-files-found: error
+          retention-days: 90
 
-      - name: Configure SSH agent
-        if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
-        uses: webfactory/ssh-agent@v0.9.1
+  deploy-beta:
+    name: Deploy beta
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
+    runs-on: ubuntu-24.04
+    environment: beta
+    concurrency: beta
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: piles-server
+
+      - uses: webfactory/ssh-agent@v0.9.1
         with:
           ssh-private-key: ${{ secrets.SSH_KEY }}
 
-      - name: Deploy beta
-        if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
+      - name: Deploy
         env:
           HOST: ${{ vars.DEPLOY_HOST }}
           SHA: ${{ github.sha }}
@@ -56,14 +71,16 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
           DEST="bicho@$HOST"
-          # El binario se compila aquí: el VPS no tiene swap y compilar allí
+          # Compilado en el job de build: el VPS no tiene swap y compilar allí
           # compite con el correo y la base de datos.
-          scp target/release/piles-server "$DEST:piles-beta/server/target/release/piles-server.new"
+          scp piles-server "$DEST:piles-beta/server/target/release/piles-server.new"
           ssh "$DEST" bash -s -- "$SHA" <<'EOF'
           set -e
           cd ~/piles-beta
           git fetch -q origin beta
           git merge -q --ff-only "$1"
+          # El artifact no conserva el bit de ejecución.
+          chmod 755 server/target/release/piles-server.new
           mv server/target/release/piles-server.new server/target/release/piles-server
           pm2 restart piles-beta --update-env >/dev/null
           sleep 2
