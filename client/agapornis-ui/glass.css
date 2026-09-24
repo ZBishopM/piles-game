@@ -1,0 +1,21 @@
+/* agapornis-ui · vidrio esmerilado, SOLO para elementos flotantes
+   (menús, popovers, paleta de comandos, toasts). zeron: difuminado 16 + velo.
+   En pantallas táctiles y navegadores sin backdrop-filter se apaga: el
+   difuminado cuesta GPU en móvil con muchos elementos. Queda un velo sólido. */
+
+.glass {
+  background: var(--overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+@supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {
+  @media (hover: hover) and (pointer: fine) {
+    .glass {
+      background: rgb(21 21 22 / 80%);
+      -webkit-backdrop-filter: blur(16px) saturate(1.2);
+      backdrop-filter: blur(16px) saturate(1.2);
+    }
+  }
+}

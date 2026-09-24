@@ -18,6 +18,10 @@
          carga con un import() relativo que, desde un script clásico, se
          resuelve contra la URL del documento (/lobby.html), no la del script. -->
     <script src="/qr-scanner.umd.min.js"></script>
+    <!-- Identidad común (github.com/ZBishopM/agapornis-ui): superficies,
+         tinta, acento sage, Geist. Solo la interfaz; los efectos del juego
+         (combo, cartas, frenesí) conservan sus colores propios. -->
+    <link rel="stylesheet" href="/agapornis-ui/agapornis.css">
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
            una página de pruebas anterior. */
@@ -34,14 +38,13 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* --accent, --success, --danger, --warning y las superficies vienen de
+           agapornis-ui. Aquí solo lo propio de piles. */
         :root {
-            --accent: #667eea;
-            --success: #28a745;
-            --danger: #dc3545;
-            --warning: #ffc107;
+            --control: rgb(52 52 56 / 45%);   /* fondo de inputs y botones de opción */
         }
 
-        body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; margin: 0; }
+        body { font-family: var(--font-sans); background: var(--bg); color: var(--text); margin: 0; }
 
         .screen { display: none; }
         .screen.active { display: block; }
@@ -52,12 +55,12 @@
             max-width: 480px;
             margin: 60px auto;
             padding: 20px;
-            background: #16213e;
+            background: var(--card);
             border-radius: 16px;
         }
         .panel h1 { text-align: center; font-size: 2.5rem; color: var(--accent); margin-bottom: 4px; }
-        .panel .subtitle { text-align: center; color: #999; margin-bottom: 28px; }
-        .panel h2 { text-align: center; font-size: 1.4rem; color: #eee; margin-bottom: 20px; }
+        .panel .subtitle { text-align: center; color: var(--text-faint); margin-bottom: 28px; }
+        .panel h2 { text-align: center; font-size: 1.4rem; color: var(--text); margin-bottom: 20px; }
 
         /* Barra superior de las subpantallas: volver + título opcional */
         .screen-top {
@@ -70,13 +73,13 @@
         .back-btn {
             background: none;
             border: none;
-            color: #aaa;
+            color: var(--text-muted);
             font-size: 0.9rem;
             cursor: pointer;
             padding: 6px 2px;
         }
-        .back-btn:hover { color: #eee; }
-        .step-counter { color: #888; font-size: 0.85rem; }
+        .back-btn:hover { color: var(--text); }
+        .step-counter { color: var(--text-faint); font-size: 0.85rem; }
 
         /* Icono de perfil, esquina superior del home */
         .profile-btn {
@@ -85,9 +88,9 @@
             width: 40px;
             height: 40px;
             border-radius: 50%;
-            border: 2px solid #2a2a5a;
-            background: #0f3460;
-            color: #eee;
+            border: 2px solid var(--border-strong);
+            background: var(--control);
+            color: var(--text);
             font-size: 1.2rem;
             line-height: 1;
             cursor: pointer;
@@ -97,18 +100,20 @@
         /* Botones grandes del home, uno por función */
         .home-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
         .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 6px; color: #ccc; font-size: 0.9rem; }
+        .form-group label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 0.9rem; }
         .form-group input {
-            width: 100%; padding: 10px 14px; border: 2px solid #2a2a5a;
-            border-radius: 8px; background: #0f3460; color: #eee; font-size: 1rem; box-sizing: border-box;
+            width: 100%; padding: 10px 14px; border: 2px solid var(--border-strong);
+            border-radius: 8px; background: var(--control); color: var(--text); font-size: 1rem; box-sizing: border-box;
         }
         .form-group input:focus { outline: none; border-color: var(--accent); }
-        .divider { text-align: center; color: #555; margin: 20px 0; font-size: 0.9rem; }
+        .divider { text-align: center; color: var(--text-faint); margin: 20px 0; font-size: 0.9rem; }
         .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-top: 8px; }
-        .btn-primary { background: var(--accent); color: white; }
-        .btn-secondary { background: #2a2a5a; color: #ccc; }
-        .btn:hover { opacity: 0.88; }
-        #connStatus { text-align: center; margin-top: 16px; font-size: 0.85rem; color: #888; }
+        .btn-primary { background: var(--accent-fill); color: var(--on-accent-fill); box-shadow: inset 0 0 0 1px var(--accent-line); }
+        .btn-secondary { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+        .btn { transition: background-color var(--dur-hover) var(--ease-std), opacity var(--dur-hover) var(--ease-std); }
+        .btn-secondary:hover { background: var(--hover); }
+        .btn-primary:hover { background: var(--accent-fill-hover); }
+        #connStatus { text-align: center; margin-top: 16px; font-size: 0.85rem; color: var(--text-faint); }
 
         /* ── HOSPEDAR: selector de jugadores ── */
         .seg-group { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -116,19 +121,19 @@
             flex: 1;
             min-width: 44px;
             padding: 12px 4px;
-            border: 2px solid #2a2a5a;
+            border: 2px solid var(--border-strong);
             border-radius: 8px;
-            background: #0f3460;
-            color: #aaa;
+            background: var(--control);
+            color: var(--text-muted);
             font-size: 1rem;
             cursor: pointer;
         }
-        .seg-btn:hover { border-color: var(--accent); color: #eee; }
-        .seg-btn.active { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: bold; }
+        .seg-btn:hover { border-color: var(--accent); color: var(--text); }
+        .seg-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: bold; }
 
         /* ── CÓMO JUGAR ── */
         .tut-art {
-            background: #0f3460;
+            background: var(--control);
             border-radius: 12px;
             padding: 18px 12px;
             margin-bottom: 18px;
@@ -145,10 +150,10 @@
         /* Solo el ancho: la altura la fija aspect-ratio, si no se deforma el dibujo. */
         .tut-row .card { width: 54px; cursor: default; }
         .tut-row .card:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
-        .tut-caption { color: #888; font-size: 0.75rem; text-align: center; }
-        .tut-text { color: #eee; font-size: 1rem; line-height: 1.5; text-align: center; min-height: 72px; }
+        .tut-caption { color: var(--text-faint); font-size: 0.75rem; text-align: center; }
+        .tut-text { color: var(--text); font-size: 1rem; line-height: 1.5; text-align: center; min-height: 72px; }
         .tut-dots { display: flex; gap: 8px; justify-content: center; margin: 16px 0; }
-        .tut-dot { width: 9px; height: 9px; border-radius: 50%; background: #2a2a5a; }
+        .tut-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
         .tut-dot.active { background: var(--accent); }
         .tut-nav { display: flex; gap: 8px; }
         .tut-nav .btn { margin-top: 0; }
@@ -207,13 +212,13 @@
             padding: 20px;
         }
         .lobby-code-box {
-            background: #16213e;
+            background: var(--card);
             border-radius: 12px;
             padding: 20px;
             text-align: center;
             margin-bottom: 20px;
         }
-        .lobby-code-box small { color: #888; font-size: 0.8rem; }
+        .lobby-code-box small { color: var(--text-faint); font-size: 0.8rem; }
         .lobby-code {
             font-size: 2.6rem;
             font-weight: bold;
@@ -222,24 +227,25 @@
         }
         .player-list { list-style: none; padding: 0; margin: 0; }
         .player-item {
-            background: #16213e;
+            background: var(--card);
             padding: 14px 18px;
             margin: 8px 0;
             border-radius: 8px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-left: 4px solid #2a2a5a;
+            border-left: 4px solid var(--border-strong);
         }
         .player-item.ready { border-left-color: var(--success); }
         .ready-status { font-size: 0.85rem; }
         #readyBtn {
             width: 100%; padding: 14px; margin-top: 16px;
             border: none; border-radius: 10px; font-size: 1.1rem; cursor: pointer;
-            background: var(--accent); color: white;
+            background: var(--accent-fill); color: var(--on-accent-fill);
+            box-shadow: inset 0 0 0 1px var(--accent-line);
         }
-        #readyBtn.active { background: #e74c3c; }
-        #readyCount { text-align: center; color: #888; margin-top: 10px; font-size: 0.9rem; }
+        #readyBtn.active { background: #e74c3c; box-shadow: none; }
+        #readyCount { text-align: center; color: var(--text-faint); margin-top: 10px; font-size: 0.9rem; }
 
         /* ── GAME ── */
         #gameScreen {
@@ -253,22 +259,22 @@
 
         /* Instrucción de swap */
         #swapHint {
-            background: #0f3460;
+            background: var(--control);
             border-radius: 8px;
             padding: 8px 14px;
             text-align: center;
             font-size: 0.85rem;
-            color: #aaa;
+            color: var(--text-muted);
             margin-bottom: 10px;
         }
-        #swapHint.selected { background: #1a4a7a; color: #fff; }
+        #swapHint.selected { background: var(--accent-soft); color: var(--accent); }
 
         /* Cartas del centro */
         .section-label {
             font-size: 0.75rem;
             text-transform: uppercase;
             letter-spacing: 0.1em;
-            color: #888;
+            color: var(--text-faint);
             margin-bottom: 6px;
         }
         /* Título de sección con su acción al lado (Tus Sets + Revelar) */
@@ -319,7 +325,7 @@
            que sigue se mueva, y no se puede tocar. */
         .card.center-gap {
             background: none;
-            border: 2px dashed #23234a;
+            border: 2px dashed var(--border);
             box-shadow: none;
             cursor: default;
             pointer-events: none;
@@ -329,7 +335,7 @@
         /* Hueco que deja una carta soltada, hasta que se coge otra */
         .card.card-empty {
             background: none;
-            border: 2px dashed #4a5a9a;
+            border: 2px dashed var(--border-strong);
             box-shadow: none;
             cursor: default;
         }
@@ -455,19 +461,19 @@
             flex: 1;
             min-width: 48px;
             padding: 8px 4px;
-            border: 2px solid #2a2a5a;
+            border: 2px solid var(--border-strong);
             border-radius: 8px;
-            background: #16213e;
-            color: #888;
+            background: var(--card);
+            color: var(--text-faint);
             font-size: 0.8rem;
             cursor: pointer;
             transition: all 0.15s;
             text-align: center;
         }
-        .set-btn:hover { border-color: var(--accent); color: #ccc; }
-        .set-btn.active { border-color: var(--accent); background: #0f3460; color: #fff; }
+        .set-btn:hover { border-color: var(--accent); color: var(--text-muted); }
+        .set-btn.active { border-color: var(--accent); background: var(--control); color: #fff; }
         .set-btn.flipped { border-style: dashed; }
-        .set-btn .set-eye { display: block; font-size: 0.55rem; color: #aaa; }
+        .set-btn .set-eye { display: block; font-size: 0.55rem; color: var(--text-muted); }
 
         /* ── Marcador: una franja por jugador, hasta 8, en rejilla ──
            Dos columnas entran de sobra en un móvil y ocho jugadores caben en
@@ -490,23 +496,23 @@
             min-width: 0;
             padding: 4px 8px;
             border-radius: 6px;
-            background: #16213e;
+            background: var(--card);
             border-left: 3px solid transparent;
             font-size: 0.72rem;
-            color: #9aa;
+            color: var(--text-faint);
         }
         .hud-stripe.mirones {
             justify-content: center;
-            color: #7fb3ff;
-            border-left-color: #7fb3ff;
+            color: var(--accent);
+            border-left-color: var(--accent);
         }
 
         /* Mirando, no jugando: no hay sets propios ni botones que pulsar. */
         #espectadorBanda {
             text-align: center;
             padding: 5px;
-            background: #1b2a4a;
-            color: #7fb3ff;
+            background: var(--accent-soft);
+            color: var(--accent);
             font-size: 0.78rem;
             border-radius: 6px;
             margin-bottom: 6px;
@@ -522,7 +528,7 @@
 
         .hud-stripe.is-me {
             border-left-color: var(--accent);
-            color: #eee;
+            color: var(--text);
         }
         .hud-stripe.finished { border-left-color: var(--success); color: var(--success); }
         .hud-stripe.on-fire { border-left-color: var(--warning); color: var(--warning); }
@@ -541,8 +547,8 @@
             width: 10px;
             height: 14px;
             border-radius: 2px;
-            background: #0f1830;
-            box-shadow: inset 0 0 0 1px #2a2a5a;
+            background: var(--shell);
+            box-shadow: inset 0 0 0 1px var(--border-strong);
         }
         /* La misma hoja de sprites que las cartas: `applyCardSprite` solo
            coloca el recorte, la imagen y su escala vienen de aquí. */
@@ -557,7 +563,7 @@
             flex-shrink: 0;
             font-weight: bold;
             font-variant-numeric: tabular-nums;
-            color: #eee;
+            color: var(--text);
         }
         .hud-stripe.finished .hud-count { color: var(--success); }
 
@@ -565,10 +571,10 @@
         #flipBtn {
             flex-shrink: 0;
             padding: 7px 14px;
-            border: 1px solid #4a5a9a;
+            border: 1px solid var(--border-strong);
             border-radius: 8px;
-            background: rgba(74,90,154,0.15);
-            color: #ccc;
+            background: var(--hover);
+            color: var(--text-muted);
             font-size: 0.85rem;
             font-weight: bold;
             white-space: nowrap;
@@ -576,8 +582,8 @@
             transition: all 0.2s;
             margin-bottom: 6px;
         }
-        #flipBtn:hover { background: rgba(74,90,154,0.2); color: #eee; }
-        #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: rgba(102,126,234,0.1); }
+        #flipBtn:hover { background: var(--pressed); color: var(--text); }
+        #flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 
         /* Overlay de verificación */
         #verifyOverlay {
@@ -591,24 +597,24 @@
         }
         #verifyOverlay.active { display: flex; }
         .verify-box {
-            background: #16213e;
+            background: var(--card);
             border-radius: 16px;
             padding: 32px;
             min-width: 340px;
             max-width: 500px;
             width: 90%;
         }
-        .verify-box h2 { text-align: center; margin: 0 0 20px; font-size: 1.1rem; color: #ccc; }
+        .verify-box h2 { text-align: center; margin: 0 0 20px; font-size: 1.1rem; color: var(--text-muted); }
         .verify-set-row {
             display: flex;
             align-items: center;
             gap: 10px;
             padding: 10px 0;
-            border-bottom: 1px solid #1e2a4a;
+            border-bottom: 1px solid var(--border);
             font-size: 0.9rem;
         }
         .verify-set-row:last-of-type { border-bottom: none; }
-        .verify-set-label { width: 52px; color: #888; flex-shrink: 0; }
+        .verify-set-label { width: 52px; color: var(--text-faint); flex-shrink: 0; }
         .verify-cards { display: flex; gap: 4px; flex: 1; }
         .verify-card-mini {
             display: inline-block;
@@ -627,21 +633,21 @@
         .verify-footer.failure { color: var(--danger); }
         #verifyCloseBtn {
             width: 100%; padding: 10px; margin-top: 16px;
-            border: none; border-radius: 8px; background: #2a2a5a;
-            color: #ccc; cursor: pointer; font-size: 0.9rem; display: none;
+            border: none; border-radius: 8px; background: var(--border-strong);
+            color: var(--text-muted); cursor: pointer; font-size: 0.9rem; display: none;
         }
 
         /* Notificaciones de otros jugadores verificando */
         .verify-notif {
-            background: rgba(15, 25, 55, 0.96);
-            border: 1px solid #2a3a6a;
+            background: rgb(21 21 22 / 96%);
+            border: 1px solid var(--border-strong);
             border-radius: 10px;
             padding: 8px 12px;
             font-size: 0.78rem;
             animation: slideIn 0.3s ease;
         }
         @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
-        .vnotif-header { color: #ccc; margin-bottom: 5px; font-weight: bold; }
+        .vnotif-header { color: var(--text-muted); margin-bottom: 5px; font-weight: bold; }
         .vnotif-sets { display: flex; gap: 3px; }
         .verify-notif.success { border-color: var(--success); }
         .verify-notif.failure { border-color: var(--danger); }
@@ -659,7 +665,7 @@
         }
         #qteOverlay.active { display: flex; }
         .qte-box {
-            background: #16213e;
+            background: var(--card);
             border-radius: 20px;
             padding: 36px 40px;
             text-align: center;
@@ -669,7 +675,7 @@
             border: 2px solid #e74c3c;
         }
         .qte-box h2 { font-size: 2rem; margin: 0 0 6px; color: #e74c3c; }
-        .qte-desc { color: #aaa; font-size: 0.85rem; margin-bottom: 20px; }
+        .qte-desc { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px; }
         .qte-scores {
             display: flex;
             justify-content: center;
@@ -677,17 +683,17 @@
             margin-bottom: 20px;
         }
         .qte-player-score {
-            background: #0f3460;
+            background: var(--control);
             border-radius: 12px;
             padding: 12px 20px;
             min-width: 100px;
         }
-        .qte-player-score .qte-name { font-size: 0.8rem; color: #aaa; margin-bottom: 4px; }
+        .qte-player-score .qte-name { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
         .qte-player-score .qte-count { font-size: 2rem; font-weight: bold; color: #fff; }
         .qte-player-score.is-me { border: 2px solid var(--accent); }
         .qte-timer-bar {
             height: 8px;
-            background: #2a2a5a;
+            background: var(--border-strong);
             border-radius: 4px;
             overflow: hidden;
             margin-bottom: 20px;
@@ -746,7 +752,7 @@
             padding: 0;
             border: none;
             border-radius: 50%;
-            background: rgba(22,33,62,0.9);
+            background: rgb(21 21 22 / 90%);
             font-size: 1.3rem;
             line-height: 1;
             cursor: pointer;
@@ -808,7 +814,7 @@
             display: none;
             height: 6px;
             border-radius: 3px;
-            background: #2a2a5a;
+            background: var(--border-strong);
             overflow: hidden;
             margin: 0 0 10px;
         }
@@ -822,7 +828,7 @@
             display: none;
             height: 6px;
             border-radius: 3px;
-            background: #2a2a5a;
+            background: var(--border-strong);
             overflow: hidden;
             margin: 0 0 10px;
         }
@@ -960,10 +966,10 @@
             width: 28px;
             height: 28px;
             flex-shrink: 0;
-            border: 1px solid #2a2a5a;
+            border: 1px solid var(--border-strong);
             border-radius: 6px;
-            background: #0f3460;
-            color: #aaa;
+            background: var(--control);
+            color: var(--text-muted);
             cursor: pointer;
             line-height: 1;
         }
@@ -971,17 +977,17 @@
         #quickBotOffer {
             margin: 12px 0;
             padding: 12px;
-            border: 1px solid #4a5a9a;
+            border: 1px solid var(--border-strong);
             border-radius: 10px;
-            background: rgba(74,90,154,0.12);
+            background: var(--hover);
             text-align: center;
         }
         #quickBotOffer[hidden] { display: none; }
-        #quickBotOffer p { color: #aaa; font-size: 0.88rem; margin-bottom: 10px; }
+        #quickBotOffer p { color: var(--text-muted); font-size: 0.88rem; margin-bottom: 10px; }
 
         /* ── SALAS ABIERTAS ── */
         #lobbyList { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-        .lobby-empty { color: #888; font-size: 0.85rem; text-align: center; margin: 8px 0; }
+        .lobby-empty { color: var(--text-faint); font-size: 0.85rem; text-align: center; margin: 8px 0; }
         .lobby-row {
             display: flex;
             justify-content: space-between;
@@ -989,16 +995,16 @@
             width: 100%;
             padding: 12px 14px;
             min-height: 44px;      /* objetivo táctil */
-            border: 2px solid #2a2a5a;
+            border: 2px solid var(--border-strong);
             border-radius: 8px;
-            background: #0f3460;
-            color: #eee;
+            background: var(--control);
+            color: var(--text);
             cursor: pointer;
             transition: border-color 0.15s;
         }
         .lobby-row:hover { border-color: var(--accent); }
-        .lr-code { font-family: monospace; font-size: 1.05rem; letter-spacing: 0.12em; }
-        .lr-count { font-size: 0.8rem; color: #aaa; }
+        .lr-code { font-family: var(--font-mono); font-size: 1.05rem; letter-spacing: 0.12em; }
+        .lr-count { font-size: 0.8rem; color: var(--text-muted); }
 
         /* ── RACHA ──
            El multiplicador se lee de un vistazo o no sirve de nada: número
@@ -1012,7 +1018,9 @@
         /* `--combo-ring` va en rgba explícito y no con color-mix(): el soporte
            de color-mix no es universal y, donde falta, la declaración entera
            del box-shadow se descarta y el anillo desaparece sin avisar. */
-        #gameScreen { --combo-color: var(--accent);  --combo-ring: rgba(102,126,234,0.45); }
+        /* Nivel 1 fijado a su azul: es color de juego, no de la interfaz, y no
+           debe seguir al acento de agapornis-ui. */
+        #gameScreen { --combo-color: #667eea;  --combo-ring: rgba(102,126,234,0.45); }
         #gameScreen[data-combo-tier="2"] { --combo-color: #4ecdc4; --combo-ring: rgba(78,205,196,0.45); }
         #gameScreen[data-combo-tier="3"] { --combo-color: #ffc107; --combo-ring: rgba(255,193,7,0.45); }
         #gameScreen[data-combo-tier="4"] { --combo-color: #ff8c42; --combo-ring: rgba(255,140,66,0.5); }
@@ -1044,7 +1052,7 @@
         .combo-bar {
             flex: 1;
             height: 5px;
-            background: #16213e;
+            background: var(--card);
             border-radius: 3px;
             overflow: hidden;
         }
@@ -1080,7 +1088,7 @@
             font-weight: 900;
             font-size: 0.85rem;
             letter-spacing: 0.12em;
-            color: #1a1a2e;
+            color: var(--bg);
             cursor: pointer;
             background: linear-gradient(90deg,
                 #ff4d4d, #ffa64d, #ffe74d, #4dff88, #4dd2ff, #b84dff, #ff4d4d);
@@ -1127,8 +1135,8 @@
             height: 34px;
             border: none;
             border-radius: 8px;
-            background: rgba(22,33,62,0.85);
-            color: #ccc;
+            background: rgb(21 21 22 / 85%);
+            color: var(--text-muted);
             font-size: 0.95rem;
             cursor: pointer;
         }
@@ -1149,7 +1157,7 @@
 
         /* Notificación QTE para espectadores */
         .qte-battle-notif {
-            background: rgba(20, 12, 30, 0.97);
+            background: rgb(21 21 22 / 97%);
             border: 2px solid #e74c3c;
             border-radius: 12px;
             padding: 10px 14px;
@@ -1171,18 +1179,18 @@
             margin: 4px 0;
             font-size: 0.78rem;
         }
-        .qbn-player { color: #eee; font-weight: bold; }
+        .qbn-player { color: var(--text); font-weight: bold; }
         .qbn-vs { color: #e74c3c; font-size: 1rem; }
         .qbn-scores {
             display: flex;
             justify-content: space-between;
             font-size: 0.75rem;
-            color: #aaa;
+            color: var(--text-muted);
             margin-top: 4px;
         }
         .qbn-bar {
             height: 4px;
-            background: #2a2a5a;
+            background: var(--border-strong);
             border-radius: 2px;
             overflow: hidden;
             margin-top: 6px;
@@ -1205,7 +1213,7 @@
         }
         #gameOverOverlay.active { display: flex; }
         .gameover-box {
-            background: #16213e;
+            background: var(--card);
             border-radius: 16px;
             padding: 40px;
             text-align: center;
@@ -1218,7 +1226,7 @@
             align-items: center;
             padding: 10px 16px;
             margin: 8px 0;
-            background: #0f3460;
+            background: var(--control);
             border-radius: 8px;
             font-size: 0.95rem;
         }
@@ -1294,8 +1302,8 @@
                 --scale: 1;
                 box-shadow: 0 2px 6px rgba(0,0,0,0.4);
             }
-            .set-btn:not(.active):hover { border-color: #2a2a5a; color: #888; }
-            #flipBtn:not(.is-flipped):hover { background: rgba(74,90,154,0.15); color: #ccc; }
+            .set-btn:not(.active):hover { border-color: var(--border-strong); color: var(--text-faint); }
+            #flipBtn:not(.is-flipped):hover { background: var(--hover); color: var(--text-muted); }
         }
     </style>
 </head>
@@ -1338,13 +1346,13 @@
                    style="text-transform:uppercase;flex:1;width:auto;min-width:0;">
             <button type="button" id="smCodeUnlink" title="Borrar código"
                     style="display:none;flex-shrink:0;width:38px;height:38px;padding:0;
-                           border:2px solid #2a2a5a;border-radius:8px;background:#0f3460;
-                           color:#eee;font-size:1rem;line-height:1;cursor:pointer;">✕</button>
+                           border:2px solid var(--border-strong);border-radius:8px;background:var(--control);
+                           color:var(--text);font-size:1rem;line-height:1;cursor:pointer;">✕</button>
         </div>
         <small id="smCodeHint">Genera un código en tu perfil de Session Manager y pégalo aquí.</small>
     </div>
 
-    <p style="color:#888;font-size:0.85rem;line-height:1.5">
+    <p style="color:var(--text-faint);font-size:0.85rem;line-height:1.5">
         Sin código se juega igual — solo que el resultado no se guarda en ningún perfil.
     </p>
 </div>
@@ -1431,7 +1439,7 @@
         <small style="display:block;margin-top:8px">Escanea el QR o comparte el enlace</small>
     </div>
 
-    <h3 style="margin:0 0 8px;color:#eee">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
+    <h3 style="margin:0 0 8px;color:var(--text)">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
     <ul class="player-list" id="playerList"></ul>
 
     <!-- Oferta de bots tras una partida rápida en la que no aparece nadie.
@@ -1565,10 +1573,10 @@
 <div id="fxLayer"></div>
 
 <div id="reconnectOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
-    <div style="background:#16213e;border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;">
+    <div style="background:var(--card);border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;">
         <div style="font-size:2.5rem;margin-bottom:12px;">🔌</div>
-        <h2 style="margin:0 0 8px;color:#eee">Conexión perdida</h2>
-        <p style="color:#888;font-size:0.9rem;margin-bottom:24px" id="reconnectMsg">La conexión con el servidor se interrumpió.</p>
+        <h2 style="margin:0 0 8px;color:var(--text)">Conexión perdida</h2>
+        <p style="color:var(--text-faint);font-size:0.9rem;margin-bottom:24px" id="reconnectMsg">La conexión con el servidor se interrumpió.</p>
         <button class="btn btn-primary" onclick="reconnect()">Reconectar</button>
         <button class="btn btn-secondary" style="margin-top:8px" onclick="location.reload()">Recargar página</button>
     </div>
@@ -2697,7 +2705,7 @@ function applyBetaMode() {
     badge.textContent = 'BETA';
     badge.title = 'Entorno de pruebas — los resultados no cuentan';
     badge.style.cssText = 'position:fixed;top:0;left:0;z-index:400;background:var(--warning);'
-        + 'color:#1a1a2e;font-weight:bold;font-size:0.7rem;letter-spacing:0.1em;'
+        + 'color:var(--bg);font-weight:bold;font-size:0.7rem;letter-spacing:0.1em;'
         + 'padding:2px 10px;border-bottom-right-radius:8px;pointer-events:none;';
     document.body.appendChild(badge);
 }
@@ -4273,8 +4281,8 @@ function onGameCancelled(reason) {
     resetCombo();
     // Mostrar notificación breve y volver al lobby
     const notif = document.createElement('div');
-    notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#16213e;border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:#eee;';
-    notif.innerHTML = `<div style="font-size:1.8rem;margin-bottom:8px">😔</div><strong>Partida cancelada</strong><p style="color:#aaa;font-size:0.9rem;margin:8px 0 0">${reason}</p>`;
+    notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:var(--text);';
+    notif.innerHTML = `<div style="font-size:1.8rem;margin-bottom:8px">😔</div><strong>Partida cancelada</strong><p style="color:var(--text-muted);font-size:0.9rem;margin:8px 0 0">${reason}</p>`;
     document.body.appendChild(notif);
     setTimeout(() => { notif.remove(); returnToLobby(); }, 3000);
 }

@@ -1,0 +1,73 @@
+/* agapornis-ui · componentes base. Requiere tokens.css (+ motion.css para
+   los fundidos). Clases con prefijo ag- para no chocar con las de cada app. */
+
+.ag-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-panel);
+  padding: var(--space-4);
+}
+
+.ag-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: 32px; padding: 0 var(--space-3);
+  font: 500 13px/1 var(--font-sans);
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  cursor: pointer;
+  transition: background-color var(--dur-hover) var(--ease-std),
+              border-color var(--dur-hover) var(--ease-std),
+              color var(--dur-hover) var(--ease-std);
+}
+.ag-btn:hover { background: var(--hover); border-color: var(--border-strong); }
+.ag-btn:active { background: var(--pressed); }
+.ag-btn:disabled { opacity: 0.45; cursor: default; background: transparent; }
+
+.ag-btn-primary {
+  color: var(--on-accent-fill);
+  background: var(--accent-fill);
+  border-color: var(--accent-line);   /* el militar solo no llega a 3:1 contra el fondo */
+}
+.ag-btn-primary:hover { background: var(--accent-fill-hover); border-color: var(--accent); }
+
+.ag-btn-ghost { border-color: transparent; }
+.ag-btn-ghost:hover { border-color: transparent; }
+
+.ag-btn-danger { color: var(--danger); border-color: rgb(248 113 113 / 35%); }
+.ag-btn-danger:hover { background: rgb(248 113 113 / 12%); border-color: var(--danger); }
+
+.ag-input {
+  min-height: 32px; padding: 0 var(--space-3);
+  font: 400 13px/1 var(--font-sans);
+  color: var(--text);
+  background: rgb(52 52 56 / 45%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-ctl);
+  transition: border-color var(--dur-hover) var(--ease-std);
+}
+.ag-input::placeholder { color: var(--text-faint); }
+.ag-input:hover { border-color: var(--border-strong); }
+.ag-input:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+.ag-chip {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  padding: 2px 8px;
+  font: 500 11px/1.4 var(--font-mono); letter-spacing: var(--tracking-label);
+  color: var(--text-muted);
+  background: var(--hover);
+  border-radius: var(--radius-pill);
+}
+.ag-chip.is-active { color: var(--accent); background: var(--accent-soft); }
+
+.ag-label { font: 500 11px/1.4 var(--font-mono); letter-spacing: var(--tracking-label); color: var(--text-faint); text-transform: uppercase; }
+.ag-title { font-weight: 600; letter-spacing: var(--tracking-title); color: var(--text); }
+.ag-muted { color: var(--text-muted); }
+.ag-mono  { font-family: var(--font-mono); }
+
+/* Borde que se desvanece al final de un scroll, en vez de cortar el contenido */
+.ag-edge-fade {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 24px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 16px, #000 calc(100% - 24px), transparent 100%);
+}

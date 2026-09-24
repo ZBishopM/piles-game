@@ -1,0 +1,102 @@
+/* agapornis-ui · tokens — identidad común de los frontends.
+   Sistema tomado de zeron (github.com/zeronsh/zeron, MIT): superficies casi
+   negras en capas, bordes y estados como transparencias de blanco (no grises
+   sueltos), un solo acento. Acento propio: sage (≈ iPhone 17) y verde militar.
+   Solo modo oscuro; los nombres son semánticos para poder añadir el claro. */
+
+@font-face {
+  font-family: "Geist";
+  src: url("fonts/geist.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("fonts/geist-mono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: dark;
+
+  /* Superficies, de fondo a primer plano */
+  --bg: #060606;            /* lienzo */
+  --shell: #0d0d0d;         /* marco: barras, laterales */
+  --card: #0e0e0e;          /* tarjetas y paneles */
+  --raised: #343438;        /* controles elevados, chips */
+  --overlay: #151516;       /* popovers y diálogos (opaco, sin vidrio) */
+
+  /* Texto (contraste sobre --bg: 15.6 / 8.7 / 5.5) */
+  --text: #e8e8ea;
+  --text-muted: #a9a9ae;
+  --text-faint: #85858a;
+
+  /* Tinta: la misma escala de transparencias para todo lo que no es texto */
+  --border: rgb(255 255 255 / 10%);
+  --border-strong: rgb(255 255 255 / 18%);
+  --hover: rgb(255 255 255 / 11%);
+  --pressed: rgb(255 255 255 / 16%);
+  --scrim: rgb(0 0 0 / 60%);
+
+  /* Acento */
+  --accent: #a9b689;                        /* sage: texto, foco, activo (9.4:1) */
+  --accent-soft: rgb(169 182 137 / 18%);    /* seleccionado */
+  --accent-line: rgb(169 182 137 / 38%);    /* borde de controles con relleno */
+  --accent-fill: #4b5320;                   /* verde militar: botón primario */
+  --accent-fill-hover: #58612a;
+  --on-accent-fill: #e8e8ea;                /* texto sobre militar (6.7:1) */
+
+  /* Estados */
+  --danger: #f87171;
+  --warning: #facc15;
+  --success: #34d399;
+
+  /* Forma */
+  --radius-ctl: 6px;
+  --radius-panel: 10px;
+  --radius-bubble: 16px;
+  --radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+
+  /* Tipografía */
+  --font-sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --tracking-title: -0.025em;
+  --tracking-label: 0.02em;
+
+  /* Movimiento (catálogo de zeron, crates/ui/src/motion.rs) */
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);   /* entradas */
+  --ease-std: cubic-bezier(0.4, 0, 0.2, 1);     /* hover, colores */
+  --ease-out: cubic-bezier(0, 0, 0.58, 1);      /* tamaños */
+  --ease-in-out: cubic-bezier(0.42, 0, 0.58, 1);/* scroll */
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);     /* popovers, diálogos */
+  --dur-hover: 150ms;
+  --dur-menu-in: 140ms;
+  --dur-menu-out: 100ms;
+  --dur-dialog: 180ms;
+  --dur-collapse: 180ms;
+  --dur-resize: 200ms;
+  --dur-enter: 500ms;
+  --dur-pulse: 2400ms;
+}
+
+/* Base: lo mínimo para que todo proyecto arranque igual */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+/* Cualquier `display` de una clase pisa al [hidden] del navegador: un
+   overlay "oculto" con display:grid seguía tapando la página. */
+[hidden] { display: none !important; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+::selection { background: var(--accent-soft); }
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }

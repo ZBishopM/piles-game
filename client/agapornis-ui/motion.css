@@ -1,0 +1,70 @@
+/* agapornis-ui · movimiento. Catálogo de zeron (MIT):
+   entrada 500ms expo + sube 4px · popover 140/100ms escala .96 · diálogo
+   180ms · hover 150ms · plegar 180ms · cargador 2.4s escalonado.
+   Requiere tokens.css. Todo se apaga con prefers-reduced-motion. */
+
+@keyframes ag-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ag-settle {                      /* entra bajando: lienzos vacíos */
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ag-menu-in {
+  from { opacity: 0; transform: translateY(-2px) scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ag-menu-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-2px) scale(0.96); }
+}
+@keyframes ag-dialog-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ag-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ag-pulse {                       /* celdas del cargador */
+  0%, 100% { opacity: 0.08; transform: scale(0.9); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+
+.fade-in    { animation: ag-enter var(--dur-enter) var(--ease-expo) both; }
+.settle-in  { animation: ag-settle var(--dur-enter) var(--ease-expo) both; }
+.fade-quick { animation: ag-fade 150ms var(--ease) both; }
+.menu-in    { animation: ag-menu-in var(--dur-menu-in) var(--ease) both; transform-origin: top center; }
+.menu-out   { animation: ag-menu-out var(--dur-menu-out) var(--ease) both; transform-origin: top center; }
+.dialog-in  { animation: ag-dialog-in var(--dur-dialog) var(--ease) both; }
+
+/* Entrada escalonada: dar a cada hijo --i (0, 1, 2…) */
+.stagger > * { animation: ag-enter var(--dur-enter) var(--ease-expo) both; animation-delay: calc(var(--i, 0) * 40ms); }
+
+/* Hover: siempre fundido, nunca salto */
+.hover-fade {
+  transition: background-color var(--dur-hover) var(--ease-std),
+              border-color var(--dur-hover) var(--ease-std),
+              color var(--dur-hover) var(--ease-std);
+}
+
+/* Plegar/desplegar sin medir alturas en JS */
+.collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--dur-collapse) var(--ease-out); }
+.collapse > * { overflow: hidden; min-height: 0; }
+.collapse.is-closed { grid-template-rows: 0fr; }
+
+/* Cargador: <span class="ag-loader"><i style="--i:0"></i>…</span> */
+.ag-loader { display: inline-flex; gap: 3px; }
+.ag-loader > i {
+  width: 5px; height: 5px; border-radius: 1px; background: var(--accent);
+  animation: ag-pulse var(--dur-pulse) var(--ease) infinite;
+  animation-delay: calc(var(--i, 0) * 120ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}

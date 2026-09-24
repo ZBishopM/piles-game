@@ -21,25 +21,28 @@
   líneas que no cambian desde hace meses). Si cambia `cards.webp` o
   `thrownStyle`, hay que tocarlo en los dos sitios.
 -->
+<link rel="stylesheet" href="/agapornis-ui/agapornis.css">
 <style>
+    /* --bg y --accent vienen de agapornis-ui; estos alias mantienen los
+       nombres que ya usa la página. */
     :root {
-        --bg: #1a1a2e; --panel: #16213e; --line: #2a2a5a;
-        --accent: #667eea; --ok: #28a745; --warn: #ffc107; --bad: #dc3545;
+        --panel: var(--card); --line: var(--border-strong);
+        --ok: var(--success); --warn: var(--warning); --bad: var(--danger);
     }
     * { box-sizing: border-box; }
     body {
         margin: 0; padding: 10px;
-        background: var(--bg); color: #ddd;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        background: var(--bg); color: var(--text);
+        font-family: var(--font-sans);
         font-size: 14px;
     }
     h1 { font-size: 1.05rem; margin: 0 0 10px; color: var(--accent); }
     a { color: var(--accent); }
-    .vacio { color: #666; font-size: 0.8rem; }
+    .vacio { color: var(--text-faint); font-size: 0.8rem; }
 
     table { border-collapse: collapse; width: 100%; max-width: 900px; }
     th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-    th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; }
+    th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); }
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: var(--panel); }
 
@@ -48,18 +51,19 @@
         background: var(--panel); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px;
     }
     .reloj { font-variant-numeric: tabular-nums; font-size: 1rem; }
-    .reloj small { color: #888; font-size: 0.68rem; display: block; }
+    .reloj small { color: var(--text-faint); font-size: 0.68rem; display: block; }
     input[type=range] { flex: 1; min-width: 200px; }
     button {
-        background: var(--line); color: #ddd; border: none;
-        border-radius: 6px; padding: 6px 11px; cursor: pointer; font-size: 0.85rem;
+        background: var(--line); color: var(--text); border: none;
+        border-radius: var(--radius-ctl); padding: 6px 11px; cursor: pointer; font-size: 0.85rem;
+        transition: background-color var(--dur-hover) var(--ease-std);
     }
-    button:hover { background: #3a3a7a; }
-    button.on { background: var(--accent); color: #101020; }
+    button:hover { background: rgb(255 255 255 / 24%); }
+    button.on { background: var(--accent); color: var(--bg); }
 
     /* ── Quién mira ── */
     .asientos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .asientos .quien { font-size: 0.72rem; color: #888; margin-right: 2px; }
+    .asientos .quien { font-size: 0.72rem; color: var(--text-faint); margin-right: 2px; }
 
     .cols { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
     .tablero { flex: 1 1 520px; min-width: 300px; }
@@ -68,7 +72,7 @@
     /* ── El tablero, como en el juego ── */
     .etiqueta {
         font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em;
-        color: #888; margin: 10px 0 5px;
+        color: var(--text-faint); margin: 10px 0 5px;
     }
     .fila-cartas {
         display: grid; gap: 7px;
@@ -86,7 +90,7 @@
         box-shadow: 0 2px 6px rgba(0,0,0,0.4);
         position: relative;
     }
-    .carta.hueco { background: #0f1830; box-shadow: inset 0 0 0 1px var(--line); }
+    .carta.hueco { background: var(--shell); box-shadow: inset 0 0 0 1px var(--line); }
     /* Misma inclinación determinista que en el juego: la misma carta sale
        torcida igual aquí que en el vídeo que estás comparando. */
     .carta.tirada { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
@@ -113,12 +117,12 @@
     .franja {
         display: flex; align-items: center; gap: 6px; min-width: 0;
         padding: 4px 8px; border-radius: 6px; background: var(--panel);
-        border-left: 3px solid transparent; font-size: 0.72rem; color: #9aa;
+        border-left: 3px solid transparent; font-size: 0.72rem; color: var(--text-faint);
         cursor: pointer;
     }
-    .franja.yo { border-left-color: var(--accent); color: #eee; }
+    .franja.yo { border-left-color: var(--accent); color: var(--text); }
     .franja .nom { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .punto { width: 9px; height: 13px; border-radius: 2px; background: #0f1830;
+    .punto { width: 9px; height: 13px; border-radius: 2px; background: var(--shell);
              box-shadow: inset 0 0 0 1px var(--line); }
     .punto.on { background: var(--accent); }
     .mult { color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -133,14 +137,14 @@
     .ev { padding: 2px 4px; border-radius: 4px; cursor: pointer; white-space: nowrap;
           overflow: hidden; text-overflow: ellipsis; }
     .ev:hover { background: var(--line); }
-    .ev.actual { background: var(--accent); color: #101020; }
-    .ev.dentro { color: #7fd1a0; }
+    .ev.actual { background: var(--accent); color: var(--bg); }
+    .ev.dentro { color: var(--success); }
     .ev.clave { color: #777; }
     .ev.vuelta { color: var(--warn); }
     .aviso { font-size: 0.74rem; padding: 2px 0; cursor: pointer; }
     .aviso.vuelta { color: var(--warn); }
-    .estado { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: #aaa; }
-    .estado b { color: #eee; }
+    .estado { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.75rem; color: var(--text-muted); }
+    .estado b { color: var(--text); }
 </style>
 </head>
 <body>
