@@ -811,29 +811,46 @@
 
         /* Bloqueo tras perder: el tablero se apaga y no responde. Ese apagón
            ES el mensaje de "has perdido" — no hay ningún texto. */
+        /* Alto fijo: lo de dentro se muestra y se oculta sin mover nada (ver el
+           comentario en el HTML). El combo ocupa la franja; las dos barras
+           finas van pegadas a su borde de abajo, encima si coinciden. */
+        #statusStrip {
+            position: relative;
+            height: 56px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+        }
+        #statusStrip #stunBar, #statusStrip #debtBar {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            margin: 0;
+        }
+        #statusStrip #stunBar { z-index: 1; }   /* bloqueado manda sobre deuda */
         #stunBar {
-            display: none;
+            display: block;
+            visibility: hidden;
             height: 6px;
             border-radius: 3px;
             background: var(--border-strong);
             overflow: hidden;
             margin: 0 0 10px;
         }
-        #stunBar.active { display: block; }
+        #stunBar.active { visibility: visible; }
         #stunBarFill { height: 100%; background: var(--danger); transition: width 0.1s linear; }
 
         /* Misma barra, otro color: roja es "no puedes hacer nada", ámbar es
            "date prisa". La transición la fija el JS con la duración que manda
            el servidor. */
         #debtBar {
-            display: none;
+            display: block;
+            visibility: hidden;
             height: 6px;
             border-radius: 3px;
             background: var(--border-strong);
             overflow: hidden;
             margin: 0 0 10px;
         }
-        #debtBar.active { display: block; }
+        #debtBar.active { visibility: visible; }
         #debtBarFill { height: 100%; width: 100%; background: var(--warning); }
         .stunned #centerCards,
         .stunned #yourCards {
@@ -1028,12 +1045,14 @@
         #gameScreen[data-combo-tier="5"] { --combo-color: #e74c3c; --combo-ring: rgba(231,76,60,0.55); }
 
         #comboBox {
-            display: none;
+            display: flex;
+            visibility: hidden;
             align-items: center;
             gap: 8px;
-            margin-bottom: 8px;
+            height: 44px;
+            margin: 0;
         }
-        #comboBox.active { display: flex; }
+        #comboBox.active { visibility: visible; }
         /* El multiplicador es el cartel entero: un número grande y su color.
            Cuanto más alto, más pesa — tamaño y brillo suben con el tramo, así
            que no hace falta leer nada para saber que vas lanzado. */
@@ -1279,7 +1298,7 @@
             }
             /* Lo de abajo no se encoge: son los objetivos que hay que acertar. */
             .hud, .set-nav, #yourCards, .section-head,
-            #comboBox, #stunBar, #debtBar { flex-shrink: 0; }
+            #statusStrip { flex-shrink: 0; }
             /* El cartel de ayuda solo ocupa sitio cuando dice algo. */
             #swapHint:empty { display: none; }
             /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
@@ -1486,6 +1505,12 @@
     <!-- Hint de intercambio -->
     <div id="swapHint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
 
+    <!-- Franja de estado de alto FIJO (como la de zeron). Combo, deuda y
+         bloqueo aparecen y desaparecen muchas veces por partida; si cada uno
+         entrara y saliera del flujo, todo lo de abajo —los botones de set y
+         tus cartas— saltaría 16–64 px en cada swap y el clic caería en otro
+         sitio (medido en beta el 2026-09-28). Aquí solo cambia su visibilidad. -->
+    <div id="statusStrip">
     <!-- Cuenta atrás del bloqueo por perder una pelea -->
     <div id="stunBar"><div id="stunBarFill"></div></div>
 
@@ -1505,7 +1530,7 @@
              otro: mientras lo tengas cargado, su frenesí no te bloquea. -->
         <button id="frenzyBtn" type="button" hidden onclick="fireFrenzy()">FRENZY</button>
     </div>
-
+    </div><!-- /statusStrip -->
 
     <!-- Centro -->
     <p class="section-label">Cartas del Centro</p>
@@ -2544,8 +2569,10 @@ function thrownStyle(cardId) {
     // no queden correlacionados.
     const h = (cardId * 2654435761) >>> 0;
     const angle = ((h % 241) / 240 - 0.5) * 24;        // ±12°
-    const dx = (((h >> 8) % 101) / 100 - 0.5) * 10;    // ±5 % del ancho
-    const dy = (((h >> 16) % 101) / 100 - 0.5) * 10;   // ±5 % del alto
+    // `>>>`, no `>>`: con signo, un hash ≥ 2³¹ daba negativo y el % también,
+    // y la carta subía hasta un −11 % y tapaba el rótulo "Centro".
+    const dx = (((h >>> 8) % 101) / 100 - 0.5) * 10;   // ±5 % del ancho
+    const dy = (((h >>> 16) % 101) / 100 - 0.5) * 10;  // ±5 % del alto
     return { angle, dx, dy };
 }
 
