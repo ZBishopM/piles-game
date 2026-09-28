@@ -446,6 +446,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         nickname, player_id, GRACE_PERIOD.as_secs()
                     );
                     let connected = lobby.connected_count();
+                    // Los bots cuentan como conectados: sin esto, 1 persona + 2
+                    // bots seguían jugando entre ellos sin nadie mirando.
+                    let human_left = lobby.players.iter()
+                        .any(|p| !p.is_bot && p.disconnected_at.is_none());
                     state.lobby_manager.update_lobby(lobby).await;
 
                     state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
@@ -453,8 +457,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         seconds: GRACE_PERIOD.as_secs(),
                     }).await;
 
-                    if connected < 2 {
-                        // Sin dos personas no hay partida que sostener.
+                    if connected < 2 || !human_left {
+                        // Sin dos jugadores, o sin ninguna persona, no hay
+                        // partida que sostener.
                         cancel_match(&state, lobby_id, &nickname).await;
                     } else {
                         tokio::spawn(run_grace_period(
@@ -493,11 +498,29 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         spectators: mirones,
                     }).await;
                 }
+                retire_orphan_bots(&state, lobby_id).await;
             }
         }
     }
 
     tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
+}
+
+/// Una sala sin personas no tiene a quién esperar: sus bots se van y la sala
+/// queda vacía, que es lo que la saca de la lista pública y la hace
+/// reciclable. Sin esto un bot se quedaba sentado para siempre en una sala
+/// "abierta con 1 jugador" (visto en beta el 2026-09-28). Una persona caída
+/// dentro del periodo de gracia cuenta como persona: puede volver.
+async fn retire_orphan_bots(state: &AppState, lobby_id: &str) {
+    let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    if lobby.players.is_empty() || lobby.players.iter().any(|p| !p.is_bot) {
+        return;
+    }
+    let bots: Vec<Uuid> = lobby.players.iter().map(|p| p.id).collect();
+    for bot_id in &bots {
+        crate::bot::remove_bot(state, lobby_id, *bot_id).await;
+    }
+    tracing::info!("🤖 {} bot(s) salieron de {}: no quedaba ninguna persona", bots.len(), lobby_id);
 }
 
 /// Centro, progreso y cuánta gente mira: los tres campos de un `GameUpdate`.
@@ -713,6 +736,12 @@ pub(crate) async fn handle_client_message(
         ClientMessage::SetReady { ready } => {
             if let Some(ref lobby_id) = current_lobby {
                 if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+                    // Un SetReady tardío (el del bot que esperaba 400 ms, o
+                    // una pestaña vieja) no significa nada con la partida en
+                    // marcha: se ignora sin avisar a nadie.
+                    if lobby.status == LobbyStatus::Playing {
+                        return;
+                    }
                     match lobby.set_player_ready(&player_id, ready) {
                         Ok(_) => {
                             // Intentar iniciar el juego si todos están listos
@@ -1676,7 +1705,15 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
     lobby.game_state = None;
     lobby.status = LobbyStatus::Waiting;
-    lobby.players.retain(|p| p.disconnected_at.is_none());
+    // Por remove_player y no con retain: si la sala se queda sin nadie,
+    // remove_player la fecha como vacía y así se puede reciclar.
+    let caidos: Vec<Uuid> = lobby.players.iter()
+        .filter(|p| p.disconnected_at.is_some())
+        .map(|p| p.id)
+        .collect();
+    for id in &caidos {
+        lobby.remove_player(id);
+    }
     for p in lobby.players.iter_mut() {
         p.is_ready = false;
     }
@@ -1706,6 +1743,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
             message: "La sala se llenó al acabar la partida".to_string(),
         }).await;
     }
+    retire_orphan_bots(state, lobby_id).await;
 }
 
 /// Espera a quien se cayó y, si no vuelve, redimensiona la partida.
@@ -1726,12 +1764,14 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     // si se queda, sigue contando como jugador y, con `is_ready` en false,
     // bloquea la siguiente ronda para siempre — nadie volvería a poder empezar.
     if lobby.status != LobbyStatus::Playing || lobby.game_state.is_none() {
-        lobby.players.retain(|p| p.id != player_id);
+        // remove_player y no retain: fecha la sala como vacía si lo queda.
+        lobby.remove_player(&player_id);
         let empty = lobby.players.is_empty();
         state.lobby_manager.update_lobby(lobby).await;
         if !empty {
             send_lobby_update(&state, &lobby_id).await;
         }
+        retire_orphan_bots(&state, &lobby_id).await;
         return;
     }
 

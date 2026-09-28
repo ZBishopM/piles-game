@@ -180,6 +180,12 @@ impl Lobby {
 
     /// Marca un jugador como listo
     pub fn set_player_ready(&mut self, player_id: &Uuid, ready: bool) -> Result<(), String> {
+        // Con la partida en marcha no hay "listo" que marcar. Sin este corte,
+        // un SetReady tardío (el bot, o una pestaña vieja) recalculaba el
+        // estado de abajo y devolvía la sala a Waiting en plena partida.
+        if self.status == LobbyStatus::Playing {
+            return Err("La partida ya empezó".to_string());
+        }
         let player = self.players.iter_mut()
             .find(|p| p.id == *player_id)
             .ok_or("Jugador no encontrado")?;
@@ -460,12 +466,14 @@ impl LobbyManager {
     }
 
     /// Salas a las que se puede entrar desde la lista pública: en espera, no
-    /// llenas y marcadas como públicas. Las privadas existen igual, solo que
-    /// hay que saber su código.
+    /// llenas, marcadas como públicas y con alguien dentro. Las privadas y las
+    /// vacías existen igual (una vacía se guarda para que quien se cayó
+    /// vuelva), solo que hay que saber su código.
     pub async fn list_available_lobbies(&self) -> Vec<Lobby> {
         let lobbies = self.lobbies.read().await;
         lobbies.values()
-            .filter(|l| l.is_public && l.status == LobbyStatus::Waiting && !l.is_full())
+            .filter(|l| l.is_public && l.status == LobbyStatus::Waiting && !l.is_full()
+                && !l.players.is_empty())
             .cloned()
             .collect()
     }
@@ -789,8 +797,11 @@ mod tests {
     #[tokio::test]
     async fn a_private_lobby_never_shows_in_the_public_list() {
         let manager = LobbyManager::new();
+        let no_one = HashSet::new();
         let open = manager.create_lobby(4, true).await;
         let secret = manager.create_lobby(4, false).await;
+        manager.join_lobby(&open, Uuid::new_v4(), "Ana".to_string(), &no_one).await.unwrap();
+        manager.join_lobby(&secret, Uuid::new_v4(), "Beto".to_string(), &no_one).await.unwrap();
 
         let listed: Vec<String> = manager.list_available_lobbies().await
             .into_iter().map(|l| l.id).collect();
@@ -799,6 +810,49 @@ mod tests {
         assert!(!listed.contains(&secret), "una sala privada no se anuncia");
         // Pero sigue existiendo: con el código se entra igual.
         assert!(manager.get_lobby(&secret).await.is_some());
+    }
+
+    // 2026-09-28, visto en beta: el bot recibía un LobbyUpdate, esperaba
+    // 400 ms y mandaba SetReady; si la partida empezaba en esa espera, el
+    // SetReady llegaba con la sala en Playing y la devolvía a Waiting. La
+    // partida seguía, pero la sala volvía a anunciarse como abierta, la
+    // grabación se cerraba como "abandoned" y las desconexiones dejaban de
+    // tratarse como caídas en partida.
+    #[test]
+    fn set_ready_during_a_match_changes_nothing() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let ana = Uuid::new_v4();
+        let bot = Uuid::new_v4();
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+        lobby.add_player(bot, "Bot".to_string()).unwrap();
+        lobby.set_player_ready(&ana, true).unwrap();
+        lobby.set_player_ready(&bot, true).unwrap();
+        lobby.start_game().unwrap();
+        assert_eq!(lobby.status, LobbyStatus::Playing);
+
+        assert!(lobby.set_player_ready(&bot, true).is_err(), "en partida no hay nada que marcar");
+        assert!(lobby.set_player_ready(&ana, false).is_err());
+        assert_eq!(lobby.status, LobbyStatus::Playing, "la partida sigue siendo una partida");
+    }
+
+    // Una sala vacía se guarda un rato para que quien se cayó vuelva con el
+    // código, pero anunciarla en la lista pública es invitar a entrar a una
+    // sala donde no hay nadie.
+    #[tokio::test]
+    async fn an_empty_lobby_is_kept_but_not_listed() {
+        let manager = LobbyManager::new();
+        let no_one = HashSet::new();
+        let id = manager.create_lobby(4, true).await;
+        let ana = Uuid::new_v4();
+        manager.join_lobby(&id, ana, "Ana".to_string(), &no_one).await.unwrap();
+        assert_eq!(manager.list_available_lobbies().await.len(), 1);
+
+        let mut lobby = manager.get_lobby(&id).await.unwrap();
+        lobby.remove_player(&ana);
+        manager.update_lobby(lobby).await;
+
+        assert!(manager.list_available_lobbies().await.is_empty(), "vacía: fuera de la lista");
+        assert!(manager.get_lobby(&id).await.is_some(), "pero se puede volver con el código");
     }
 
     #[tokio::test]
