@@ -757,6 +757,12 @@ async fn spawn_bot_inner(
         state.lobby_manager.update_lobby(lobby).await;
     }
 
+    // Un bot no tiene nada que preparar: entra ya listo, en este mismo paso.
+    // Antes se marcaba listo 400 ms después de cada LobbyUpdate, así que en la
+    // sala aparecía "no listo" y de pronto empezaba la partida, y un segundo
+    // LobbyUpdate encolado disparaba otro SetReady ya en plena partida.
+    handle_client_message(ClientMessage::SetReady { ready: true }, id, &mut current_lobby, state).await;
+
     tokio::spawn(run(state.clone(), id, current_lobby, difficulty, rx));
     Some(id)
 }
@@ -893,14 +899,22 @@ async fn apply(
     msg: ServerMessage,
 ) -> bool {
     match msg {
-        // Los bots se marcan listos solos; arrancar sigue siendo del anfitrión.
-        ServerMessage::LobbyUpdate { players, .. } => {
-            let me_ready = players.iter()
-                .any(|p| p.id == bot.id.to_string() && p.is_ready);
-            if !bot.playing && !me_ready {
-                sleep(Duration::from_millis(400)).await;
-                handle_client_message(
-                    ClientMessage::SetReady { ready: true }, bot.id, current_lobby, state).await;
+        // Al volver a la sala tras una partida todos quedan "no listos": el bot
+        // se vuelve a marcar al momento. Se mira el estado real de la sala y no
+        // el del mensaje, que puede venir encolado de antes de empezar.
+        ServerMessage::LobbyUpdate { .. } => {
+            if !bot.playing {
+                let needs_ready = match current_lobby.as_deref() {
+                    Some(lid) => state.lobby_manager.get_lobby(lid).await.is_some_and(|l| {
+                        l.status == crate::game::lobby::LobbyStatus::Waiting
+                            && l.players.iter().any(|p| p.id == bot.id && !p.is_ready)
+                    }),
+                    None => false,
+                };
+                if needs_ready {
+                    handle_client_message(
+                        ClientMessage::SetReady { ready: true }, bot.id, current_lobby, state).await;
+                }
             }
         }
         ServerMessage::GameStart { your_sets, center_cards, current_set, .. } => {

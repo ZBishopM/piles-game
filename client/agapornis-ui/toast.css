@@ -1,0 +1,55 @@
+/* agapornis-ui · avisos (toast). Sustituto de alert(): no bloquea, no roba
+   el foco y se va solo. Forma tomada del Notice de zeron: tarjeta con un
+   lavado del color del estado (≈5 %) y borde del mismo color (≈16 %, aquí
+   algo más por el fondo casi negro), icono + título y el mensaje debajo,
+   que se parte en líneas en vez de cortarse. Requiere tokens.css y motion.css. */
+
+.ag-toasts {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(420px, calc(100vw - 24px));
+  pointer-events: none;
+}
+
+.ag-toast {
+  --tone: 169 182 137;                       /* info = sage */
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 2px var(--space-2);
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--radius-panel);
+  border: 1px solid rgb(var(--tone) / 30%);
+  background-color: var(--overlay);
+  background-image: linear-gradient(rgb(var(--tone) / 7%), rgb(var(--tone) / 7%));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+  color: var(--text);
+  font: 400 13px/1.45 var(--font-sans);
+  cursor: pointer;
+  animation: ag-menu-in var(--dur-menu-in) var(--ease) both;
+  transform-origin: top center;
+}
+.ag-toast.is-leaving { animation: ag-menu-out var(--dur-menu-out) var(--ease) both; }
+.ag-toast[data-kind="error"]   { --tone: 248 113 113; }
+.ag-toast[data-kind="warning"] { --tone: 250 204 21; }
+.ag-toast[data-kind="success"] { --tone: 52 211 153; }
+
+.ag-toast-icon  { grid-row: span 2; width: 18px; height: 18px; margin-top: 1px; color: rgb(var(--tone)); }
+.ag-toast-title { font-weight: 600; letter-spacing: -0.01em; }
+.ag-toast-msg   { grid-column: 2; color: var(--text-muted); overflow-wrap: anywhere; }
+.ag-toast-close {
+  grid-row: 1; grid-column: 3;
+  background: none; border: 0; padding: 0 2px; margin: 0;
+  color: var(--text-faint); font: inherit; font-size: 16px; line-height: 1; cursor: pointer;
+}
+.ag-toast-close:hover { color: var(--text); }
+
+/* Sin título: el mensaje ocupa su lugar */
+.ag-toast:not(:has(.ag-toast-title)) .ag-toast-msg { grid-row: 1; color: var(--text); }

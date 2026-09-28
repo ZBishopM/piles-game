@@ -22,6 +22,7 @@
          tinta, acento sage, Geist. Solo la interfaz; los efectos del juego
          (combo, cartas, frenesí) conservan sus colores propios. -->
     <link rel="stylesheet" href="/agapornis-ui/agapornis.css">
+    <script src="/agapornis-ui/toast.js" defer></script>
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
            una página de pruebas anterior. */
@@ -1430,6 +1431,10 @@
 
 <!-- ════ LOBBY ════ -->
 <div id="lobbyScreen" class="screen">
+    <!-- Arriba a la izquierda, como el "Atrás" de Nueva sala y Unirse. -->
+    <div class="screen-top">
+        <button type="button" class="back-btn" onclick="leaveLobby()">← Salir de la sala</button>
+    </div>
     <div class="lobby-code-box">
         <small>Código del lobby</small>
         <div class="lobby-code" id="lobbyCodeDisplay">------</div>
@@ -1465,7 +1470,6 @@
 
     <button id="readyBtn" onclick="toggleReady()">Marcar como Listo ✓</button>
     <p id="readyCount"></p>
-    <button class="btn btn-secondary" onclick="leaveLobby()" style="margin-top:10px">← Salir</button>
 </div>
 
 <!-- ════ GAME ════ -->
@@ -2002,7 +2006,8 @@ function handleMsg(msg) {
                 hint.hidden = false;
                 break;
             }
-            alert('⚠️ ' + msg.message);
+            // Aviso en vez de alert(): no bloquea la pantalla ni la partida.
+            agToast({ kind: 'error', message: msg.message });
             clearSelection();
             break;
     }
@@ -4279,12 +4284,11 @@ function onGameCancelled(reason) {
     clearStun();
     clearMatchNotifications();
     resetCombo();
-    // Mostrar notificación breve y volver al lobby
-    const notif = document.createElement('div');
-    notif.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--card);border:2px solid #e74c3c;border-radius:12px;padding:28px 36px;text-align:center;z-index:500;color:var(--text);';
-    notif.innerHTML = `<div style="font-size:1.8rem;margin-bottom:8px">😔</div><strong>Partida cancelada</strong><p style="color:var(--text-muted);font-size:0.9rem;margin:8px 0 0">${reason}</p>`;
-    document.body.appendChild(notif);
-    setTimeout(() => { notif.remove(); returnToLobby(); }, 3000);
+    // Aviso y de vuelta a la sala. El aviso sobrevive al cambio de pantalla,
+    // así que no hace falta dejar a nadie 3 s mirando un cartel. (El motivo
+    // lleva un nickname: textContent en toast.js, nunca innerHTML.)
+    agToast({ kind: 'warning', title: 'Partida cancelada', message: reason });
+    returnToLobby();
 }
 
 function returnToLobby() {

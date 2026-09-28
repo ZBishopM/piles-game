@@ -126,7 +126,7 @@ impl Lobby {
     /// a alguien es un riesgo asumido: esto es para jugar entre amigos.
     pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<bool, String> {
         if self.players.iter().chain(&self.spectators).any(|p| p.nickname == nickname) {
-            return Err("Nickname ya en uso".to_string());
+            return Err(format!("Ya hay alguien llamado «{nickname}» en esta sala. Cambia tu nombre en el inicio y vuelve a intentarlo."));
         }
 
         let nuevo = LobbyPlayer {
@@ -487,6 +487,11 @@ impl LobbyManager {
             .filter(|l| l.is_public && l.status == LobbyStatus::Waiting && !l.is_full())
             .max_by_key(|l| l.players.len())
             .map(|l| l.id.clone())
+    }
+
+    /// Cierra una sala del todo (deja de existir también por código).
+    pub async fn remove_lobby(&self, lobby_id: &str) {
+        self.lobbies.write().await.remove(lobby_id);
     }
 
     /// Recicla los lobbies que llevan vacíos más de `EMPTY_LOBBY_TTL`.

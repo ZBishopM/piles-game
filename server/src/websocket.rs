@@ -506,11 +506,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
 }
 
-/// Una sala sin personas no tiene a quién esperar: sus bots se van y la sala
-/// queda vacía, que es lo que la saca de la lista pública y la hace
-/// reciclable. Sin esto un bot se quedaba sentado para siempre en una sala
+/// Si en la sala solo quedan bots, se cierra: los bots se van y la sala deja
+/// de existir. Sin esto un bot se quedaba sentado para siempre en una sala
 /// "abierta con 1 jugador" (visto en beta el 2026-09-28). Una persona caída
-/// dentro del periodo de gracia cuenta como persona: puede volver.
+/// dentro del periodo de gracia cuenta como persona: puede volver. Una sala
+/// vacía SIN bots se sigue guardando un rato para volver con el código.
 async fn retire_orphan_bots(state: &AppState, lobby_id: &str) {
     let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
     if lobby.players.is_empty() || lobby.players.iter().any(|p| !p.is_bot) {
@@ -520,7 +520,9 @@ async fn retire_orphan_bots(state: &AppState, lobby_id: &str) {
     for bot_id in &bots {
         crate::bot::remove_bot(state, lobby_id, *bot_id).await;
     }
-    tracing::info!("🤖 {} bot(s) salieron de {}: no quedaba ninguna persona", bots.len(), lobby_id);
+    state.lobby_manager.remove_lobby(lobby_id).await;
+    state.take_intents.write().await.remove(lobby_id);
+    tracing::info!("🚪 sala {} cerrada: solo quedaban {} bot(s)", lobby_id, bots.len());
 }
 
 /// Centro, progreso y cuánta gente mira: los tres campos de un `GameUpdate`.
