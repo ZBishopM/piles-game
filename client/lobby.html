@@ -751,13 +751,14 @@
             width: 52px;
             height: 52px;
             padding: 0;
-            border: none;
+            /* Opaco y con borde. Antes iba al 55 % sobre un gris casi negro, y
+               en Windows la bandera es un glifo gris: no se veía (2026-09-28). */
+            border: 1px solid var(--border-strong);
             border-radius: 50%;
-            background: rgb(21 21 22 / 90%);
-            font-size: 1.3rem;
+            background: var(--raised);
+            font-size: 1.4rem;
             line-height: 1;
             cursor: pointer;
-            opacity: 0.55;
             overflow: hidden;
             /* LO QUE HACÍA QUE NO FUNCIONARA EN EL MÓVIL.
                Sin esto el navegador trata el dedo apoyado como el principio de
@@ -773,7 +774,13 @@
             user-select: none;
             -webkit-user-select: none;
         }
-        #qteGiveUpBtn:hover { opacity: 0.9; }
+        #qteGiveUpBtn:hover { border-color: var(--text-muted); }
+        /* Con ratón no hay pulgar que estorbe: justo debajo de la caja, donde
+           se ve, en vez de al fondo de una pantalla de 1080 px. */
+        @media (pointer: fine) {
+            /* relative, no static: el relleno <i> va en absoluto dentro. */
+            #qteGiveUpBtn { position: relative; bottom: auto; left: auto; transform: none; margin-top: 16px; }
+        }
         /* El relleno mientras se mantiene: es lo único que dice "sigue
            apretando", sin una palabra de texto. */
         #qteGiveUpBtn i {
@@ -785,7 +792,6 @@
             background: rgba(255,255,255,0.28);
             pointer-events: none;
         }
-        #qteGiveUpBtn.holding { opacity: 1; }
         #qteGiveUpBtn.holding i {
             height: 100%;
             transition: height var(--giveup-ms, 700ms) linear;
