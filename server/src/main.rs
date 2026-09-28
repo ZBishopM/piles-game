@@ -8,6 +8,7 @@ use axum::{
 use std::net::SocketAddr;
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::services::ServeDir;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber;
 
 mod bot;
@@ -65,6 +66,15 @@ async fn main() {
         // Servir archivos estáticos del frontend desde la carpeta "client/"
         // La carpeta debe estar al lado del binario al ejecutar
         .fallback_service(ServeDir::new("client"))
+        // Sin Cache-Control el navegador guardaba lobby.html por su cuenta y,
+        // tras un despliegue, seguía jugando con la versión vieja (visto en
+        // beta el 2026-09-28: los avisos nuevos "no funcionaban"). no-cache =
+        // preguntar siempre; si nada cambió, ServeDir contesta 304 y no se
+        // vuelve a descargar nada.
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        ))
         .layer(cors)
         .with_state(app_state);
 
