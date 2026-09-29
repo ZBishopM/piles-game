@@ -84,10 +84,14 @@ impl Difficulty {
 /// lo que le haría perder una carta al azar por el plazo de 3 s del servidor.
 const REFLEX_DELAY: Duration = Duration::from_millis(250);
 
-/// Cuántos turnos aguanta esperando su prenda antes de soltar igual.
-/// Con todos los bots esperando a la vez nadie suelta, el centro no cambia y la
-/// partida se queda quieta; esto la mueve.
-const IDLE_TICKS_BEFORE_CHURN: u8 = 3;
+/// Cuánto tiene que llevar el centro sin cambiar para soltar sin ganar nada.
+///
+/// Con todos esperando su prenda nadie suelta, el centro no cambia y la
+/// partida se queda quieta; soltar igual la mueve. Antes contaba turnos (3),
+/// y un turno dura lo que diga la dificultad: en difícil soltaba basura cada
+/// 1,5 s aunque la mesa se estuviera moviendo sola. Lo que importa es si la
+/// mesa está parada, y eso se mide en tiempo, igual para todos.
+const STALE_TABLE: Duration = Duration::from_secs(4);
 
 /// Lo que espera un bot tras una pelea antes de meterse en otra. Con varios
 /// bots difíciles, sin esto la mesa es una pelea detrás de otra y casi no se
@@ -140,9 +144,26 @@ struct Bot {
     /// cuando llega ya se la ha llevado otro. Soltar la copia propia y no
     /// recuperarla es peor que no haberla soltado.
     chasing: Option<(u8, usize)>,
+    /// Última vez que cambió lo que hay en el centro. Ver `STALE_TABLE`.
+    center_changed_at: Instant,
 }
 
 impl Bot {
+    /// Pone el centro nuevo y apunta si ha cambiado algo.
+    fn set_center(&mut self, center: Vec<CardInfo>) {
+        let mismo = center.len() == self.center.len()
+            && center.iter().all(|c| self.center.iter().any(|o| o.id == c.id));
+        if !mismo {
+            self.center_changed_at = Instant::now();
+        }
+        self.center = center;
+    }
+
+    /// ¿Lleva la mesa parada lo bastante como para soltar sin ganar nada?
+    fn table_is_stale(&self) -> bool {
+        self.center_changed_at.elapsed() >= STALE_TABLE
+    }
+
     fn owes(&self) -> bool {
         self.sets.iter().any(|s| s.iter().any(|c| c.is_none()))
     }
@@ -448,6 +469,7 @@ mod tests {
             freed: None,
             freeing: None,
             chasing: None,
+            center_changed_at: Instant::now(),
         }
     }
 
@@ -668,6 +690,26 @@ mod tests {
         assert!(bot.force_drop(&mut rng).is_some(), "la mesa se quedaría parada");
     }
 
+    // Soltar sin ganar nada solo sirve para descongelar una mesa parada. Con la
+    // mesa moviéndose —personas u otros bots— no hace falta, y en difícil lo
+    // hacía cada 1,5 s.
+    #[test]
+    fn it_only_churns_when_the_table_has_stood_still() {
+        let mut bot = bot_with(vec![mixed(0); 6], vec![card(90, 2)]);
+        assert!(!bot.table_is_stale(), "la mesa acaba de empezar");
+
+        bot.center_changed_at = Instant::now().checked_sub(STALE_TABLE).unwrap();
+        assert!(bot.table_is_stale(), "4 s sin cambios: hay que moverla");
+
+        // Llega el mismo centro: sigue parada.
+        bot.set_center(vec![card(90, 2)]);
+        assert!(bot.table_is_stale(), "el mismo centro no es un cambio");
+
+        // Alguien mueve una carta: ya no hace falta soltar basura.
+        bot.set_center(vec![card(90, 2), card(91, 3)]);
+        assert!(!bot.table_is_stale(), "la mesa se ha movido");
+    }
+
     #[test]
     fn it_does_drop_when_the_garment_it_needs_is_on_the_table() {
         let sets = vec![
@@ -846,6 +888,7 @@ async fn run(
         freed: None,
         freeing: None,
         chasing: None,
+        center_changed_at: Instant::now(),
     };
 
     // Dos relojes distintos a propósito.
@@ -858,8 +901,6 @@ async fn run(
     // enteros sin pelearse una sola carta por esto.
     let mut think = tokio::time::interval(bot.knobs.think);
     let mut watch = tokio::time::interval(Duration::from_millis(80));
-    // Turnos seguidos sin hacer nada, esperando a que salga su prenda.
-    let mut idle: u8 = 0;
 
     loop {
         tokio::select! {
@@ -876,28 +917,13 @@ async fn run(
                 let action = {
                     let mut rng = rand::thread_rng();
                     match bot.decide(&mut rng) {
-                        // Solo cuenta como avance lo que mueve una carta.
-                        // Cambiar de set no mueve nada, así que un bot dando
-                        // vueltas entre sets parecía ocupado y nunca llegaba a
-                        // `force_drop`: la mesa se quedaba parada del todo.
-                        Some(a) => {
-                            if !matches!(a, ClientMessage::SwitchSet { .. }) {
-                                idle = 0;
-                            }
-                            Some(a)
-                        }
-                        // Esperando a que salga su prenda. Si lleva demasiado
-                        // esperando, suelta igual: con todos esperando nadie
-                        // suelta, el centro no cambia y la mesa se para.
-                        None => {
-                            idle += 1;
-                            if idle >= IDLE_TICKS_BEFORE_CHURN {
-                                idle = 0;
-                                bot.force_drop(&mut rng)
-                            } else {
-                                None
-                            }
-                        }
+                        Some(a) => Some(a),
+                        // Esperando a que salga su prenda. Si la mesa lleva
+                        // parada `STALE_TABLE`, suelta igual: con todos
+                        // esperando nadie suelta y la partida se congela. Si
+                        // se mueve —la mueva quien la mueva—, no hace falta.
+                        None if bot.table_is_stale() => bot.force_drop(&mut rng),
+                        None => None,
                     }
                 };
                 let dropped = matches!(action, Some(ClientMessage::DropCard { .. }));
@@ -965,7 +991,8 @@ async fn apply(
         }
         ServerMessage::GameStart { your_sets, center_cards, current_set, .. } => {
             bot.sets = your_sets;
-            bot.center = center_cards;
+            bot.set_center(center_cards);
+            bot.center_changed_at = Instant::now();
             bot.current_set = current_set;
             bot.playing = true;
             bot.fighting = false;
@@ -990,16 +1017,16 @@ async fn apply(
         ServerMessage::VerificationStarted { .. } => bot.verification_sent = true,
         ServerMessage::SetsResynced { your_sets, center_cards } => {
             bot.sets = your_sets;
-            bot.center = center_cards;
+            bot.set_center(center_cards);
         }
         ServerMessage::SwapSuccess { set_index, your_new_set, center_cards, .. } => {
             if let Some(set) = your_new_set {
                 if let Some(slot) = bot.sets.get_mut(set_index) { *slot = set; }
             }
-            bot.center = center_cards;
+            bot.set_center(center_cards);
         }
         ServerMessage::SetSwitched { set_index, .. } => bot.current_set = set_index,
-        ServerMessage::GameUpdate { center_cards, .. } => bot.center = center_cards,
+        ServerMessage::GameUpdate { center_cards, .. } => bot.set_center(center_cards),
         ServerMessage::Stunned { ms } => {
             bot.stunned_until = Some(Instant::now() + Duration::from_millis(ms));
         }
