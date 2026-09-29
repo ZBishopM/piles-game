@@ -120,8 +120,12 @@ struct Bot {
     /// pasa más tiempo bloqueado que jugable. El dado sigue siendo el mismo,
     /// pero después de pelear cada bot se toma un respiro.
     calm_until: Option<Instant>,
-    /// Prenda que acaba de soltar para desatascarse. No se vuelve a coger en el
-    /// hueco que ha abierto: volvería al set del que la sacó.
+    /// Prenda que acaba de soltar, sea cual sea el motivo. No se vuelve a coger
+    /// en el hueco que ha abierto: volvería al mismo sitio y la jugada no
+    /// cambiaría nada. Solo se apuntaba al soltar una copia propia, y en el
+    /// resto (sobre todo `force_drop`) el bot la recogía a los 250 ms: la
+    /// carta asomaba un instante y desaparecía, imposible de coger para una
+    /// persona. Medido el 2026-09-29: hasta el 38 % de sus jugadas.
     freed: Option<u8>,
     /// Viaje a por una copia propia descolgada: `(prenda, set destino)`.
     ///
@@ -270,9 +274,9 @@ impl Bot {
             if self.center.is_empty() {
                 return None;
             }
-            // La prenda que acaba de soltar para desatascarse no se vuelve a
-            // coger aquí: iría al hueco que acaba de abrir, o sea al mismo set
-            // del que la sacó, y habría dado la vuelta entera para nada.
+            // La prenda que acaba de soltar no se vuelve a coger aquí: iría al
+            // hueco que acaba de abrir, o sea al mismo sitio del que la sacó, y
+            // habría dado la vuelta entera para nada.
             let freed = self.freed.take();
             let center: Vec<CardInfo> = match freed {
                 Some(t) => {
@@ -376,6 +380,19 @@ impl Bot {
             (0..set.len()).find(|&i| set[i].is_some())
         };
         spare.map(|i| ClientMessage::DropCard { my_card_index: i })
+    }
+
+    /// Apunta la prenda que va a soltar: el hueco que abre no se tapa con ella.
+    /// Se llama con toda jugada, venga de `decide` o de `force_drop`.
+    fn note_own_drop(&mut self, action: &ClientMessage) {
+        if let ClientMessage::DropCard { my_card_index } = action {
+            let card = self.sets.get(self.current_set)
+                .and_then(|s| s.get(*my_card_index))
+                .and_then(|c| c.as_ref());
+            if let Some(c) = card {
+                self.freed = Some(c.clothing_type);
+            }
+        }
     }
 
     /// Soltar aunque no convenga, para que la mesa no se pare.
@@ -592,6 +609,34 @@ mod tests {
                 assert_eq!(card_id, 91, "volvió a coger la que acababa de liberar");
             }
             other => panic!("esperaba coger otra cosa, fue {other:?}"),
+        }
+    }
+
+    // El caso medido en beta: suelta para que la mesa no se pare, y lo que más
+    // tiene en la mano es lo que acaba de soltar. La recogía a los 250 ms: nadie
+    // más podía cogerla y la jugada no cambiaba nada.
+    #[test]
+    fn it_never_takes_back_what_it_just_dropped() {
+        let sets = vec![
+            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            // Otro 9 en la mano: el 9 es "lo que más tiene" de lo del centro.
+            vec![Some(card(10, 9)), Some(card(11, 21)), Some(card(12, 22)), Some(card(13, 23))],
+            mixed(20), mixed(30), mixed(40), mixed(50),
+        ];
+        let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
+        let mut rng = rand::thread_rng();
+        let drop = bot.force_drop(&mut rng).expect("tenía que soltar");
+        assert!(matches!(drop, ClientMessage::DropCard { my_card_index: 3 }), "fue {drop:?}");
+        bot.note_own_drop(&drop);
+
+        // Lo que llega del servidor: hueco en el set 0 y el 9 en el centro.
+        bot.sets[0][3] = None;
+        bot.center.push(card(3, 9));
+        match bot.decide(&mut rng) {
+            Some(ClientMessage::TakeCard { card_id }) => {
+                assert_ne!(card_id, 3, "recogió la que acababa de soltar");
+            }
+            other => panic!("esperaba coger otra, fue {other:?}"),
         }
     }
 
@@ -857,6 +902,7 @@ async fn run(
                 };
                 let dropped = matches!(action, Some(ClientMessage::DropCard { .. }));
                 if let Some(action) = action {
+                    bot.note_own_drop(&action);
                     handle_client_message(action, id, &mut current_lobby, &state).await;
                 }
 
