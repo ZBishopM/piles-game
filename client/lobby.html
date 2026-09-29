@@ -2831,7 +2831,9 @@ function flyCard(cardData, from, rowId, index, won = false) {
     flyingCards.add(cardData.id);
 
     let done = false;
-    const finish = () => {
+    // `land` es false al cortar el vuelo (cambio de set): el hueco `index`
+    // ya es de otro set y el rebote caería sobre una carta que no se movió.
+    const finish = (land = true) => {
         if (done) return;
         done = true;
         el.remove();
@@ -2841,8 +2843,10 @@ function flyCard(cardData, from, rowId, index, won = false) {
         // El nodo de ahora, que puede no ser `dest` si hubo redibujado.
         const row = document.getElementById(rowId);
         row?.querySelectorAll('.card').forEach(c => { if (c.dataset.cardId == cardData.id) c.style.visibility = ''; });
-        markLanded(rowId, index, won);
+        if (land) markLanded(rowId, index, won);
     };
+    el.dataset.row = rowId;
+    el.finishFlight = finish;
 
     // De centro a centro: la escala va desde el centro de la copia, así que
     // mover la esquina la dejaba desplazada la mitad de la diferencia de
@@ -3725,6 +3729,9 @@ function switchSet(index) {
     currentSetIndex = index;
     clearSelection();
     send({ type: 'switch_set', set_index: index });
+    // Una carta que aún vuela hacia tu mano iba al hueco del set de antes:
+    // seguía volando encima del nuevo y rebotaba sobre una carta ajena.
+    document.querySelectorAll('#fxLayer .card[data-row="yourCards"]').forEach(c => c.finishFlight(false));
     renderYourCards();
 }
 
