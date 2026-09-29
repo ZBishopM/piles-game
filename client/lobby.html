@@ -1927,6 +1927,9 @@ function handleMsg(msg) {
 
         case 'stunned':
             startStun(msg.ms);
+            // Si era la respuesta a coger o soltar, esa jugada no se hizo: sin
+            // esto se quedaba la carta en fantasma y pedida para siempre.
+            if (pendingTake || pendingDrop) onSwapFailed({ kind: 'gone' });
             break;
 
         case 'combo_update':
@@ -1970,8 +1973,9 @@ function handleMsg(msg) {
             // Intercambio de otro jugador. No vimos de dónde salía su carta,
             // así que nada de vuelos: solo se resalta el hueco que cambió.
             // Qué carta es nueva se mira ANTES de sustituir centerCards.
-            const known = new Set(centerCards.map(c => c.id));
-            const arrived = msg.center_cards.find(c => !known.has(c.id));
+            // Se compara con lo PINTADO, no con `centerCards`.
+            const drawn = new Set(centerSlots.filter(id => id !== null));
+            const arrived = msg.center_cards.find(c => !drawn.has(c.id));
             centerCards = msg.center_cards;
             mirones = msg.spectators ?? 0;
             renderPlayersProgress(msg.players_progress);
@@ -1979,9 +1983,14 @@ function handleMsg(msg) {
             // intercambio, justo detrás de su swap_success. Redibujar otra vez
             // borraría el resaltado que acaba de ponerse, así que si el centro
             // ya está como toca no se toca nada.
-            if (!arrived) break;
+            // Pero "como toca" es que no falte NI sobre nada. Antes solo se
+            // miraba si había llegado alguna: cuando otro COGÍA una carta, la
+            // suya seguía pintada. Tocarla no hacía nada ("no me deja
+            // cogerla"), y si volvía a caer otra igual se veía dos veces.
+            // Medido en beta el 2026-09-28: 70 % del tiempo había alguna.
+            if (!arrived && drawn.size === msg.center_cards.length) break;
             renderCenterCards();
-            if (qteBlockedCards.size === 0) {
+            if (arrived && qteBlockedCards.size === 0) {
                 // Por hueco, que es lo que se dibuja: el índice dentro de
                 // centerCards ya no coincide con lo que hay en pantalla.
                 const slot = centerSlots.indexOf(arrived.id);
@@ -2606,6 +2615,9 @@ function renderCenterCards() {
         el.style.setProperty('--throw-x', `${dx}%`);
         el.style.setProperty('--throw-y', `${dy}%`);
         el.classList.add('thrown');
+        // La que estás cogiendo sigue marcada aunque el centro se redibuje
+        // mientras llega la respuesta (300 ms de ventana de pelea + la red).
+        if (pendingTake?.card.id === card.id) el.classList.add('card-pending');
         // Peleando: se apaga todo, porque no puedes hacer otra cosa.
         // Mirando: el tablero se queda como estaba. Apagarlo entero mientras
         // pelean otros dos distraía y encima no hacía falta — puedes seguir
@@ -2770,10 +2782,17 @@ function applyCardSprite(el, card) {
         `${(col / (SPRITE_COLS - 1)) * 100}% ${(row / (SPRITE_ROWS - 1)) * 100}%`;
 }
 
+// Cartas en vuelo (ver flyCard): los redibujados las pintan escondidas.
+// Esconder solo el nodo no basta, porque un redibujado a mitad de vuelo pone
+// uno nuevo.
+const flyingCards = new Set();
+
 function buildCard(card) {
     const el = document.createElement('div');
     el.className = 'card';
+    el.dataset.cardId = card.id;
     applyCardSprite(el, card);
+    if (flyingCards.has(card.id)) el.style.visibility = 'hidden';
     return el;
 }
 
@@ -2809,21 +2828,30 @@ function flyCard(cardData, from, rowId, index, won = false) {
     el.style.height = `${from.height}px`;
     document.getElementById('fxLayer').appendChild(el);
     dest.style.visibility = 'hidden';
+    flyingCards.add(cardData.id);
 
     let done = false;
     const finish = () => {
         if (done) return;
         done = true;
         el.remove();
+        flyingCards.delete(cardData.id);
         // Descubrir SIEMPRE, pase lo que pase con la transición: una carta
         // invisible para siempre sería mucho peor que ver la copia de más.
-        dest.style.visibility = '';
+        // El nodo de ahora, que puede no ser `dest` si hubo redibujado.
+        const row = document.getElementById(rowId);
+        row?.querySelectorAll('.card').forEach(c => { if (c.dataset.cardId == cardData.id) c.style.visibility = ''; });
         markLanded(rowId, index, won);
     };
 
+    // De centro a centro: la escala va desde el centro de la copia, así que
+    // mover la esquina la dejaba desplazada la mitad de la diferencia de
+    // tamaño (29 y 46 px en escritorio, donde tu mano es mucho mayor que el
+    // centro; en móvil casi no se notaba).
+    const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+    const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
     requestAnimationFrame(() => {
-        el.style.transform =
-            `translate(${to.left - from.left}px, ${to.top - from.top}px) scale(${to.width / from.width})`;
+        el.style.transform = `translate(${dx}px, ${dy}px) scale(${to.width / from.width})`;
     });
     el.addEventListener('transitionend', finish, { once: true });
     // Red de seguridad por si la transición no llega a dispararse (pestaña en
@@ -3533,6 +3561,9 @@ function onCenterCardClick(cardId, el) {
     // Solo se coge para tapar un hueco: sin deuda no hay dónde meterla. Es el
     // "no pasa nada" más frecuente, así que conviene que se vea.
     if (!owesCard()) return refuseTap(el);
+    // Ya pedida: el segundo toque no añade nada (en el clip del 2026-09-28
+    // llegaban 2 y 3 peticiones por carta).
+    if (pendingTake?.card.id === cardId) return;
     const card = centerCards.find(c => c.id === cardId);
     if (!card) return;
     // El hueco donde estaba, para animar el vuelo desde ahí.
