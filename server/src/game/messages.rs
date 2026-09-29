@@ -15,10 +15,16 @@ pub enum ClientMessage {
         /// `false` por defecto es lo prudente: nunca abre una sala sin querer.
         #[serde(default)]
         is_public: bool,
+        /// De quién es el Elo de este jugador: `anon:<uuid>` o `sm:<id>`. Ver
+        /// `ratings::valid_key`. Sin él se juega igual, sin Elo.
+        #[serde(default)]
+        rating_key: Option<String>,
     },
     /// Entrar en la sala pública más llena, o abrir una si no hay ninguna.
     QuickMatch {
         nickname: String,
+        #[serde(default)]
+        rating_key: Option<String>,
     },
     /// Añadir un bot a la sala. Solo antes de empezar.
     AddBot {
@@ -33,6 +39,8 @@ pub enum ClientMessage {
     JoinLobby {
         lobby_id: String,
         nickname: String,
+        #[serde(default)]
+        rating_key: Option<String>,
     },
     /// Listar lobbies disponibles
     ListLobbies,
@@ -260,6 +268,9 @@ pub enum ServerMessage {
     /// El juego ha terminado
     GameOver {
         rankings: Vec<RankingEntry>,
+        /// Cómo cambió el Elo de cada persona con clave. Incluye a quien no
+        /// terminó, que en `rankings` no sale.
+        elo: Vec<EloChange>,
     },
     /// A alguien se le cayó la conexión en plena partida. Los demás siguen
     /// jugando; este solo avisa de que se le está esperando y cuánto.
@@ -387,6 +398,15 @@ pub struct PlayerProgress {
     /// Lleva una racha viva de x2 o más. Se difunde a todos a propósito: ver
     /// quién está encadenando es lo que da ganas de ir a pelearle una carta.
     pub on_fire: bool,
+}
+
+/// El Elo de una persona antes y después de la partida.
+#[derive(Debug, Clone, Serialize)]
+pub struct EloChange {
+    pub nickname: String,
+    pub pool: crate::elo::Pool,
+    pub before: i32,
+    pub after: i32,
 }
 
 /// Entrada en el ranking final

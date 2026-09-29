@@ -821,6 +821,7 @@ async fn spawn_bot_inner(
         ClientMessage::JoinLobby {
             lobby_id: lobby_id.to_string(),
             nickname: nickname.clone(),
+            rating_key: None,
         },
         id,
         &mut current_lobby,
@@ -839,6 +840,7 @@ async fn spawn_bot_inner(
     if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
         if let Some(p) = lobby.players.iter_mut().find(|p| p.id == id) {
             p.is_bot = true;
+            p.bot_level = Some(difficulty);
             tracing::info!("🤖 {} entró en {} ({:?})", p.nickname, lobby_id, difficulty);
         }
         state.lobby_manager.update_lobby(lobby).await;

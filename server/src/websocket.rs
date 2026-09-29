@@ -54,6 +54,8 @@ pub struct AppState {
     pub take_intents: Arc<RwLock<HashMap<String, HashMap<u32, TakeIntent>>>>,
     /// Grabador de partidas. Siempre activo: es la función, no una opción.
     pub rec: Arc<crate::record::Recorder>,
+    /// El Elo de todos. Ver `ratings.rs`.
+    pub ratings: Arc<crate::ratings::Ratings>,
     /// Partidas que se están grabando ahora mismo: lobby -> estado.
     pub grabando: Arc<RwLock<HashMap<String, RecState>>>,
 }
@@ -90,6 +92,9 @@ impl AppState {
             take_intents: Arc::new(RwLock::new(HashMap::new())),
             rec: Arc::new(crate::record::Recorder::new(
                 std::path::PathBuf::from("recordings"),
+            )),
+            ratings: Arc::new(crate::ratings::Ratings::load(
+                std::path::PathBuf::from("ratings.json"),
             )),
             grabando: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -572,12 +577,12 @@ pub(crate) async fn handle_client_message(
     }
 
     match msg {
-        ClientMessage::CreateLobby { nickname, max_players, is_public } => {
+        ClientMessage::CreateLobby { nickname, max_players, is_public, rating_key } => {
             let lobby_id = state.lobby_manager.create_lobby(max_players, is_public).await;
-            enter_new_lobby(state, player_id, current_lobby, &lobby_id, nickname).await;
+            enter_new_lobby(state, player_id, current_lobby, &lobby_id, nickname, rating_key).await;
         }
 
-        ClientMessage::QuickMatch { nickname } => {
+        ClientMessage::QuickMatch { nickname, rating_key } => {
             // Entrar en la sala pública más llena. Si no hay ninguna, se abre
             // una pública y se espera ahí. Los bots NO se añaden solos: el
             // cliente pregunta primero, porque alguien que pide partida rápida
@@ -593,6 +598,7 @@ pub(crate) async fn handle_client_message(
                         // que por aquí nunca se entra a mirar.
                         Ok((_, mirando)) => {
                             *current_lobby = Some(lobby_id.clone());
+                            remember_rating_key(state, &lobby_id, player_id, rating_key).await;
                             state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                                 lobby_id: lobby_id.clone(),
                                 player_id: player_id.to_string(),
@@ -604,18 +610,18 @@ pub(crate) async fn handle_client_message(
                             // Se llenó o arrancó entre la consulta y la
                             // entrada: abrir una nueva en vez de dar error.
                             let fresh = state.lobby_manager.create_lobby(8, true).await;
-                            enter_new_lobby(state, player_id, current_lobby, &fresh, nickname).await;
+                            enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key).await;
                         }
                     }
                 }
                 None => {
                     let fresh = state.lobby_manager.create_lobby(8, true).await;
-                    enter_new_lobby(state, player_id, current_lobby, &fresh, nickname).await;
+                    enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key).await;
                 }
             }
         }
 
-        ClientMessage::JoinLobby { lobby_id, nickname } => {
+        ClientMessage::JoinLobby { lobby_id, nickname, rating_key } => {
             // ¿Es alguien a quien estamos esperando en una partida en curso?
             // Entonces no "entra": recupera su asiento y sus cartas. Pasar por
             // join_lobby lo trataría como nuevo y le borraría la mano.
@@ -652,6 +658,9 @@ pub(crate) async fn handle_client_message(
                                 players: names,
                             }).await;
                         }
+                        // Su asiento ya la tenía; esto cubre a quien entró con
+                        // una pestaña de antes del Elo y vuelve con la nueva.
+                        remember_rating_key(state, &lobby_id, player_id, rating_key).await;
                         send_lobby_update(&state, &lobby_id).await;
                         return;
                     }
@@ -663,6 +672,7 @@ pub(crate) async fn handle_client_message(
             match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
                 Ok((lobby, mirando)) => {
                     *current_lobby = Some(lobby_id.clone());
+                    remember_rating_key(state, &lobby_id, player_id, rating_key).await;
 
                     // Enviar confirmación al jugador que se unió
                     state.send_to_player(&player_id, ServerMessage::JoinedLobby {
@@ -1402,6 +1412,13 @@ async fn run_verification(
                     })
                     .collect();
 
+                // El Elo se liquida aquí, con el estado aún vivo: hace falta
+                // saber también cómo iban quienes no terminaron.
+                let elo = if game_over { state.ratings.settle(&lobby.final_seats()) } else { Vec::new() };
+                for c in &elo {
+                    tracing::info!("🏆 {} {:?}: {} → {}", c.nickname, c.pool, c.before, c.after);
+                }
+
                 state.lobby_manager.update_lobby(lobby).await;
 
                 state.broadcast_to_lobby(&lobby_id, ServerMessage::VerificationSuccess {
@@ -1426,6 +1443,7 @@ async fn run_verification(
 
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameOver {
                         rankings,
+                        elo,
                     }).await;
 
                     // Cerrar la grabación AQUÍ: el `GameOver` de arriba ya
@@ -1577,18 +1595,33 @@ async fn clear_intents_for(state: &AppState, lobby_id: &str, player_id: &Uuid) {
 /// Mete al jugador en una sala recién creada y le confirma. Lo comparten
 /// `CreateLobby` y `QuickMatch`, que hacen exactamente lo mismo una vez que la
 /// sala existe.
+/// Apunta de quién es el Elo de este jugador. Una clave mal formada se ignora:
+/// se juega igual, sin Elo.
+async fn remember_rating_key(state: &AppState, lobby_id: &str, player_id: Uuid, key: Option<String>) {
+    let Some(key) = key.filter(|k| crate::ratings::valid_key(k)) else { return };
+    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    if let Some(p) = lobby.players.iter_mut().chain(lobby.spectators.iter_mut())
+        .find(|p| p.id == player_id)
+    {
+        p.rating_key = Some(key);
+    }
+    state.lobby_manager.update_lobby(lobby).await;
+}
+
 async fn enter_new_lobby(
     state: &AppState,
     player_id: Uuid,
     current_lobby: &mut Option<String>,
     lobby_id: &str,
     nickname: String,
+    rating_key: Option<String>,
 ) {
     // Sala recién creada: está vacía, no hay ningún sitio que reclamar.
     let live = std::collections::HashSet::new();
     match state.lobby_manager.join_lobby(lobby_id, player_id, nickname, &live).await {
         Ok(_lobby) => {
             *current_lobby = Some(lobby_id.to_string());
+            remember_rating_key(state, lobby_id, player_id, rating_key).await;
             state.send_to_player(&player_id, ServerMessage::LobbyCreated {
                 lobby_id: lobby_id.to_string(),
                 player_id: player_id.to_string(),

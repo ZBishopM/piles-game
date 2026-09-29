@@ -45,6 +45,10 @@ pub struct LobbyPlayer {
     /// enseñarlo marcado y para no tratarlo como alguien a quien esperar si se
     /// le "cae" la conexión.
     pub is_bot: bool,
+    /// Con qué dificultad juega, si es un bot: su Elo fijo sale de aquí.
+    pub bot_level: Option<crate::bot::Difficulty>,
+    /// De quién es su Elo (`anon:…` / `sm:…`). No se reenvía a nadie.
+    pub rating_key: Option<String>,
 }
 
 /// Cuánto dura el bloqueo tras perder una pelea.
@@ -101,6 +105,10 @@ pub struct Lobby {
     /// para que quien se desconecta pueda volver a su misma sala; pasado
     /// `EMPTY_LOBBY_TTL` se recicla.
     pub empty_since: Option<Instant>,
+    /// Quién jugaba al empezar la partida, para el Elo. Hace falta aparte de
+    /// `players` porque quien se va a mitad desaparece de ahí, y tiene que
+    /// contar igual (último).
+    pub seats: Vec<crate::elo::Seat>,
 }
 
 impl Lobby {
@@ -115,6 +123,7 @@ impl Lobby {
             game_state: None,
             spectators: Vec::new(),
             empty_since: None,
+            seats: Vec::new(),
         }
     }
 
@@ -136,6 +145,8 @@ impl Lobby {
             stunned_until: None,
             disconnected_at: None,
             is_bot: false,
+            bot_level: None,
+            rating_key: None,
         };
 
         // Con partida en curso —o sin sitio en la mesa— se entra a mirar.
@@ -265,6 +276,15 @@ impl Lobby {
         // Crear el estado del juego
         self.game_state = Some(GameState::new(player_states, center_cards.to_vec()));
 
+        // Quién se sienta, para el Elo. Por apodo: al reconectar cambia el id,
+        // el apodo no.
+        self.seats = self.players.iter().map(|p| crate::elo::Seat {
+            nickname: p.nickname.clone(),
+            key: p.rating_key.clone(),
+            bot: p.bot_level,
+            finish: crate::elo::Finish::Left,
+        }).collect();
+
         self.status = LobbyStatus::Playing;
 
         // Resetear is_ready para que la siguiente ronda no arranque prematuramente
@@ -273,6 +293,22 @@ impl Lobby {
         }
 
         Ok(())
+    }
+
+    /// Los asientos de la partida con cómo acabó cada uno, para el Elo.
+    pub fn final_seats(&self) -> Vec<crate::elo::Seat> {
+        use crate::elo::Finish;
+        let Some(gs) = self.game_state.as_ref() else { return Vec::new() };
+        self.seats.iter().map(|s| {
+            let finish = match gs.players.iter().find(|p| p.nickname == s.nickname) {
+                Some(p) => match p.finished_position {
+                    Some(pos) => Finish::Placed(pos),
+                    None => Finish::Unfinished(p.count_completed_sets()),
+                },
+                None => Finish::Left,
+            };
+            crate::elo::Seat { finish, ..s.clone() }
+        }).collect()
     }
 
     /// Bloquea a un jugador tras perder una pelea.
@@ -838,6 +874,39 @@ mod tests {
         assert!(lobby.set_player_ready(&bot, true).is_err(), "en partida no hay nada que marcar");
         assert!(lobby.set_player_ready(&ana, false).is_err());
         assert_eq!(lobby.status, LobbyStatus::Playing, "la partida sigue siendo una partida");
+    }
+
+    // El Elo cuenta a todos los que se sentaron: quien terminó por su puesto,
+    // quien no por sus sets, y quien se fue a mitad al final — aunque ya no
+    // esté en `players`.
+    #[test]
+    fn final_seats_cover_everyone_who_sat_down() {
+        use crate::elo::Finish;
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let (ana, beto, caro, bot) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        for (id, n) in [(ana, "Ana"), (beto, "Beto"), (caro, "Caro"), (bot, "Bot")] {
+            lobby.add_player(id, n.to_string()).unwrap();
+        }
+        lobby.players[0].rating_key = Some("anon:x".into());
+        lobby.players[3].is_bot = true;
+        lobby.players[3].bot_level = Some(crate::bot::Difficulty::Hard);
+        for id in [ana, beto, caro, bot] {
+            lobby.set_player_ready(&id, true).unwrap();
+        }
+        lobby.start_game().unwrap();
+
+        lobby.game_state.as_mut().unwrap().find_player_mut(&ana).unwrap().finished_position = Some(1);
+        lobby.remove_player(&caro);   // se fue a mitad
+
+        let seats = lobby.final_seats();
+        assert_eq!(seats.len(), 4, "Caro también cuenta");
+        let de = |n: &str| seats.iter().find(|s| s.nickname == n).unwrap();
+        assert_eq!(de("Ana").finish, Finish::Placed(1));
+        assert_eq!(de("Ana").key.as_deref(), Some("anon:x"));
+        assert!(matches!(de("Beto").finish, Finish::Unfinished(_)));
+        assert_eq!(de("Caro").finish, Finish::Left);
+        assert_eq!(de("Bot").bot, Some(crate::bot::Difficulty::Hard));
+        assert_eq!(crate::elo::pool(&seats), crate::elo::Pool::Fun);
     }
 
     // Una sala vacía se guarda un rato para que quien se cayó vuelva con el

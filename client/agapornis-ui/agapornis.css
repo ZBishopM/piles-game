@@ -1,6 +1,7 @@
-/* agapornis-ui v0.2.0 — punto de entrada único. (Avisos: además, toast.js) */
+/* agapornis-ui v0.3.0 — punto de entrada único. (JS aparte: toast.js, dial.js) */
 @import url("tokens.css");
 @import url("motion.css");
 @import url("glass.css");
 @import url("components.css");
 @import url("toast.css");
+@import url("dial.css");

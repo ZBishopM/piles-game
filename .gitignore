@@ -18,6 +18,10 @@
 # contienen la mano de todos los jugadores.
 /recordings/
 
+# Elo de los jugadores (server/src/ratings.rs). Es estado de cada servidor.
+/ratings.json
+/ratings.json.tmp
+
 # OS
 .DS_Store
 Thumbs.db

@@ -12,7 +12,9 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber;
 
 mod bot;
+mod elo;
 mod game;
+mod ratings;
 mod record;
 mod websocket;
 
@@ -62,6 +64,9 @@ async fn main() {
         // jugadores servida a internet.
         .route("/api/recordings", get(list_recordings))
         .route("/api/recordings/:file", get(get_recording))
+        // Elo. Bajo `/api/` por lo mismo que las grabaciones.
+        .route("/api/elo/:key", get(get_elo))
+        .route("/api/elo/link", axum::routing::post(link_elo))
         .route("/ws", get(ws_handler))
         // Servir archivos estáticos del frontend desde la carpeta "client/"
         // La carpeta debe estar al lado del binario al ejecutar
@@ -121,6 +126,40 @@ async fn get_recording(State(state): State<AppState>, Path(file): Path<String>) 
             texto,
         ).into_response(),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// El Elo de una clave. 404 si nunca ha jugado.
+async fn get_elo(State(state): State<AppState>, Path(key): Path<String>) -> Response {
+    if !ratings::valid_key(&key) {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    match state.ratings.get(&key) {
+        Some(rec) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(rec)).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct LinkRequest {
+    anon: String,
+    account: String,
+    /// `"anon"`: el del navegador pasa a la cuenta. `"account"`: se queda el
+    /// de la cuenta. En los dos casos el anónimo se borra.
+    keep: String,
+}
+
+/// Vincula el Elo de un navegador con una cuenta. Devuelve el de la cuenta
+/// tal y como queda (o `null` si ninguno había jugado).
+async fn link_elo(State(state): State<AppState>, axum::Json(req): axum::Json<LinkRequest>) -> Response {
+    let keep_anon = match req.keep.as_str() {
+        "anon" => true,
+        "account" => false,
+        _ => return (StatusCode::BAD_REQUEST, "keep: anon | account").into_response(),
+    };
+    match state.ratings.link(&req.anon, &req.account, keep_anon) {
+        Ok(rec) => axum::Json(rec).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
     }
 }
 

@@ -23,6 +23,7 @@
          (combo, cartas, frenesí) conservan sus colores propios. -->
     <link rel="stylesheet" href="/agapornis-ui/agapornis.css">
     <script src="/agapornis-ui/toast.js" defer></script>
+    <script src="/agapornis-ui/dial.js" defer></script>
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
            una página de pruebas anterior. */
@@ -1261,6 +1262,44 @@
         .rank-points { color: var(--warning); font-weight: bold; }
         /* Aporte del combo, a media voz: el puesto sigue siendo el titular. */
         .rank-combo { font-size: 0.72rem; color: #ff8c42; margin-right: 10px; white-space: nowrap; }
+        /* ±Elo de cada uno en el ranking. */
+        .rank-elo { font: 700 0.75rem/1 var(--font-mono); margin-left: 10px; white-space: nowrap; }
+        .rank-elo.up { color: var(--accent); }
+        .rank-elo.down { color: var(--danger); }
+
+        /* ── ELO ── El contador vive en agapornis-ui (dial.css / dial.js). */
+        #eloDial { margin: 4px 0 18px; display: flex; justify-content: center; }
+        #eloDial[hidden] { display: none; }
+        #profileElo {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin: 8px 0 12px;
+            --ag-dial-size: 32px;
+        }
+        #profileEloNote { text-align: center; color: var(--text-faint); font-size: 0.8rem; margin-bottom: 18px; }
+        .elo-choice {
+            position: fixed;
+            inset: 0;
+            z-index: 250;
+            display: grid;
+            place-items: center;
+            background: var(--scrim);
+            padding: 16px;
+        }
+        .elo-choice[hidden] { display: none; }
+        .elo-choice-box {
+            width: min(420px, 100%);
+            background: var(--card);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--radius-bubble);
+            padding: 22px;
+        }
+        .elo-choice-box h3 { margin-bottom: 8px; }
+        .elo-choice-box p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; white-space: pre-line; }
+        .elo-choice-actions { display: flex; gap: 10px; margin-top: 18px; }
+        .elo-choice-actions .btn { flex: 1; margin: 0; }
 
         /* ── TABLERO EN MÓVIL ──
            Las pantallas de entrada ya tenían su media query; el tablero no,
@@ -1337,7 +1376,7 @@
 
 <!-- ════ HOME ════ -->
 <div id="homeScreen" class="screen panel active">
-    <button type="button" class="profile-btn" onclick="showScreen('profileScreen')" title="Perfil">👤</button>
+    <button type="button" class="profile-btn" onclick="showScreen('profileScreen'); loadProfileElo()" title="Perfil">👤</button>
 
     <h1>🎮 Piles!</h1>
     <p class="subtitle">Juego de Cartas Multijugador</p>
@@ -1365,6 +1404,13 @@
     </div>
     <h2>👤 Perfil</h2>
 
+    <!-- Tus dos Elos. Se rellenan al abrir el perfil (loadProfileElo). -->
+    <div id="profileElo">
+        <div id="profileEloFun"></div>
+        <div id="profileEloGlory"></div>
+    </div>
+    <p id="profileEloNote"></p>
+
     <div class="form-group">
         <label for="smCode">Vincular con Session Manager</label>
         <div style="display:flex;gap:8px;align-items:center;">
@@ -1379,8 +1425,21 @@
     </div>
 
     <p style="color:var(--text-faint);font-size:0.85rem;line-height:1.5">
-        Sin código se juega igual — solo que el resultado no se guarda en ningún perfil.
+        Sin código se juega igual, con un Elo guardado en este navegador. Al
+        vincular puedes pasarlo a tu cuenta.
     </p>
+</div>
+
+<!-- Elegir qué Elo se queda al vincular. Lo abre linkAccountElo. -->
+<div id="eloChoice" class="elo-choice" hidden>
+    <div class="elo-choice-box dialog-in" role="dialog" aria-modal="true" aria-labelledby="eloChoiceTitle">
+        <h3 id="eloChoiceTitle"></h3>
+        <p id="eloChoiceText"></p>
+        <div class="elo-choice-actions">
+            <button type="button" class="btn btn-secondary" id="eloChoiceB"></button>
+            <button type="button" class="btn btn-primary" id="eloChoiceA"></button>
+        </div>
+    </div>
 </div>
 
 <!-- ════ CÓMO JUGAR ════ -->
@@ -1597,6 +1656,8 @@
 <div id="gameOverOverlay">
     <div class="gameover-box">
         <h2>🏆 Fin del Juego</h2>
+        <!-- Tu Elo, girando desde el que tenías. Vacío si no hay Elo. -->
+        <div id="eloDial" hidden></div>
         <div id="rankingList"></div>
         <p id="smClaimStatus" style="font-size:0.85rem;opacity:0.85;margin-top:10px;"></p>
         <button class="btn btn-primary" style="margin-top:24px" onclick="returnToLobby()">Volver al Lobby</button>
@@ -1694,7 +1755,9 @@ window.addEventListener('DOMContentLoaded', () => {
         const linked = smCodeInput.value.trim().length > 0;
         smCodeUnlinkBtn.style.display = linked ? '' : 'none';
         smCodeHint.textContent = linked
-            ? '✅ Vinculado — se suma el resultado de cada partida a tu perfil.'
+            ? (IS_BETA
+                ? '✅ Vinculado — en beta solo se vincula el Elo; el resultado no suma en tu perfil.'
+                : '✅ Vinculado — se suma el resultado de cada partida a tu perfil.')
             : 'Genera un código en tu perfil de Session Manager y pégalo aquí.';
     }
     const savedSmCode = localStorage.getItem('piles_sm_code');
@@ -1716,11 +1779,17 @@ window.addEventListener('DOMContentLoaded', () => {
         const v = smCodeInput.value.trim();
         if (v) localStorage.setItem('piles_sm_code', v);
         else localStorage.removeItem('piles_sm_code');
+        // Con el código entero pegado, vincular también el Elo. Se espera a
+        // que deje de escribir: cada tecla no es un código.
+        clearTimeout(linkTimer);
+        if (/^[A-Z2-9]{6,12}$/.test(v)) linkTimer = setTimeout(() => linkAccountElo(v), 600);
     });
+    let linkTimer = null;
     smCodeUnlinkBtn.addEventListener('click', () => {
         smCodeInput.value = '';
         localStorage.removeItem('piles_sm_code');
         refreshSmCodeUi();
+        unlinkAccountElo();
     });
 
     applyBetaMode();
@@ -1784,7 +1853,7 @@ function attemptRejoin() {
     if (!pendingRejoinCode || !nickname) { forgetLobby(); return; }
     currentNickname = nickname;
     rejoinInFlight = true;
-    send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname });
+    send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname, rating_key: ratingKey() });
 }
 
 function connectWs() {
@@ -2021,7 +2090,7 @@ function handleMsg(msg) {
             break;
 
         case 'game_over':
-            onGameOver(msg.rankings);
+            onGameOver(msg.rankings, msg.elo || []);
             break;
 
         case 'game_cancelled':
@@ -2092,7 +2161,7 @@ function createLobby() {
     const nickname = requireNickname();
     if (!nickname) return;
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
-    send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic });
+    send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic, rating_key: ratingKey() });
 }
 
 /** Partida rápida: el servidor mete en la sala pública más llena, o abre una.
@@ -2102,7 +2171,7 @@ function quickMatch() {
     const nickname = requireNickname();
     if (!nickname) return;
     cameFromQuickMatch = true;
-    send({ type: 'quick_match', nickname });
+    send({ type: 'quick_match', nickname, rating_key: ratingKey() });
 }
 
 let cameFromQuickMatch = false;
@@ -2186,7 +2255,7 @@ function joinLobby() {
         document.getElementById('lobbyCode').focus();
         return;
     }
-    send({ type: 'join_lobby', lobby_id: code, nickname });
+    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey() });
 }
 
 /** Host y jugador que se une llegan al lobby por mensajes distintos
@@ -2748,9 +2817,30 @@ function misSetsRevelados() {
 // partidas de prueba no ensucian perfiles reales.
 const IS_BETA = location.hostname.startsWith('beta.');
 
+// ─── De quién es el Elo ───────────────────────────────────────────────────
+// Por defecto, de este navegador (`anon:<uuid>`). Si se vincula una cuenta de
+// Session Manager, de la cuenta (`sm:<id>`). El servidor lo guarda por clave;
+// ver server/src/ratings.rs.
+function ratingKey() {
+    try {
+        const cuenta = localStorage.getItem('piles_rating_key');
+        if (cuenta) return cuenta;
+        let anon = localStorage.getItem('piles_anon_id');
+        if (!anon) {
+            anon = crypto.randomUUID();
+            localStorage.setItem('piles_anon_id', anon);
+        }
+        return `anon:${anon}`;
+    } catch {
+        return null;   // sin almacenamiento: se juega sin Elo
+    }
+}
+
 function applyBetaMode() {
     if (!IS_BETA) return;
-    document.querySelector('.profile-btn')?.remove();
+    // El perfil se queda: ahí está el Elo, que en beta hay que poder probar.
+    // Lo que no se hace en beta es sumar resultados a Session Manager (ver
+    // claimSessionManagerResult).
     const badge = document.createElement('div');
     badge.textContent = 'BETA';
     badge.title = 'Entorno de pruebas — los resultados no cuentan';
@@ -3302,6 +3392,10 @@ const SFX = {
     frenzyFire: () => tone({ freq: 180, dur: 0.5, type: 'sawtooth', gain: 0.2, slideTo: 1400 }),
     frenzyHit: () => tone({ freq: 900, dur: 0.4, type: 'square', gain: 0.16, slideTo: 90 }),
     frenzyCounter: () => { noise({ dur: 0.12, gain: 0.16, hp: 2000 }); tone({ freq: 1200, dur: 0.18, gain: 0.12 }); },
+    // El contador de Elo, uno por punto. Fun: un clic ligero de rueda de
+    // plástico. Glory: un golpe grave de piedra, con su polvo.
+    dialFun: () => tone({ freq: 1800, dur: 0.03, type: 'square', gain: 0.035 }),
+    dialGlory: () => { tone({ freq: 95, dur: 0.14, type: 'triangle', gain: 0.22, slideTo: 60 }); noise({ dur: 0.05, gain: 0.08, hp: 600 }); },
 };
 
 function playSfx(name, arg) {
@@ -4264,7 +4358,7 @@ function clearMatchNotifications() {
     qteBlockedCards.clear();
 }
 
-function onGameOver(rankings) {
+function onGameOver(rankings, elo = []) {
     gameOver = true;
     stopMusic();
     closeVerifyOverlay();
@@ -4284,16 +4378,155 @@ function onGameOver(rankings) {
         const combo = entry.combo_points > 0
             ? `<span class="rank-combo">🔥 +${entry.combo_points} · mejor ×${formatMult(entry.best_mult_x100 ?? 100)}</span>`
             : '';
+        const e = elo.find(c => c.nickname === entry.nickname);
+        const d = e ? e.after - e.before : null;
+        const eloTag = d === null ? ''
+            : `<span class="rank-elo ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}</span>`;
         div.innerHTML = `
             <span class="rank-pos">${medals[entry.position - 1] || entry.position}</span>
             <span class="rank-name">${entry.nickname}</span>
             ${combo}
             <span class="rank-points">${entry.points} pts</span>
+            ${eloTag}
         `;
         list.appendChild(div);
     });
     document.getElementById('gameOverOverlay').classList.add('active');
+    showMyElo(elo);
     claimSessionManagerResult(rankings);
+}
+
+/** Tu Elo en el overlay final: gira desde el que tenías hasta el nuevo. */
+function showMyElo(elo) {
+    const box = document.getElementById('eloDial');
+    const mio = elo.find(c => c.nickname === currentNickname);
+    if (!mio || typeof agDial !== 'function') {
+        box.hidden = true;
+        return;
+    }
+    box.hidden = false;
+    const glory = mio.pool === 'glory';
+    // Un instante para que el overlay se vea antes de que empiece a girar.
+    setTimeout(() => agDial(box, {
+        from: mio.before,
+        to: mio.after,
+        skin: glory ? 'glory' : 'fun',
+        onStep: () => playSfx(glory ? 'dialGlory' : 'dialFun'),
+    }), 450);
+}
+
+// ─── Elo en el perfil y vincular la cuenta ────────────────────────────────
+const SM_BASE = 'https://gamesessions.danassistantassistant.website';
+
+async function fetchElo(key) {
+    const res = await fetch(`/api/elo/${encodeURIComponent(key)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+}
+
+const played = rec => !!rec && (!!rec.fun || !!rec.glory);
+const eloLine = rec => ['fun', 'glory']
+    .filter(p => rec?.[p])
+    .map(p => `${p === 'fun' ? 'For fun' : 'For glory'} ${rec[p].r} (${rec[p].n} ${rec[p].n === 1 ? 'partida' : 'partidas'})`)
+    .join(' · ');
+
+/** Pinta tus dos Elos en el perfil, quietos. */
+async function loadProfileElo() {
+    const note = document.getElementById('profileEloNote');
+    const key = ratingKey();
+    let rec = null;
+    try { rec = key ? await fetchElo(key) : null; } catch { /* sin conexión: se ve el inicial */ }
+    for (const [pool, id] of [['fun', 'profileEloFun'], ['glory', 'profileEloGlory']]) {
+        const r = rec?.[pool]?.r ?? 1000;
+        agDial(document.getElementById(id), { from: r, to: r, skin: pool });
+    }
+    note.textContent = key?.startsWith('sm:')
+        ? 'Elo de tu cuenta de Session Manager.'
+        : 'Elo de este navegador. Vincula tu cuenta para llevarlo contigo.';
+}
+
+/** Pregunta con el diálogo de Elo. Resuelve con 'a' o 'b'. */
+function askEloChoice({ title, text, a, b }) {
+    const box = document.getElementById('eloChoice');
+    document.getElementById('eloChoiceTitle').textContent = title;
+    document.getElementById('eloChoiceText').textContent = text;
+    const btnA = document.getElementById('eloChoiceA');
+    const btnB = document.getElementById('eloChoiceB');
+    btnA.textContent = a;
+    btnB.textContent = b;
+    box.hidden = false;
+    return new Promise(resolve => {
+        const done = choice => { box.hidden = true; btnA.onclick = btnB.onclick = null; resolve(choice); };
+        btnA.onclick = () => done('a');
+        btnB.onclick = () => done('b');
+    });
+}
+
+/** Al pegar un código de Session Manager: pasa el Elo de este navegador a la
+ *  cuenta, o se queda el de la cuenta, según lo que haya y lo que elijas. */
+async function linkAccountElo(code) {
+    if (!/^[A-Z2-9]{6,12}$/.test(code)) return;
+    let player;
+    try {
+        const url = `${SM_BASE}/api/collections/piles_claims/records?perPage=1&filter=${encodeURIComponent(`code='${code}'`)}`;
+        const res = await fetch(url);
+        player = (await res.json()).items?.[0]?.player;
+    } catch { /* abajo */ }
+    if (!player) return;   // código que no existe: el aviso del claim ya lo dirá
+
+    const account = `sm:${player}`;
+    if (localStorage.getItem('piles_rating_key') === account) return;   // ya vinculado
+    const anonId = localStorage.getItem('piles_anon_id');
+    const anon = anonId ? `anon:${anonId}` : null;
+
+    let del_navegador = null, de_la_cuenta = null;
+    try {
+        [del_navegador, de_la_cuenta] = await Promise.all([anon ? fetchElo(anon) : null, fetchElo(account)]);
+    } catch {
+        agToast({ kind: 'error', title: 'Elo', message: 'No se pudo consultar el Elo. Prueba de nuevo.' });
+        return;
+    }
+
+    let keep = 'account';
+    if (played(del_navegador) && !played(de_la_cuenta)) {
+        const r = await askEloChoice({
+            title: '¿Pasar tu Elo a la cuenta?',
+            text: `En este navegador tienes: ${eloLine(del_navegador)}.\nSi no lo pasas, se borra.`,
+            a: 'Pasarlo', b: 'No, borrarlo',
+        });
+        keep = r === 'a' ? 'anon' : 'account';
+    } else if (played(del_navegador) && played(de_la_cuenta)) {
+        const r = await askEloChoice({
+            title: '¿Qué Elo se queda?',
+            text: `Tu cuenta: ${eloLine(de_la_cuenta)}.\nEste navegador: ${eloLine(del_navegador)}.\nEl otro se borra.`,
+            a: 'El de la cuenta', b: 'El de este navegador',
+        });
+        keep = r === 'a' ? 'account' : 'anon';
+    }
+
+    if (anon) {
+        const res = await fetch('/api/elo/link', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ anon, account, keep }),
+        }).catch(() => null);
+        if (!res?.ok) {
+            agToast({ kind: 'error', title: 'Elo', message: 'No se pudo vincular el Elo. Prueba de nuevo.' });
+            return;
+        }
+    }
+    localStorage.setItem('piles_rating_key', account);
+    localStorage.removeItem('piles_anon_id');
+    agToast({ kind: 'success', message: 'Elo vinculado a tu cuenta' });
+    loadProfileElo();
+}
+
+/** Desvincular: se vuelve a jugar como este navegador, con un Elo nuevo. */
+function unlinkAccountElo() {
+    localStorage.removeItem('piles_rating_key');
+    localStorage.removeItem('piles_anon_id');
+    loadProfileElo();
 }
 
 // Optional, purely additive: if the player entered a Session Manager code
