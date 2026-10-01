@@ -63,6 +63,28 @@ pub fn valid_key(key: &str) -> bool {
     false
 }
 
+/// Para entrar en el Top 3 hacen falta tantas partidas…
+pub const TOP_MIN_GAMES: u32 = 10;
+/// …y más Elo que el de partida: con pocos jugadores, sin esto los tres
+/// primeros lo serían aunque estuvieran por debajo de 1000.
+pub const TOP_MIN_RATING: i32 = START;
+pub const TOP_SIZE: usize = 3;
+
+/// Los mejores de una clasificación: los `TOP_SIZE` con más Elo entre quienes
+/// cumplen el mínimo de partidas y de Elo. A igualdad manda quien lleva más
+/// partidas, y por último la clave, para que el resultado sea estable.
+fn top3_of(map: &HashMap<String, Record>, pool: Pool) -> Vec<String> {
+    let mut v: Vec<(&String, PoolRating)> = map.iter()
+        .filter_map(|(k, rec)| {
+            rec.pool(pool)
+                .filter(|p| p.n >= TOP_MIN_GAMES && p.r > TOP_MIN_RATING)
+                .map(|p| (k, p))
+        })
+        .collect();
+    v.sort_by(|a, b| b.1.r.cmp(&a.1.r).then(b.1.n.cmp(&a.1.n)).then(a.0.cmp(b.0)));
+    v.into_iter().take(TOP_SIZE).map(|(k, _)| k.clone()).collect()
+}
+
 pub struct Ratings {
     path: PathBuf,
     map: Mutex<HashMap<String, Record>>,
@@ -99,6 +121,15 @@ impl Ratings {
         self.map.lock().unwrap().get(key).cloned()
     }
 
+    /// `(fun, glory)`: ¿está esta clave en el Top 3 de cada clasificación?
+    pub fn top3_flags(&self, key: &str) -> (bool, bool) {
+        let map = self.map.lock().unwrap();
+        (
+            top3_of(&map, Pool::Fun).iter().any(|k| k == key),
+            top3_of(&map, Pool::Glory).iter().any(|k| k == key),
+        )
+    }
+
     /// Aplica el resultado de una partida y devuelve cómo le fue a cada
     /// persona con clave. Los bots y los clientes sin clave cuentan en el
     /// cálculo pero no se guardan.
@@ -118,7 +149,9 @@ impl Ratings {
         let cambios = elo::deltas(&antes.iter().map(|&r| r as f64).collect::<Vec<_>>(), &puestos);
 
         let ahora = crate::record::now_ms();
-        let mut out = Vec::new();
+        // Quién estaba arriba antes de esta partida.
+        let top_antes = top3_of(&map, pool);
+        let mut aplicados = Vec::new();
         for ((s, before), d) in seats.iter().zip(&antes).zip(&cambios) {
             let (None, Some(key)) = (&s.bot, &s.key) else { continue };
             let after = before + d.round() as i32;
@@ -127,8 +160,16 @@ impl Ratings {
             *rec.pool_mut(pool) = Some(PoolRating { r: after, n });
             rec.nick = s.nickname.clone();
             rec.updated = ahora;
-            out.push(EloChange { nickname: s.nickname.clone(), pool, before: *before, after });
+            aplicados.push((key.clone(), s.nickname.clone(), *before, after));
         }
+        // Y quién después, ya con todos los cambios aplicados: el Top 3 se
+        // reordena con la partida entera, no jugador a jugador.
+        let top_despues = top3_of(&map, pool);
+        let out: Vec<EloChange> = aplicados.into_iter().map(|(key, nickname, before, after)| EloChange {
+            nickname, pool, before, after,
+            top3_before: top_antes.contains(&key),
+            top3_after: top_despues.contains(&key),
+        }).collect();
         if !out.is_empty() {
             self.save(&map);
         }
@@ -214,6 +255,58 @@ mod tests {
         assert_eq!(r.glory, Some(PoolRating { r: 1016, n: 1 }));
         assert_eq!(r.fun, None);
         assert_eq!(otra_vez.get(&beto).unwrap().glory.unwrap().r, 984);
+    }
+
+    /// Mete a mano un Elo y un número de partidas, sin jugar partidas.
+    fn poner(s: &Ratings, key: &str, pool: Pool, r: i32, n: u32) {
+        let mut map = s.map.lock().unwrap();
+        *map.entry(key.to_string()).or_default().pool_mut(pool) = Some(PoolRating { r, n });
+    }
+
+    #[test]
+    fn the_top_three_need_enough_games_and_more_than_the_starting_rating() {
+        let s = store();
+        poner(&s, "anon:a", Pool::Glory, 1300, 12);   // entra
+        poner(&s, "anon:b", Pool::Glory, 1200, 10);   // entra (justo 10)
+        poner(&s, "anon:c", Pool::Glory, 1100, 30);   // entra
+        poner(&s, "anon:d", Pool::Glory, 1090, 50);   // cuarto: fuera
+        poner(&s, "anon:e", Pool::Glory, 1900, 9);    // 9 partidas: no cuenta
+        poner(&s, "anon:f", Pool::Glory, 1000, 99);   // no pasa de 1000: no cuenta
+        let map = s.map.lock().unwrap();
+        assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:a", "anon:b", "anon:c"]);
+    }
+
+    #[test]
+    fn ties_go_to_whoever_has_played_more_and_pools_are_separate() {
+        let s = store();
+        poner(&s, "anon:a", Pool::Glory, 1100, 10);
+        poner(&s, "anon:b", Pool::Glory, 1100, 20);
+        poner(&s, "anon:z", Pool::Fun, 1500, 15);
+        let map = s.map.lock().unwrap();
+        assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:b", "anon:a"], "a igualdad, más partidas");
+        assert_eq!(top3_of(&map, Pool::Fun), vec!["anon:z"], "cada clasificación la suya");
+        drop(map);
+        assert_eq!(s.top3_flags("anon:b"), (false, true));
+        assert_eq!(s.top3_flags("anon:z"), (true, false));
+        assert_eq!(s.top3_flags("anon:nadie"), (false, false));
+    }
+
+    #[test]
+    fn a_game_reports_who_enters_and_who_leaves_the_top_three() {
+        let s = store();
+        poner(&s, "anon:a", Pool::Glory, 1100, 20);
+        poner(&s, "anon:b", Pool::Glory, 1090, 20);
+        poner(&s, "anon:c", Pool::Glory, 1080, 20);
+        // d tiene un Elo más bajo pero gana a c, que va tercero.
+        poner(&s, "anon:d", Pool::Glory, 1075, 20);
+        let cambios = s.settle(&[
+            seat("D", Some("anon:d"), None, Finish::Placed(1)),
+            seat("C", Some("anon:c"), None, Finish::Unfinished(0)),
+        ]);
+        let de = |n: &str| cambios.iter().find(|c| c.nickname == n).unwrap();
+        assert!(!de("D").top3_before && de("D").top3_after, "d entra");
+        assert!(de("C").top3_before && !de("C").top3_after, "c sale");
+        assert_eq!(de("D").pool, Pool::Glory);
     }
 
     #[test]

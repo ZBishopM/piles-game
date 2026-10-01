@@ -44,6 +44,12 @@ struct QtePlayerData {
 /// Ventana para considerar que dos jugadores van a por la misma carta.
 const CONFLICT_WINDOW: Duration = Duration::from_millis(300);
 
+/// Cada cuánto se mira si una conexión lleva demasiado callada.
+const IDLE_CHECK: Duration = Duration::from_secs(5);
+/// Cuánto silencio se aguanta EN PARTIDA antes de dar la conexión por caída.
+/// Ver el bucle de `handle_socket` para de dónde sale el número.
+const IDLE_IN_GAME: Duration = Duration::from_secs(20);
+
 /// Estado compartido de la aplicación
 #[derive(Clone)]
 pub struct AppState {
@@ -58,6 +64,22 @@ pub struct AppState {
     pub ratings: Arc<crate::ratings::Ratings>,
     /// Partidas que se están grabando ahora mismo: lobby -> estado.
     pub grabando: Arc<RwLock<HashMap<String, RecState>>>,
+    /// Cuándo se oyó por última vez a cada conexión. Candado normal y no
+    /// `RwLock` de tokio: se toca en cada mensaje, nunca a través de un await.
+    pub last_seen: Arc<std::sync::Mutex<HashMap<Uuid, Instant>>>,
+    /// Jugadores cuyo tablero no cuadraba con el del servidor en la última
+    /// muestra: el desajuste solo se da por bueno si se repite (ver
+    /// `check_desync`).
+    pub desync_seen: Arc<std::sync::Mutex<HashMap<Uuid, DesyncSeen>>>,
+    /// Desde cuándo corre el servidor. Para `/api/estado`.
+    pub started: Instant,
+}
+
+/// Un desajuste visto una vez, a la espera de volver a verse.
+pub struct DesyncSeen {
+    diff: crate::debug::StateDiff,
+    at: Instant,
+    reported: bool,
 }
 
 /// Lo que hace falta saber de una partida mientras se graba.
@@ -97,6 +119,9 @@ impl AppState {
                 std::path::PathBuf::from("ratings.json"),
             )),
             grabando: Arc::new(RwLock::new(HashMap::new())),
+            last_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            desync_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            started: Instant::now(),
         }
     }
 
@@ -225,7 +250,17 @@ impl AppState {
         let final_de_partida = matches!(msg, ServerMessage::GameOver { .. });
         if final_de_partida || est.last_key.elapsed() >= KEYFRAME_EVERY {
             if let Some(gs) = lobby.game_state.as_ref() {
-                let linea = keyframe_json(gs, est.t0.elapsed().as_millis() as u64);
+                // Quién está conectado y cuánto lleva callado cada uno: la
+                // mitad de lo que hace falta para entender una caída, y no se
+                // veía en ninguna parte de la grabación.
+                let conn: serde_json::Map<String, serde_json::Value> = {
+                    let vistos = self.last_seen.lock().map(|v| v.clone()).unwrap_or_default();
+                    lobby.players.iter().map(|p| (p.nickname.clone(), serde_json::json!({
+                        "ok": p.disconnected_at.is_none(),
+                        "silencio_ms": vistos.get(&p.id).map(|t| t.elapsed().as_millis() as u64),
+                    }))).collect()
+                };
+                let linea = keyframe_json(gs, est.t0.elapsed().as_millis() as u64, conn);
                 self.rec.line(&est.file, linea);
                 est.last_key = Instant::now();
             }
@@ -310,6 +345,44 @@ impl AppState {
         self.rec.line(&est.file, format!("{linea}\n"));
     }
 
+    /// Una línea que NO es un mensaje sino algo que pasó en el servidor: una
+    /// conexión que se cierra, la gracia que empieza, un desajuste. Es lo que
+    /// faltaba para contar una caída sin ir al log de pm2 (que va en UTC, con
+    /// colores y mezclado con todas las salas).
+    ///
+    /// `t` es el tipo de línea (`conn`, `desync`…); `extra` va tal cual dentro.
+    async fn rec_line_lobby(&self, lobby_id: &str, t: &str, extra: serde_json::Value) {
+        let mapa = self.grabando.read().await;
+        let Some(est) = mapa.get(lobby_id) else { return };
+        self.rec_line_est(est, t, extra, None);
+    }
+
+    /// Lo mismo, para una conexión: busca su sala y añade el apodo.
+    async fn rec_line_player(&self, player_id: &Uuid, t: &str, extra: serde_json::Value) {
+        let mapa = self.grabando.read().await;
+        let Some(est) = mapa.values().find(|e| e.nicks.contains_key(player_id)) else { return };
+        self.rec_line_est(est, t, extra, est.nicks.get(player_id));
+    }
+
+    fn rec_line_est(&self, est: &RecState, t: &str, extra: serde_json::Value, player: Option<&String>) {
+        let mut linea = serde_json::json!({
+            "t": t,
+            "ms": est.t0.elapsed().as_millis() as u64,
+            "w": crate::record::now_ms(),
+        });
+        if let Some(obj) = linea.as_object_mut() {
+            if let Some(nick) = player {
+                obj.insert("player".into(), serde_json::Value::String(nick.clone()));
+            }
+            if let Some(e) = extra.as_object() {
+                for (k, v) in e {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        self.rec.line(&est.file, format!("{linea}\n"));
+    }
+
     /// Cierra la grabación. Hay que llamarlo por los DOS caminos por los que
     /// acaba una partida —final normal y cancelación—: si falta uno, ese
     /// fichero se queda abierto para siempre. Es idempotente.
@@ -331,7 +404,11 @@ impl AppState {
 /// Sirve para dos cosas, y la segunda es la importante: además de poder saltar
 /// a cualquier punto sin rehacer la partida entera, el visor puede comparar lo
 /// que reconstruyó con esto. Si no cuadra, acaba de encontrar un fallo.
-fn keyframe_json(gs: &crate::game::models::GameState, ms: u64) -> String {
+fn keyframe_json(
+    gs: &crate::game::models::GameState,
+    ms: u64,
+    conn: serde_json::Map<String, serde_json::Value>,
+) -> String {
     let jugadores: serde_json::Map<String, serde_json::Value> = gs.players.iter()
         .map(|p| (p.nickname.clone(), serde_json::json!({
             "sets": p.sets.iter().map(|s| s.iter()
@@ -353,6 +430,7 @@ fn keyframe_json(gs: &crate::game::models::GameState, ms: u64) -> String {
         "w": crate::record::now_ms(),
         "center": gs.center_cards.iter().map(|c| c.id).collect::<Vec<_>>(),
         "players": jugadores,
+        "conn": conn,
         "qtes": gs.active_qtes.iter().map(|q| serde_json::json!({
             "card": q.card_id,
             "players": q.participants.iter().map(|(_, n)| n).collect::<Vec<_>>(),
@@ -411,8 +489,43 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     };
     let _ = tx.send(welcome_msg);
 
-    // Loop principal de mensajes del cliente
-    while let Some(msg) = ws_receiver.next().await {
+    // Loop principal de mensajes del cliente.
+    //
+    // Con un límite de silencio EN PARTIDA. Antes se esperaba sin tiempo
+    // máximo y un socket muerto (la red se cae sin avisar) tardaba ~100 s en
+    // notarse, lo que dejaba a los demás mirando a alguien que ya no estaba y
+    // retrasaba lo que viene después (la gracia de 30 s). En partida el cliente
+    // manda un ping cada 3 s —medido: el mayor silencio de una persona activa
+    // fue 4,7 s—, así que 20 s sin nada es una conexión muerta. Fuera de
+    // partida no se aplica: el cliente solo pinga cada 25 s y un teléfono que
+    // se va a otra app a mandar el código de la sala no debe perder su sitio.
+    let mut ultimo = Instant::now();
+    let mut motivo = "cierre";
+    loop {
+        let sig = match tokio::time::timeout(IDLE_CHECK, ws_receiver.next()).await {
+            Ok(sig) => sig,
+            Err(_) => {
+                let en_partida = match current_lobby.as_deref() {
+                    Some(id) => state.lobby_manager.get_lobby(id).await
+                        .is_some_and(|l| l.status == LobbyStatus::Playing),
+                    None => false,
+                };
+                if en_partida && crate::debug::silent_too_long(ultimo, IDLE_IN_GAME) {
+                    tracing::info!(
+                        "🔇 {} lleva {} s sin decir nada en partida: se da por caído",
+                        player_id, ultimo.elapsed().as_secs()
+                    );
+                    motivo = "silencio";
+                    break;
+                }
+                continue;
+            }
+        };
+        let Some(msg) = sig else { break };
+        ultimo = Instant::now();
+        if let Ok(mut vistos) = state.last_seen.lock() {
+            vistos.insert(player_id, ultimo);
+        }
         match msg {
             Ok(Message::Text(text)) => {
                 // Parsear mensaje del cliente
@@ -436,12 +549,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             }
             Ok(Message::Close(_)) => {
                 tracing::info!("Cliente cerró conexión limpiamente: {}", player_id);
+                motivo = "cierre limpio";
                 break;
             }
             Err(e) => {
                 // "connection reset without closing handshake" es normal cuando el navegador
                 // cierra la pestaña abruptamente — no es un error del servidor
                 tracing::debug!("Conexión WebSocket cerrada abruptamente ({}): {}", player_id, e);
+                motivo = "error";
                 break;
             }
             _ => {}
@@ -454,6 +569,14 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         connections.remove(&player_id);
     }
     send_task.abort();
+    let silencio_ms = ultimo.elapsed().as_millis() as u64;
+    if let Ok(mut vistos) = state.last_seen.lock() { vistos.remove(&player_id); }
+    if let Ok(mut d) = state.desync_seen.lock() { d.remove(&player_id); }
+    if current_lobby.is_some() {
+        state.rec_line_player(&player_id, "conn", serde_json::json!({
+            "kind": "close", "motivo": motivo, "silencio_ms": silencio_ms,
+        })).await;
+    }
 
     // Si estaba en un lobby, decidir qué hacer con su sitio.
     if let Some(lobby_id) = &current_lobby {
@@ -495,6 +618,10 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
                 nickname, player_id, GRACE_PERIOD.as_secs()
             );
             state.lobby_manager.update_lobby(lobby).await;
+            state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
+                "kind": "grace_start", "player": nickname, "secs": GRACE_PERIOD.as_secs(),
+                "voluntaria": voluntary,
+            })).await;
             state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
                 nickname,
                 seconds: GRACE_PERIOD.as_secs(),
@@ -547,6 +674,55 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     }
 }
 
+/// Compara lo que el cliente dice tener (nota `state`) con el tablero del
+/// servidor. Si no cuadra **en dos muestras seguidas con la misma diferencia**
+/// lo apunta en la grabación como `desync`, con las diferencias exactas.
+///
+/// Una sola muestra no vale: una jugada en vuelo (la respuesta del servidor
+/// aún no ha llegado) produce una diferencia que no es ningún fallo. El cliente
+/// manda una muestra cada 5 s, así que lo que se repite dura de verdad.
+async fn check_desync(state: &AppState, player_id: Uuid, lobby_id: &str, detail: &serde_json::Value) {
+    let Ok(cli) = serde_json::from_value::<crate::debug::ClientState>(detail.clone()) else { return };
+    let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    if lobby.status != LobbyStatus::Playing { return }
+    let Some(gs) = lobby.game_state.as_ref() else { return };
+    let Some(p) = gs.players.iter().find(|p| p.id == player_id) else { return };
+
+    let mano: Vec<Vec<Option<u32>>> = p.sets.iter()
+        .map(|s| s.iter().map(|c| c.map(|c| c.id)).collect())
+        .collect();
+    let centro: Vec<u32> = gs.center_cards.iter().map(|c| c.id).collect();
+    let diff = crate::debug::diff_state(&mano, &centro, &cli);
+
+    let avisar = {
+        let Ok(mut vistos) = state.desync_seen.lock() else { return };
+        match diff {
+            None => { vistos.remove(&player_id); None }
+            Some(d) => match vistos.get_mut(&player_id) {
+                // La misma diferencia otra vez, y no demasiado tarde.
+                Some(prev) if prev.diff == d => {
+                    if !prev.reported && prev.at.elapsed() <= Duration::from_secs(20) {
+                        prev.reported = true;
+                        Some(d)
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    vistos.insert(player_id, DesyncSeen { diff: d, at: Instant::now(), reported: false });
+                    None
+                }
+            },
+        }
+    };
+    if let Some(d) = avisar {
+        tracing::warn!("⚠️ el tablero de {} no cuadra con el del servidor: {:?}", p.nickname, d);
+        state.rec_line_lobby(lobby_id, "desync", serde_json::json!({
+            "player": p.nickname, "diff": d,
+        })).await;
+    }
+}
+
 /// Si en la sala solo quedan bots, se cierra: los bots se van y la sala deja
 /// de existir. Sin esto un bot se quedaba sentado para siempre en una sala
 /// "abierta con 1 jugador" (visto en beta el 2026-09-28). Una persona caída
@@ -593,6 +769,14 @@ pub(crate) async fn handle_client_message(
     current_lobby: &mut Option<String>,
     state: &AppState,
 ) {
+    // Una nota demasiado grande ni se graba: la grabación es pública y tiene
+    // tope de tamaño.
+    if let ClientMessage::ClientNote { kind, detail } = &msg {
+        if crate::debug::note_too_big(kind, detail) {
+            return;
+        }
+    }
+
     // Lo que manda cada jugador, grabado antes de atenderlo. Los bots pasan
     // por aquí también, así que sus decisiones quedan registradas igual.
     state.rec_in(&player_id, &msg).await;
@@ -737,6 +921,13 @@ pub(crate) async fn handle_client_message(
                         state.send_to_player(&old_id, ServerMessage::SeatReplaced).await;
                         state.connections.write().await.remove(&old_id);
                         state.rec_rebind(&old_id, &player_id).await;
+                        // Cuánto llevaba callada la conexión vieja: si el
+                        // servidor ya la daba por muerta o la tenía por viva.
+                        let vieja_callada_ms = state.last_seen.lock().ok()
+                            .and_then(|v| v.get(&old_id).map(|t| t.elapsed().as_millis() as u64));
+                        state.rec_line_player(&player_id, "conn", serde_json::json!({
+                            "kind": "replaced", "vieja_callada_ms": vieja_callada_ms,
+                        })).await;
 
                         tracing::info!("↩️ {} recuperó su asiento en {}", nick, lobby_id);
                         state.send_to_player(&player_id, ServerMessage::JoinedLobby {
@@ -1445,6 +1636,16 @@ pub(crate) async fn handle_client_message(
             }
         }
 
+        ClientMessage::ClientNote { kind, detail } => {
+            // Ya quedó grabada arriba. Del `state` además se aprovecha para
+            // comparar el tablero del cliente con el del servidor.
+            if kind == "state" {
+                if let Some(lobby_id) = current_lobby.as_deref() {
+                    check_desync(state, player_id, lobby_id, &detail).await;
+                }
+            }
+        }
+
         ClientMessage::Ping { rtt_ms } => {
             // El cliente es el único que puede medir su ida y vuelta, así que
             // manda la medida anterior pegada al siguiente ping.
@@ -1757,6 +1958,9 @@ async fn enter_new_lobby(
 /// deuda se salda antes, la tarea se va sin hacer nada.
 async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
     let mut wait = DEBT_DEADLINE;
+    // Cuántas veces se ha aplazado el plazo por un toque a tiempo. Tope por si
+    // alguien lo estirara a base de intentos.
+    let mut aplazos = 0;
     loop {
         sleep(wait).await;
 
@@ -1790,6 +1994,25 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
                     continue;
                 }
                 None => return,
+            }
+        }
+
+        // Un toque a tiempo no puede perder contra el reloj. Coger espera
+        // `CONFLICT_WINDOW` (por si otro va a por la misma carta), así que uno
+        // mandado en el último instante llega al servidor DENTRO del plazo y se
+        // ejecuta justo DESPUÉS: aquí se fuerzaba una carta al azar y
+        // `clear_intents_for` le borraba el intento. Si hay uno vivo, se espera
+        // a que se resuelva: si coge, ya no debe nada; si no, se fuerza.
+        if aplazos < 3 {
+            let vivo = {
+                let intents = state.take_intents.read().await;
+                intents.get(&lobby_id)
+                    .is_some_and(|m| has_pending_take(m, &player_id, CONFLICT_WINDOW))
+            };
+            if vivo {
+                aplazos += 1;
+                wait = CONFLICT_WINDOW + Duration::from_millis(100);
+                continue;
             }
         }
 
@@ -1858,9 +2081,18 @@ async fn send_seat_tokens(state: &AppState, lobby_id: &str) {
     }
 }
 
+/// ¿Tiene este jugador un intento de coger vivo (dentro de la ventana de
+/// conflicto)? Lo mira el plazo de la deuda antes de forzar una carta.
+fn has_pending_take(intents: &HashMap<u32, TakeIntent>, player: &Uuid, within: Duration) -> bool {
+    intents.values().any(|i| i.player_id == *player && i.timestamp.elapsed() < within)
+}
+
 /// Corta la partida y devuelve a todos a la sala. Una caída la cancela cuando,
 /// agotado el plazo de gracia, no quedan dos jugadores o ninguna persona.
 async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
+    state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
+        "kind": "cancel", "por": because_of,
+    })).await;
     state.rec_close(lobby_id, "cancelled").await;
     let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
     lobby.game_state = None;
@@ -1922,6 +2154,9 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
     // ¿Sigue esperándose a este mismo id?
     if !lobby.players.iter().any(|p| p.id == player_id && p.disconnected_at.is_some()) {
+        state.rec_line_player(&player_id, "conn", serde_json::json!({
+            "kind": "grace_end", "result": "volvio",
+        })).await;
         return;
     }
     // La partida pudo acabar o cancelarse mientras esperábamos. Entonces no
@@ -1970,6 +2205,10 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
             .collect()
     };
     lobby.players.retain(|p| p.id != player_id);
+    state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+        "kind": "grace_end", "result": "retirado", "player": nickname,
+        "prendas": retired.len(),
+    })).await;
 
     // El estado propio de cada uno puede haber cambiado (un hueco por una
     // prenda retirada), así que se reenvía antes del resumen común.
@@ -2419,5 +2658,38 @@ mod qte_scope_tests {
             vec![Card::new(7, 3)],
         );
         assert!(!qte_blocks(&gs, a, Some(7)));
+    }
+}
+
+#[cfg(test)]
+mod pending_take_tests {
+    use super::*;
+
+    fn intent(player: Uuid, hace: Duration) -> TakeIntent {
+        TakeIntent {
+            player_id: player,
+            nickname: "x".into(),
+            timestamp: Instant::now().checked_sub(hace).unwrap(),
+        }
+    }
+
+    // El plazo de 3 s se comía un toque mandado en el último instante: coger
+    // espera 300 ms y el reloj vencía dentro de esa espera.
+    #[test]
+    fn a_take_still_inside_its_window_holds_the_deadline() {
+        let (yo, otro) = (Uuid::new_v4(), Uuid::new_v4());
+        let mut m = HashMap::new();
+        m.insert(7, intent(yo, Duration::from_millis(50)));
+        assert!(has_pending_take(&m, &yo, CONFLICT_WINDOW));
+        assert!(!has_pending_take(&m, &otro, CONFLICT_WINDOW), "el intento de otro no cuenta");
+    }
+
+    #[test]
+    fn an_old_intent_does_not() {
+        let yo = Uuid::new_v4();
+        let mut m = HashMap::new();
+        m.insert(7, intent(yo, Duration::from_millis(900)));
+        assert!(!has_pending_take(&m, &yo, CONFLICT_WINDOW));
+        assert!(!has_pending_take(&HashMap::new(), &yo, CONFLICT_WINDOW));
     }
 }

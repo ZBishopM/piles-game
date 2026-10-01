@@ -50,6 +50,16 @@ pub enum ClientMessage {
     /// Irse de la sala de verdad. Quien solo cambia de pantalla se queda
     /// sentado: la sala sigue listada y su apodo, ocupado.
     LeaveLobby,
+    /// Una observación del cliente para depurar: un toque que descartó, una
+    /// reconexión, un error de JavaScript, su tablero. El servidor no hace
+    /// nada con ellas salvo grabarlas (y comparar el `state` con el suyo): son
+    /// lo único que dice qué vio el cliente. Con tope de tamaño; ver
+    /// `debug::note_too_big`.
+    ClientNote {
+        kind: String,
+        #[serde(default)]
+        detail: serde_json::Value,
+    },
     /// Listar lobbies disponibles
     ListLobbies,
     /// Marcar como listo/no listo
@@ -425,6 +435,11 @@ pub struct EloChange {
     pub pool: crate::elo::Pool,
     pub before: i32,
     pub after: i32,
+    /// ¿Estaba entre los 3 mejores de esta clasificación antes de la partida, y
+    /// después? Es la posición, no un umbral: el dial necesita saber si hay
+    /// que enseñar que entra o sale del Top 3 (ver `ratings::top3_of`).
+    pub top3_before: bool,
+    pub top3_after: bool,
 }
 
 /// Entrada en el ranking final

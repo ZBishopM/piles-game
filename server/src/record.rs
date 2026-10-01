@@ -39,10 +39,20 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Cuántas grabaciones se guardan. La máquina es compartida, sin swap, y
-/// también tiene producción y el correo: un disco lleno se los lleva por
-/// delante.
-const KEEP: usize = 10;
+/// Cuántas grabaciones se guardan EN DISCO. La máquina es compartida, sin swap,
+/// y también tiene producción y el correo: un disco lleno se los lleva por
+/// delante, así que además de contar ficheros se acota el tamaño total.
+///
+/// Eran 10 y se quedaba corto para depurar: en una sesión de pruebas las
+/// partidas de prueba empujaron fuera las que había que mirar (2026-09-30).
+/// Lo que ve quien usa el visor sigue siendo la lista corta (`LISTED`).
+const KEEP: usize = 100;
+/// Tope del tamaño de todas juntas. Una grabación normal pesa 50–300 KB.
+const KEEP_BYTES: u64 = 150 * 1024 * 1024;
+/// Cuántas devuelve `/api/recordings` si no se pide otra cosa: lo que ve quien
+/// usa el visor. Con `?n=` se pueden pedir más (hasta `KEEP`).
+pub const LISTED: usize = 10;
+pub const LISTED_MAX: usize = KEEP;
 
 /// Tope por fichero. Seguro barato contra una partida patológica.
 const MAX_BYTES: u64 = 32 * 1024 * 1024;
@@ -85,7 +95,7 @@ impl Recorder {
         if let Err(e) = std::fs::create_dir_all(&dir) {
             tracing::warn!("no se pudo crear {}: {e}; no se grabará", dir.display());
         }
-        prune(&dir, KEEP);
+        prune(&dir, KEEP, KEEP_BYTES);
 
         let (tx, rx) = sync_channel::<Job>(QUEUE);
         let hilo_dir = dir.clone();
@@ -117,7 +127,7 @@ impl Recorder {
                     }
                     Job::Close(nombre) => {
                         abiertos.remove(&nombre);
-                        prune(&hilo_dir, KEEP);
+                        prune(&hilo_dir, KEEP, KEEP_BYTES);
                     }
                 }
             }
@@ -146,32 +156,38 @@ impl Recorder {
     }
 }
 
-/// Deja solo las `keep` más nuevas.
+/// Deja solo las `keep` más nuevas, y que entre todas no pasen de `max_bytes`.
 ///
 /// El nombre empieza por los milisegundos de epoch, así que ordenar por nombre
 /// **es** ordenar por fecha y no hay que preguntarle al sistema de ficheros.
-fn prune(dir: &Path, keep: usize) {
+/// Siempre se respeta la más nueva, aunque sola pase del tope: una sola partida
+/// ya está limitada por `MAX_BYTES`.
+fn prune(dir: &Path, keep: usize, max_bytes: u64) {
     let Ok(entradas) = std::fs::read_dir(dir) else { return };
     let mut ficheros: Vec<PathBuf> = entradas
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|e| e == "jsonl"))
         .collect();
-    if ficheros.len() <= keep {
-        return;
-    }
     ficheros.sort();
-    let sobran = ficheros.len() - keep;
-    for viejo in ficheros.into_iter().take(sobran) {
-        let _ = std::fs::remove_file(&viejo);
+    let tam = |p: &PathBuf| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let mut total: u64 = ficheros.iter().map(tam).sum();
+    let mut quedan = ficheros.len();
+    for viejo in &ficheros {
+        if quedan <= 1 || (quedan <= keep && total <= max_bytes) {
+            break;
+        }
+        total = total.saturating_sub(tam(viejo));
+        quedan -= 1;
+        let _ = std::fs::remove_file(viejo);
     }
 }
 
-/// Las grabaciones que hay, de la más nueva a la más vieja.
+/// Las `n` grabaciones más nuevas que hay, de la más nueva a la más vieja.
 ///
 /// Solo lee la PRIMERA línea de cada fichero: la cabecera ya trae sala,
 /// jugadores y hora de inicio, y no hay motivo para cargar megas de eventos
 /// para pintar una lista.
-pub fn list(dir: &Path) -> Vec<serde_json::Value> {
+pub fn list(dir: &Path, n: usize) -> Vec<serde_json::Value> {
     let Ok(entradas) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut ficheros: Vec<PathBuf> = entradas
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -179,6 +195,7 @@ pub fn list(dir: &Path) -> Vec<serde_json::Value> {
         .collect();
     ficheros.sort();
     ficheros.reverse();
+    ficheros.truncate(n);
 
     ficheros
         .iter()
@@ -239,7 +256,7 @@ mod tests {
         for ms in [1000u64, 3000, 2000, 5000, 4000] {
             std::fs::write(d.join(format!("{ms}-AAAA.jsonl")), "{}\n").unwrap();
         }
-        prune(&d, 3);
+        prune(&d, 3, u64::MAX);
 
         let mut quedan: Vec<String> = std::fs::read_dir(&d)
             .unwrap()
@@ -255,8 +272,45 @@ mod tests {
     fn prune_does_nothing_when_there_is_room() {
         let d = temp();
         std::fs::write(d.join("1000-AAAA.jsonl"), "{}\n").unwrap();
-        prune(&d, 10);
+        prune(&d, 10, u64::MAX);
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn prune_also_caps_the_total_size_and_always_keeps_the_newest() {
+        let d = temp();
+        // Cinco de 1 KB y un tope de 2,5 KB: sobran las tres más viejas,
+        // aunque quepan por número.
+        for ms in [1000u64, 2000, 3000, 4000, 5000] {
+            std::fs::write(d.join(format!("{ms}-AAAA.jsonl")), vec![b'x'; 1024]).unwrap();
+        }
+        prune(&d, 100, 2560);
+        let mut quedan: Vec<String> = std::fs::read_dir(&d).unwrap()
+            .map(|e| e.unwrap().file_name().to_str().unwrap().to_string()).collect();
+        quedan.sort();
+        assert_eq!(quedan, vec!["4000-AAAA.jsonl", "5000-AAAA.jsonl"]);
+
+        // Un tope menor que la más nueva no la borra: una partida sola ya está
+        // acotada por MAX_BYTES.
+        prune(&d, 100, 10);
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        std::fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn a_listing_returns_only_the_newest_n() {
+        let d = temp();
+        for ms in [1000u64, 2000, 3000, 4000] {
+            std::fs::write(
+                d.join(format!("{ms}-AAAA.jsonl")),
+                format!("{{\"t\":\"header\",\"lobby\":\"AAAA\",\"started_ms\":{ms}}}\n"),
+            ).unwrap();
+        }
+        let l = list(&d, 2);
+        let files: Vec<&str> = l.iter().map(|v| v["file"].as_str().unwrap()).collect();
+        assert_eq!(files, vec!["4000-AAAA.jsonl", "3000-AAAA.jsonl"], "las más nuevas, la última primero");
+        assert_eq!(list(&d, 100).len(), 4);
         std::fs::remove_dir_all(&d).ok();
     }
 
@@ -272,7 +326,7 @@ mod tests {
              {\"t\":\"out\",\"ms\":90",
         ).unwrap();
 
-        let l = list(&d);
+        let l = list(&d, 10);
         assert_eq!(l.len(), 1);
         assert_eq!(l[0]["lobby"], "AB12");
         assert_eq!(l[0]["dur_ms"], 500, "la última línea entera manda");

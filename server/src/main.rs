@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -12,6 +12,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber;
 
 mod bot;
+mod debug;
 mod elo;
 mod game;
 mod ratings;
@@ -63,6 +64,8 @@ async fn main() {
         // a propósito, porque un fichero ahí dentro sería la mano de todos los
         // jugadores servida a internet.
         .route("/api/recordings", get(list_recordings))
+        // Resumen redactado de lo que hay en marcha (ver `debug::estado_json`).
+        .route("/api/estado", get(estado))
         .route("/api/recordings/:file", get(get_recording))
         // Elo. Bajo `/api/` por lo mismo que las grabaciones.
         .route("/api/elo/:key", get(get_elo))
@@ -102,13 +105,33 @@ async fn health_check() -> &'static str {
     "OK"
 }
 
-/// Las grabaciones que hay.
-async fn list_recordings(State(state): State<AppState>) -> Response {
-    let lista = record::list(state.rec.dir());
+#[derive(serde::Deserialize)]
+struct ListQuery {
+    n: Option<usize>,
+}
+
+/// Las grabaciones más nuevas. Por defecto las 10 de siempre —lo que ve quien
+/// usa el visor—; con `?n=` se piden más (hasta lo que se guarda en disco), que
+/// es lo que usan las herramientas de depuración.
+async fn list_recordings(State(state): State<AppState>, Query(q): Query<ListQuery>) -> Response {
+    let n = q.n.unwrap_or(record::LISTED).clamp(1, record::LISTED_MAX);
+    let lista = record::list(state.rec.dir(), n);
     (
         [(header::CACHE_CONTROL, "no-store")],
         axum::Json(lista),
     ).into_response()
+}
+
+/// Qué hay en marcha: versión, conexiones, salas y partidas en curso. Redactado
+/// para ser público; ver `debug::estado_json`.
+async fn estado(State(state): State<AppState>) -> Response {
+    let salas = state.lobby_manager.all_lobbies().await;
+    let conexiones = state.connections.read().await.len();
+    let vistos = state.last_seen.lock().map(|v| v.clone()).unwrap_or_default();
+    // El commit lo pone CI al compilar (`GITHUB_SHA`); en local, "dev".
+    let version = option_env!("GITHUB_SHA").map_or("dev", |s| &s[..s.len().min(7)]);
+    let j = debug::estado_json(&salas, conexiones, state.started.elapsed().as_secs(), version, &vistos);
+    ([(header::CACHE_CONTROL, "no-store")], axum::Json(j)).into_response()
 }
 
 /// Una grabación entera, tal cual está en disco.
@@ -135,7 +158,16 @@ async fn get_elo(State(state): State<AppState>, Path(key): Path<String>) -> Resp
         return StatusCode::NOT_FOUND.into_response();
     }
     match state.ratings.get(&key) {
-        Some(rec) => ([(header::CACHE_CONTROL, "no-store")], axum::Json(rec)).into_response(),
+        Some(rec) => {
+            // Con la posición en cada clasificación: el dial necesita saber si
+            // es del Top 3 para enseñarlo.
+            let (fun, glory) = state.ratings.top3_flags(&key);
+            let mut j = serde_json::to_value(rec).unwrap_or_default();
+            if let Some(o) = j.as_object_mut() {
+                o.insert("top3".into(), serde_json::json!({ "fun": fun, "glory": glory }));
+            }
+            ([(header::CACHE_CONTROL, "no-store")], axum::Json(j)).into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

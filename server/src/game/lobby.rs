@@ -536,6 +536,11 @@ impl LobbyManager {
         Ok((lobby.clone(), mirando))
     }
 
+    /// Todas las salas, públicas y privadas. Para `/api/estado`.
+    pub async fn all_lobbies(&self) -> Vec<Lobby> {
+        self.lobbies.read().await.values().cloned().collect()
+    }
+
     /// Salas a las que se puede entrar desde la lista pública: en espera, no
     /// llenas, marcadas como públicas y con alguien dentro. Las privadas y las
     /// vacías existen igual (una vacía se guarda para que quien se cayó
