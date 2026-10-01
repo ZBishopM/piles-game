@@ -19,18 +19,24 @@ const parar = [pinguear(a), pinguear(b)];
 let forzadas = 0, bien = 0;
 for (let intento = 1; intento <= 3; intento++) {
   const n0 = a.msgs.length;
+  const tEnvio = Date.now();
   send(a, { type: 'drop_card', my_card_index: 0 });
   const dep = await esperar(a, m => a.msgs.indexOf(m) >= n0 && m.type === 'swap_success', 2000);
   if (!dep) { ok(false, `intento ${intento}: no llegó el swap_success del drop`); break; }
   const t0 = dep._t;
+  // El reloj del servidor arranca al RECIBIR el drop, no cuando te llega la
+  // respuesta: el ida y vuelta (≈0 en local, ~0,2 s en beta) hay que restarlo,
+  // o el take_card llega pasados los 3 s y es una deuda forzada legítima.
+  const rtt = t0 - tEnvio;
   const soltada = dep.your_new_set.findIndex(c => c === null);
   // Una carta del centro que no sea la que acabo de soltar.
   const centro = dep.center_cards.map(c => c.id);
   const mia = centro[centro.length - 1];
   const elegida = centro.find(id => id !== mia);
 
-  await wait(Math.max(0, 2850 - (Date.now() - t0)));
+  await wait(Math.max(0, 2850 - rtt - (Date.now() - t0)));   // llega al servidor a ~2,85 s de su reloj
   send(a, { type: 'take_card', card_id: elegida });
+  info(`intento ${intento}: rtt ${rtt} ms → take_card enviado ${Date.now() - t0} ms tras la respuesta`);
   await wait(1800);
 
   const nuevos = a.msgs.slice(n0);
