@@ -65,13 +65,19 @@
     },
   };
 
-  function build(el, digits, skinName, label) {
+  function build(el, digits, skinName, label, reserveRank, crownRoom) {
     el.textContent = '';
     el.classList.add('ag-dial');
+    el.classList.toggle('has-rank-change', reserveRank);
+    el.classList.toggle('has-crown-room', crownRoom);
     el.dataset.skin = skinName;
     const lab = document.createElement('div');
     lab.className = 'ag-dial-label';
-    lab.textContent = label;
+    const labText = document.createElement('span');
+    labText.textContent = label;
+    const rankName = document.createElement('span');
+    rankName.className = 'ag-dial-rankname';
+    lab.append(labText, rankName);
     const frame = document.createElement('div');
     frame.className = 'ag-dial-frame';
     frame.setAttribute('aria-hidden', 'true');
@@ -94,8 +100,11 @@
     const delta = document.createElement('div');
     delta.className = 'ag-dial-delta';
     delta.setAttribute('aria-live', 'polite');
-    el.append(lab, frame, delta);
-    return { frame, cols, delta };
+    const pill = document.createElement('div');
+    pill.className = 'ag-dial-rank';
+    pill.setAttribute('aria-live', 'polite');
+    el.append(lab, frame, delta, pill);
+    return { frame, cols, delta, pill, rankName };
   }
 
   // El cilindro se proyecta en 2D: cada cara baja r·sen θ, se aplasta cos θ y
@@ -169,25 +178,94 @@
     );
   }
 
-  window.agDial = function (el, { from = 0, to = from, skin = 'fun', label, onStep } = {}) {
-    const s = SKINS[skin] ? skin : 'fun';
+  const fxDe = new WeakMap();   // el → efectos de partículas de su último dial
+
+  // skin y pool son lo mismo (las clasificaciones se llaman igual que las pieles).
+  window.agDial = function (el, { from = 0, to = from, skin, pool, label, top3Before = false, top3After = top3Before, onStep, onRank } = {}) {
+    const s = SKINS[skin ?? pool] ? (skin ?? pool) : 'fun';
     const def = SKINS[s];
     from = Math.round(from);
     to = Math.round(to);
     const digits = Math.max(4, String(Math.max(Math.abs(from), Math.abs(to))).length);
-    const { frame, cols, delta } = build(el, digits, s, label ?? def.label);
     const d = to - from;
+
+    // Los rangos son opcionales: sin rank.js el dial se ve y se mueve como antes.
+    const FX = window.agRankFx;
+    const rankAt = (v, t3) => window.agRank?.(v, { pool: s, top3: t3 }) ?? null;
+    let rank = rankAt(from, top3Before);
+    const rankEnd = rankAt(to, top3After);
+    const cambia = !!rank && rank.index !== rankEnd.index;
+
+    fxDe.get(el)?.destroy();
+    const { frame, cols, delta, pill, rankName } = build(el, digits, s, label ?? def.label, cambia,
+      s === 'glory' && !!rank && (rank.top3 || rankEnd.top3));
+    const nombreRango = r => (r ? ` · ${r.name}` : '');
     el.setAttribute('role', 'img');
-    el.setAttribute('aria-label', `${label ?? def.label}: ${to}${d ? `, ${d > 0 ? '+' : '−'}${Math.abs(d)}` : ''}`);
+    const aria = r => `${label ?? def.label}${nombreRango(r)}: ${to}${d ? `, ${d > 0 ? '+' : '−'}${Math.abs(d)}` : ''}`;
+    el.setAttribute('aria-label', aria(rank));
+
+    let fx = null;
+    // La corona es de glory; el Payaso de fun lleva su nariz roja (rank.css).
+    const corona = r => s === 'glory' && r.top3;
+    function applyRank(next) {
+      rank = next;
+      el.dataset.rank = next.id;
+      rankName.textContent = nombreRango(next);
+      fx?.setRank(next);
+    }
+    if (rank) {
+      applyRank(rank);
+      fx = FX?.attach(frame, rank) ?? null;
+      if (fx) fxDe.set(el, fx);
+      if (corona(rank)) FX?.crown(frame, false);
+    }
+
+    /** Cambio de rango (hacia arriba o abajo): pastilla, aviso a quien escucha y el golpe visual. */
+    function rankChanged(next) {
+      const prev = rank;
+      const up = next.index > prev.index;
+      rank = next;   // el rango "de verdad" cambia ya; lo visual (applyRank) llega en unos ms
+      pill.textContent = `${up ? '▲ Asciendes' : '▼ Desciendes'} · ${next.name}`;
+      pill.className = `ag-dial-rank is-shown ${up ? 'is-up' : 'is-down'}`;
+      el.setAttribute('aria-label', aria(next));
+      onRank?.({ dir: up ? 'up' : 'down', from: prev, to: next, skin: s });
+      if (REDUCED?.matches || !FX) {
+        applyRank(next);
+        if (corona(next)) FX?.crown(frame, false); else FX?.uncrown(frame);
+        return;
+      }
+      if (up) {
+        FX.flash(frame);
+        FX.ring(frame);
+        setTimeout(() => applyRank(next), 110);   // el material cambia bajo el destello
+        fx?.burst(next);
+        if (corona(next)) FX.crown(frame, true);
+      } else {
+        if (prev.top3) FX.uncrown(frame);
+        if (s === 'glory') {
+          FX.crack(frame);
+          frame.animate(
+            [{ filter: 'none' }, { filter: 'saturate(.25) brightness(.65)', offset: 0.3 }, { filter: 'saturate(.25) brightness(.65)', offset: 0.55 }, { filter: 'none' }],
+            { duration: 1200 },
+          );
+          setTimeout(() => { applyRank(next); fx?.shatter(prev); }, 380);
+        } else {
+          FX.deflate(frame, 800);
+          setTimeout(() => applyRank(next), 320);
+        }
+      }
+    }
 
     if (d === 0 || REDUCED?.matches) {
       paint(cols, to);
       if (d !== 0) showDelta(delta, from, to);
+      if (rank && rankEnd.index !== rank.index) rankChanged(rankEnd);
       return Promise.resolve();
     }
 
     paint(cols, from);
     const dur = def.duration(Math.abs(d));
+    const lo = Math.min(from, to), hi = Math.max(from, to);
     return new Promise(resolve => {
       let t0 = null;
       let last = from;
@@ -197,10 +275,21 @@
         const v = p >= 1 ? to : def.value(p, from, to);
         paint(cols, v);
         const entero = Math.round(v);
-        if (entero !== last) { last = entero; onStep?.(entero); }
+        if (entero !== last) {
+          last = entero;
+          onStep?.(entero);
+          // Cruzar un umbral durante el giro. El valor se acota a [from, to] para que
+          // el pasarse un pelo del muelle de fun no cuente como subir y volver a bajar.
+          if (rank) {
+            const cur = rankAt(Math.min(hi, Math.max(lo, entero)), top3Before);
+            if (cur.index !== rank.index) rankChanged(cur);
+          }
+        }
         if (p < 1) return requestAnimationFrame(tick);
         showDelta(delta, from, to);
         (s === 'glory' ? thud : glow)(frame);
+        // El Top 3 se decide por posición, no por valor: se nota al asentarse.
+        if (rank && rankEnd.index !== rank.index) rankChanged(rankEnd);
         resolve();
       };
       requestAnimationFrame(tick);

@@ -13,7 +13,7 @@
   font: 600 11px/1 var(--font-sans);
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--text-muted);
+  color: var(--rk-label, var(--text-muted));
 }
 
 .ag-dial-frame {
@@ -23,8 +23,10 @@
   padding: 6px;
   font-size: var(--ag-dial-size, 44px);
   border-radius: var(--radius-panel);
-  background: var(--card);
-  border: 1px solid var(--border-strong);
+  background: var(--rk-frame-bg, var(--card));
+  border: 1px solid var(--rk-border, var(--border-strong));
+  box-shadow: var(--rk-shadow, none);
+  animation: var(--rk-glow-anim, none);
 }
 
 .ag-dial-window {
@@ -36,7 +38,7 @@
   height: calc(var(--h) * 1.6);
   overflow: hidden;
   border-radius: var(--radius-ctl);
-  background: #0b0b0c;
+  background: var(--rk-win, #0b0b0c);
 }
 
 /* El tambor es solo el sitio de la cara de delante; las caras las coloca
@@ -57,8 +59,9 @@
   will-change: transform, opacity;
   font: 700 1em/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
-  background: linear-gradient(#222225, #19191b);
+  color: var(--rk-num, var(--accent));
+  text-shadow: var(--rk-num-shadow, none);
+  background: var(--rk-face, linear-gradient(#222225, #19191b));
   border-top: 1px solid rgb(255 255 255 / 6%);
 }
 
@@ -95,40 +98,40 @@
 .ag-dial[data-skin="glory"] .ag-dial-label {
   font: 700 12px/1 Georgia, "Times New Roman", serif;
   letter-spacing: 0.34em;
-  color: #c9a45c;
+  color: var(--rk-label, #c9a45c);
 }
 .ag-dial[data-skin="glory"] .ag-dial-frame {
   gap: 6px;
   padding: 12px 16px;
   border-radius: 4px;
-  border: 2px solid #6b5332;
-  background:
+  border: 2px solid var(--rk-border, #6b5332);
+  background: var(--rk-frame-bg,
     radial-gradient(circle at 7px 7px, #a3875a 0 2px, #3a2c1b 2.5px, transparent 3.5px),
     radial-gradient(circle at calc(100% - 7px) 7px, #a3875a 0 2px, #3a2c1b 2.5px, transparent 3.5px),
     radial-gradient(circle at 7px calc(100% - 7px), #a3875a 0 2px, #3a2c1b 2.5px, transparent 3.5px),
     radial-gradient(circle at calc(100% - 7px) calc(100% - 7px), #a3875a 0 2px, #3a2c1b 2.5px, transparent 3.5px),
-    linear-gradient(180deg, #3d3226 0%, #251d15 55%, #1a140e 100%);
-  box-shadow:
+    linear-gradient(180deg, #3d3226 0%, #251d15 55%, #1a140e 100%));
+  box-shadow: var(--rk-shadow,
     inset 0 1px 0 rgb(255 220 160 / 16%),
     inset 0 -3px 8px rgb(0 0 0 / 65%),
-    0 12px 32px rgb(0 0 0 / 65%);
+    0 12px 32px rgb(0 0 0 / 65%));
 }
 .ag-dial[data-skin="glory"] .ag-dial-window {
   width: 0.8em;
   border-radius: 2px;
-  background: #0d0c0b;
+  background: var(--rk-win, #0d0c0b);
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 70%);
 }
 .ag-dial[data-skin="glory"] .ag-dial-face {
   font: 700 1em/1 Georgia, "Times New Roman", serif;
   font-variant-numeric: lining-nums tabular-nums;
-  color: #c9a45c;
+  color: var(--rk-num, #c9a45c);
   /* Grabado: sombra dura abajo, filo de luz arriba. */
-  text-shadow: 0 2px 0 #1f160a, 0 -1px 0 rgb(255 232 190 / 25%);
+  text-shadow: var(--rk-num-shadow, 0 2px 0 #1f160a, 0 -1px 0 rgb(255 232 190 / 25%));
   /* Losas de piedra: vetas finas sobre gris cálido. */
-  background:
+  background: var(--rk-face,
     repeating-linear-gradient(115deg, rgb(255 255 255 / 3%) 0 2px, transparent 2px 9px),
-    linear-gradient(#5a554d, #45403a 55%, #34302b);
+    linear-gradient(#5a554d, #45403a 55%, #34302b));
   border-top: 1px solid rgb(0 0 0 / 55%);
 }
 .ag-dial[data-skin="glory"] .ag-dial-delta {

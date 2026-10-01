@@ -1,0 +1,369 @@
+/* agapornis-ui · rangos de los diales (ver rank.js y rank-fx.js).
+
+   Cada rango es un conjunto de variables --rk-* sobre `.ag-dial[data-rank]`;
+   dial.css las consume con un valor por defecto, así que un dial sin rango
+   (rank.js sin cargar) se ve como en 0.3.0. El rango se elige por nombre, no
+   por número: `data-rank="plata"`.
+
+   For glory: metal, piedra y gemas, con partículas (rank-fx.js) que crecen
+   con el rango. For fun: juguetes y golosinas, solo CSS y sin partículas;
+   un brillo que barre no es una partícula. */
+
+@property --ag-ang {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+/* ── Piezas comunes ───────────────────────────────────────────────────── */
+
+/* Brillo que barre el marco. Cada rango lo activa con --rk-sheen-anim. */
+.ag-dial-frame::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 46%, rgb(255 255 255 / var(--rk-sheen-a, 0.3)) 50%, transparent 54%) 100% 0 / 400% 100% no-repeat;
+  mix-blend-mode: screen;
+  animation: var(--rk-sheen-anim, none);
+}
+@keyframes ag-sweep { from { background-position: 100% 0; } to { background-position: 0% 0; } }
+
+/* Haz de luz que gira: solo glory, y solo los tres rangos de arriba. */
+.ag-dial[data-skin="glory"] .ag-dial-frame::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  pointer-events: none;
+  background: conic-gradient(from var(--ag-ang) at 50% 50%, transparent 0 66%, var(--rk-b1, transparent) 80%, var(--rk-b2, transparent) 92%, transparent 100%);
+  mix-blend-mode: screen;
+  animation: var(--rk-beam-anim, none);
+}
+@keyframes ag-spin { to { --ag-ang: 360deg; } }
+@keyframes ag-breathe { from { box-shadow: var(--rk-shadow); } to { box-shadow: var(--rk-shadow-hi); } }
+
+/* El rango, en la etiqueta: "For glory · Platino". */
+.ag-dial-label { white-space: nowrap; }
+.ag-dial-label .ag-dial-rankname { opacity: 0.85; letter-spacing: 0.16em; }
+/* Hueco para la corona del Top 3, reservado también al subir hacia él o bajar de él. */
+.ag-dial.has-crown-room .ag-dial-label { margin-bottom: 22px; }
+
+/* La pastilla de ascenso / descenso. Solo ocupa sitio si el dial va a cambiar de rango. */
+.ag-dial-rank {
+  display: none;
+  box-sizing: border-box;
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font: 700 12px/1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0;
+}
+.ag-dial.has-rank-change .ag-dial-rank { display: block; min-height: 1.9em; }
+.ag-dial-rank.is-shown { opacity: 1; animation: ag-settle var(--dur-enter) var(--ease-expo) both; }
+.ag-dial-rank.is-up {
+  color: var(--rk-label, var(--accent));
+  background: color-mix(in srgb, var(--rk-label, var(--accent)) 16%, transparent);
+  border-color: color-mix(in srgb, var(--rk-label, var(--accent)) 55%, transparent);
+}
+.ag-dial-rank.is-down {
+  color: var(--danger);
+  background: rgb(248 113 113 / 12%);
+  border-color: rgb(248 113 113 / 35%);
+}
+.ag-dial[data-skin="glory"] .ag-dial-rank { font-family: Georgia, "Times New Roman", serif; }
+
+/* Efectos de cambio de rango (los crea rank-fx.js). */
+.ag-rank-fx { position: absolute; z-index: 3; pointer-events: none; }
+.ag-rank-flash, .ag-rank-ring, .ag-rank-crack {
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+}
+.ag-rank-flash { inset: 0; border-radius: inherit; background: radial-gradient(circle at 50% 50%, #fff 0%, var(--rk-label, #fff) 38%, transparent 72%); opacity: 0; }
+.ag-rank-ring { inset: -2px; border-radius: inherit; border: 2px solid var(--rk-label, #fff); opacity: 0; }
+.ag-rank-crack { inset: 0; width: 100%; height: 100%; }
+.ag-rank-crack path { fill: none; stroke: #0a0705; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 1px rgb(255 255 255 / 45%)); }
+.ag-rank-crown {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: -30px;
+  width: 48px;
+  height: 34px;
+  margin-left: -24px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 6px rgb(255 200 80 / 55%));
+}
+
+/* ═══ For glory ═══════════════════════════════════════════════════════════ */
+
+/* Los valores por defecto van en :where() (especificidad 0) para que cualquier rango los pise. */
+:where(.ag-dial[data-skin="glory"][data-rank]) {
+  --rk-rivets:
+    radial-gradient(circle at 7px 7px, var(--rk-rivet-hi) 0 2px, var(--rk-rivet-lo) 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(100% - 7px) 7px, var(--rk-rivet-hi) 0 2px, var(--rk-rivet-lo) 2.5px, transparent 3.5px),
+    radial-gradient(circle at 7px calc(100% - 7px), var(--rk-rivet-hi) 0 2px, var(--rk-rivet-lo) 2.5px, transparent 3.5px),
+    radial-gradient(circle at calc(100% - 7px) calc(100% - 7px), var(--rk-rivet-hi) 0 2px, var(--rk-rivet-lo) 2.5px, transparent 3.5px);
+  --rk-overlay: linear-gradient(transparent, transparent);
+  --rk-glow: transparent;
+  --rk-glow-r: 18px;
+  --rk-glow-hi-r: 30px;
+  --rk-frame-bg: var(--rk-overlay), var(--rk-rivets), linear-gradient(180deg, var(--rk-f1), var(--rk-f2) 55%, var(--rk-f3));
+  --rk-face:
+    repeating-linear-gradient(115deg, rgb(255 255 255 / 3%) 0 2px, transparent 2px 9px),
+    linear-gradient(var(--rk-fa), var(--rk-fb) 55%, var(--rk-fc));
+  --rk-shadow: inset 0 1px 0 rgb(255 232 190 / 16%), inset 0 -3px 8px rgb(0 0 0 / 65%), 0 12px 32px rgb(0 0 0 / 65%), 0 0 var(--rk-glow-r) 1px var(--rk-glow);
+  --rk-shadow-hi: inset 0 1px 0 rgb(255 232 190 / 22%), inset 0 -3px 8px rgb(0 0 0 / 65%), 0 12px 32px rgb(0 0 0 / 65%), 0 0 var(--rk-glow-hi-r) 3px var(--rk-glow);
+}
+
+/* 1 · Hierro oxidado: feo a propósito. Picado, descascarillado, sin brillo. */
+.ag-dial[data-rank="hierro"] {
+  --rk-f1: #5a2e17; --rk-f2: #3a1d0e; --rk-f3: #241108;
+  --rk-border: #7a4524;
+  --rk-rivet-hi: #8a5a30; --rk-rivet-lo: #2a1408;
+  --rk-overlay:
+    radial-gradient(circle at 18% 32%, #9a4a1e 0 3px, transparent 4.5px),
+    radial-gradient(circle at 72% 68%, #b8601f 0 2.5px, transparent 4px),
+    radial-gradient(circle at 46% 14%, #170a04 0 3px, transparent 4.5px),
+    radial-gradient(circle at 88% 22%, #7a3a16 0 2px, transparent 3.5px),
+    radial-gradient(circle at 30% 86%, #170a04 0 2.5px, transparent 4px),
+    repeating-linear-gradient(82deg, rgb(170 78 24 / 16%) 0 3px, transparent 3px 12px);
+  --rk-fa: #4a423a; --rk-fb: #3b342d; --rk-fc: #2c2722;
+  --rk-num: #b4602c; --rk-num-shadow: 0 2px 0 #1a0d05, 0 0 1px #5a2a0e;
+  --rk-label: #b06a38;
+}
+/* 2 · Bronce */
+.ag-dial[data-rank="bronce"] {
+  --rk-f1: #7a4a24; --rk-f2: #553218; --rk-f3: #3b2210;
+  --rk-border: #a3622e;
+  --rk-rivet-hi: #d9a066; --rk-rivet-lo: #3a2110;
+  --rk-fa: #5b4636; --rk-fb: #473629; --rk-fc: #35291f;
+  --rk-num: #e0954f; --rk-num-shadow: 0 2px 0 #24130a, 0 -1px 0 rgb(255 210 160 / 25%);
+  --rk-glow: rgb(205 127 50 / 28%);
+  --rk-label: #d9914d;
+}
+/* 3 · Plata */
+.ag-dial[data-rank="plata"] {
+  --rk-f1: #b9c0c9; --rk-f2: #7c838d; --rk-f3: #4f555e;
+  --rk-border: #cfd6de;
+  --rk-rivet-hi: #f4f7fa; --rk-rivet-lo: #4a4f57;
+  --rk-fa: #4a4e55; --rk-fb: #3a3e44; --rk-fc: #2c2f34;
+  --rk-num: #eef2f7; --rk-num-shadow: 0 2px 0 #1d2025, 0 -1px 0 rgb(255 255 255 / 30%);
+  --rk-glow: rgb(220 230 245 / 30%);
+  --rk-label: #cdd5df;
+  --rk-sheen-a: 0.3; --rk-sheen-anim: ag-sweep 4.2s linear infinite;
+}
+/* 4 · Oro */
+.ag-dial[data-rank="oro"] {
+  --rk-f1: #e0b84a; --rk-f2: #a87a1c; --rk-f3: #6a4a10;
+  --rk-border: #f0cf6a;
+  --rk-rivet-hi: #fff0b0; --rk-rivet-lo: #5a3d08;
+  --rk-overlay: linear-gradient(100deg, transparent 30%, rgb(255 245 190 / 16%) 45%, transparent 60%);
+  --rk-fa: #51452e; --rk-fb: #3f3624; --rk-fc: #2f2819;
+  --rk-num: #ffd76a; --rk-num-shadow: 0 2px 0 #3a2706, 0 -1px 0 rgb(255 245 190 / 30%);
+  --rk-glow: rgb(255 200 70 / 36%);
+  --rk-label: #f2cb5c;
+  --rk-sheen-a: 0.34; --rk-sheen-anim: ag-sweep 3.8s linear infinite;
+}
+/* 5 · Platino, azulado */
+.ag-dial[data-rank="platino"] {
+  --rk-f1: #a9c8e0; --rk-f2: #5f86a8; --rk-f3: #34506b;
+  --rk-border: #cfe7fa;
+  --rk-rivet-hi: #f0faff; --rk-rivet-lo: #25384a;
+  --rk-fa: #38424d; --rk-fb: #2d363f; --rk-fc: #222a32;
+  --rk-num: #d9f0ff; --rk-num-shadow: 0 2px 0 #14202b, 0 0 8px rgb(150 210 255 / 55%);
+  --rk-glow: rgb(150 210 255 / 40%);
+  --rk-label: #bfe3ff;
+  --rk-sheen-a: 0.36; --rk-sheen-anim: ag-sweep 3.4s linear infinite;
+}
+/* 6 · Diamante, azul fuerte, con facetas */
+.ag-dial[data-rank="diamante"] {
+  --rk-f1: #2f7bff; --rk-f2: #1348c4; --rk-f3: #0a2670;
+  --rk-border: #6fa6ff;
+  --rk-rivet-hi: #d7e8ff; --rk-rivet-lo: #07184a;
+  --rk-overlay: conic-gradient(from 20deg at 50% 50%, rgb(255 255 255 / 20%), transparent 12%, rgb(120 200 255 / 26%) 25%, transparent 37%, rgb(255 255 255 / 18%) 50%, transparent 62%, rgb(150 120 255 / 24%) 75%, transparent 88%, rgb(255 255 255 / 20%));
+  --rk-fa: #1d2a52; --rk-fb: #16204a; --rk-fc: #0f1738;
+  --rk-num: #c9e4ff; --rk-num-shadow: 0 2px 0 #060d2b, 0 0 10px rgb(90 170 255 / 70%);
+  --rk-glow: rgb(40 120 255 / 52%); --rk-glow-r: 22px; --rk-glow-hi-r: 38px;
+  --rk-label: #8fc0ff;
+  --rk-sheen-a: 0.42; --rk-sheen-anim: ag-sweep 3s linear infinite;
+  --rk-glow-anim: ag-breathe 2.6s ease-in-out infinite alternate;
+}
+/* 7 · Máster: dorado brillante, con un haz que gira */
+.ag-dial[data-rank="master"] {
+  --rk-f1: #ffe27a; --rk-f2: #f0b400; --rk-f3: #b07800;
+  --rk-border: #fff0a0;
+  --rk-rivet-hi: #fffbe0; --rk-rivet-lo: #6b4800;
+  --rk-fa: #55482a; --rk-fb: #43381f; --rk-fc: #322a16;
+  --rk-num: #fff4b8; --rk-num-shadow: 0 2px 0 #3d2a00, 0 0 12px rgb(255 211 77 / 80%);
+  --rk-glow: rgb(255 215 80 / 58%); --rk-glow-r: 26px; --rk-glow-hi-r: 44px;
+  --rk-label: #ffe27a;
+  --rk-sheen-a: 0.45; --rk-sheen-anim: ag-sweep 2.8s linear infinite;
+  --rk-b1: rgb(255 243 176 / 55%); --rk-b2: rgb(255 211 77 / 80%);
+  --rk-beam-anim: ag-spin 5s linear infinite;
+  --rk-glow-anim: ag-breathe 2.2s ease-in-out infinite alternate;
+}
+/* 8 · Gran máster: dorado con tonos rosa */
+.ag-dial[data-rank="gran-master"] {
+  --rk-f1: #ffd978; --rk-f2: #f4a3a8; --rk-f3: #b94f7e;
+  --rk-border: #ffc9d6;
+  --rk-rivet-hi: #fff0f4; --rk-rivet-lo: #6a2243;
+  --rk-fa: #50343c; --rk-fb: #402a31; --rk-fc: #311f25;
+  --rk-num: #ffe6b8; --rk-num-shadow: 0 2px 0 #3a1424, 0 0 12px rgb(255 122 184 / 80%);
+  --rk-glow: rgb(255 140 190 / 54%); --rk-glow-r: 28px; --rk-glow-hi-r: 46px;
+  --rk-label: #ffb8d2;
+  --rk-sheen-a: 0.45; --rk-sheen-anim: ag-sweep 2.8s linear infinite;
+  --rk-b1: rgb(255 224 160 / 55%); --rk-b2: rgb(255 143 192 / 85%);
+  --rk-beam-anim: ag-spin 4.5s linear infinite;
+  --rk-glow-anim: ag-breathe 2.2s ease-in-out infinite alternate;
+}
+/* 9 · Top 3 global: dorado, rosa y verdes brillantes */
+.ag-dial[data-rank="top3"] {
+  --rk-f1: #ffd34d; --rk-f2: #ff6fb5; --rk-f3: #2fe08a;
+  --rk-border: #fff1b0;
+  --rk-rivet-hi: #ffffff; --rk-rivet-lo: #7a2a55;
+  --rk-overlay: linear-gradient(135deg, rgb(255 255 255 / 22%), transparent 40%, rgb(120 255 190 / 18%) 75%, transparent);
+  --rk-fa: #3d3a34; --rk-fb: #302d2a; --rk-fc: #232120;
+  --rk-num: #fffbe6; --rk-num-shadow: 0 2px 0 #301030, 0 0 12px rgb(255 111 181 / 85%), 0 0 22px rgb(77 255 157 / 60%);
+  --rk-glow: rgb(255 111 181 / 55%); --rk-glow-r: 30px; --rk-glow-hi-r: 52px;
+  --rk-label: #ffe08a;
+  --rk-sheen-a: 0.5; --rk-sheen-anim: ag-sweep 2.6s linear infinite;
+  --rk-b1: rgb(255 122 192 / 75%); --rk-b2: rgb(109 255 168 / 85%);
+  --rk-beam-anim: ag-spin 3.6s linear infinite;
+  --rk-glow-anim: ag-breathe 2s ease-in-out infinite alternate;
+}
+
+/* ═══ For fun ═════════════════════════════════════════════════════════════ */
+
+:where(.ag-dial[data-skin="fun"][data-rank]) {
+  --rk-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+}
+
+/* 1 · Cartón: mojado, con la cinta despegada */
+.ag-dial[data-rank="carton"] {
+  --rk-frame-bg:
+    radial-gradient(ellipse at 20% 82%, rgb(80 55 25 / 45%) 0 16%, transparent 40%),
+    radial-gradient(ellipse at 86% 18%, rgb(80 55 25 / 35%) 0 14%, transparent 36%),
+    linear-gradient(115deg, transparent 0 8%, rgb(230 214 170 / 80%) 8% 14%, transparent 14%),
+    repeating-linear-gradient(90deg, #b89a6e 0 6px, #a98a5e 6px 12px);
+  --rk-border: #8a7048;
+  --rk-win: #6e5a3a;
+  --rk-face: linear-gradient(#d8c4a0, #c4ad84);
+  --rk-num: #4a3a22; --rk-num-shadow: none;
+  --rk-label: #b89a6e;
+}
+/* 2 · Juguete: colores primarios, como un bloque */
+.ag-dial[data-rank="juguete"] {
+  --rk-frame-bg: linear-gradient(180deg, #fff8e8, #f1e8d2);
+  --rk-border: #e63946;
+  --rk-shadow: 0 0 0 3px #ffd23f, 0 0 0 6px #1e88e5, 0 8px 18px rgb(0 0 0 / 45%);
+  --rk-win: #1b3a66;
+  --rk-face: linear-gradient(#fffdf7, #f1ece0);
+  --rk-num: #d62839; --rk-num-shadow: none;
+  --rk-label: #ffd23f;
+}
+/* 3 · Latón */
+.ag-dial[data-rank="laton"] {
+  --rk-frame-bg: linear-gradient(180deg, #d9c35a, #a8912c 55%, #7a6a1c);
+  --rk-border: #e8d77a;
+  --rk-win: #3a3208;
+  --rk-face: linear-gradient(#cdb74c, #a8912c);
+  --rk-num: #3a3208; --rk-num-shadow: 0 1px 0 rgb(255 240 150 / 45%);
+  --rk-label: #d9c35a;
+  --rk-sheen-a: 0.28; --rk-sheen-anim: ag-sweep 5s linear infinite;
+}
+/* 4 · Caucho: negro mate, con dibujo de neumático */
+.ag-dial[data-rank="caucho"] {
+  --rk-frame-bg: repeating-linear-gradient(135deg, #1b1b1b 0 7px, #101010 7px 10px);
+  --rk-border: #2e2e2e;
+  --rk-win: #0a0a0a;
+  --rk-face: linear-gradient(#1c1c1c, #131313);
+  --rk-num: #9a9a9a; --rk-num-shadow: none;
+  --rk-label: #8a8a8a;
+}
+/* 5 · Plástico brillante */
+.ag-dial[data-rank="plastico"] {
+  --rk-frame-bg: linear-gradient(180deg, rgb(255 255 255 / 45%) 0 38%, transparent 38%), linear-gradient(180deg, #38d9c6, #12a89a);
+  --rk-border: #7ff0e3;
+  --rk-shadow: 0 8px 20px rgb(18 168 154 / 35%);
+  --rk-win: #0b4a45;
+  --rk-face: linear-gradient(#e8fffc, #c4f4ef);
+  --rk-num: #0b5d55; --rk-num-shadow: none;
+  --rk-label: #4fe3d3;
+  --rk-sheen-a: 0.4; --rk-sheen-anim: ag-sweep 4.4s linear infinite;
+}
+/* 6 · Gominola: translúcida */
+.ag-dial[data-rank="gominola"] {
+  --rk-frame-bg: linear-gradient(135deg, rgb(255 105 160 / 78%), rgb(255 170 60 / 78%));
+  --rk-border: rgb(255 255 255 / 55%);
+  --rk-shadow: inset 0 0 18px rgb(255 255 255 / 55%), 0 8px 20px rgb(255 105 160 / 30%);
+  --rk-win: rgb(190 40 90 / 45%);
+  --rk-face: linear-gradient(rgb(255 255 255 / 26%), rgb(255 255 255 / 12%));
+  --rk-num: #fff; --rk-num-shadow: 0 1px 6px rgb(160 30 80 / 70%);
+  --rk-label: #ff8ab8;
+  --rk-sheen-a: 0.38; --rk-sheen-anim: ag-sweep 4.8s linear infinite;
+}
+/* 7 · Dulce: rayas de caramelo, con grageas fijas */
+.ag-dial[data-rank="dulce"] {
+  --rk-frame-bg:
+    radial-gradient(circle at 9px 9px, #ffd23f 0 4px, transparent 5px),
+    radial-gradient(circle at calc(100% - 9px) 9px, #3ddc97 0 4px, transparent 5px),
+    radial-gradient(circle at 9px calc(100% - 9px), #3ddc97 0 4px, transparent 5px),
+    radial-gradient(circle at calc(100% - 9px) calc(100% - 9px), #ffd23f 0 4px, transparent 5px),
+    repeating-linear-gradient(45deg, #e63946 0 10px, #fff 10px 20px);
+  --rk-border: #fff;
+  --rk-win: #7a0f1a;
+  --rk-face: linear-gradient(#ffffff, #ffe9ec);
+  --rk-num: #c1121f; --rk-num-shadow: none;
+  --rk-label: #ff6b7a;
+}
+/* 8 · Confeti: estampado fijo */
+.ag-dial[data-rank="confeti"] {
+  --rk-frame-bg:
+    radial-gradient(circle at 12% 22%, #ff4d6d 0 3px, transparent 4px),
+    radial-gradient(circle at 30% 78%, #ffd23f 0 3px, transparent 4px),
+    radial-gradient(circle at 48% 18%, #3ddc97 0 3px, transparent 4px),
+    radial-gradient(circle at 66% 82%, #4cc9f0 0 3px, transparent 4px),
+    radial-gradient(circle at 84% 24%, #f72585 0 3px, transparent 4px),
+    radial-gradient(circle at 94% 70%, #ffd23f 0 3px, transparent 4px),
+    radial-gradient(circle at 4% 60%, #4cc9f0 0 3px, transparent 4px),
+    linear-gradient(#1a1030, #140c26);
+  --rk-border: #8a5cf5;
+  --rk-win: #0f0820;
+  --rk-face: linear-gradient(#2a1f4a, #201638);
+  --rk-num: #fff; --rk-num-shadow: 0 0 8px rgb(138 92 245 / 80%);
+  --rk-label: #b794ff;
+}
+/* 9 · Payaso: lunares de colores y nariz roja */
+.ag-dial[data-rank="payaso"] {
+  --rk-frame-bg:
+    radial-gradient(circle, #ff3b30 0 5px, transparent 6px) 0 0 / 22px 22px,
+    radial-gradient(circle, #1e88e5 0 5px, transparent 6px) 11px 11px / 22px 22px,
+    #fff7d6;
+  --rk-border: #ff3b30;
+  --rk-win: #3a1a7a;
+  --rk-face: linear-gradient(#5b2bb0, #3f1d82);
+  --rk-num: #ffeb3b; --rk-num-shadow: 0 2px 0 #1e88e5, 0 -1px 0 #1e88e5;
+  --rk-label: #ff7a70;
+}
+.ag-dial[data-skin="fun"][data-rank="payaso"] .ag-dial-frame::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  top: -17px;
+  width: 26px;
+  height: 26px;
+  margin-left: -13px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ff9a90, #e11d12 55%, #8d0d06);
+  box-shadow: 0 2px 5px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}

@@ -1,0 +1,102 @@
+# Depurar piles
+
+Qué mirar y con qué, según lo que te cuenten. Todo se ejecuta desde la raíz del repo
+(o desde `tools/`). **Local** es `http://127.0.0.1:3077`:
+
+```nu
+$env.PORT = "3077"; cargo run --release --manifest-path server/Cargo.toml
+```
+
+Los scripts de Node y de Playwright aceptan `--base=local|beta|prod|<url>` (por defecto
+local); los de nu, `-b`. Primera vez: `cd tools; pnpm install` (los navegadores de
+Playwright se bajan aparte: `pnpm exec playwright install chromium`).
+
+## Qué hacer cuando…
+
+| Te cuentan | Empieza por |
+|---|---|
+| "Se me cayó y no pude volver" / "dice que ya hay alguien con mi nombre" | `grab.nu humanos` (huecos y `conn`), `grab.nu notas` (qué vio el cliente), `log.nu --desde 30min -g "cayó|cerró|rejoin"` |
+| "No me deja coger una carta" | `grab.nu jugadas` → **deudas forzadas con su causa**; `grab.nu notas` → `tap_ignored` / `tap_refused` / `state` del cliente |
+| "Se canceló la partida" | `grab.nu resumen` (línea `end` y su motivo) y `grab.nu notas` (eventos `conn`: gracia, relevo, cancelación) |
+| "Los bots hacen cosas raras" | `grab.nu bots` (ciclos soltar→coger, ping-pong, cuánto dura lo que sueltan) |
+| "Se quedó pillado en una pelea" | `grab.nu peleas` (ganador, solapes, `SIN RESOLVER`) |
+| "Lo veo distinto a como lo ve el otro" | `grab.nu notas`: líneas `DESYNC` (el servidor compara el tablero del cliente cada 5 s) |
+| "¿Puedo desplegar?" | `estado.nu -b beta` (código 1 = hay partida en curso) |
+| Hay que mirar el log del servidor | `log.nu -b beta -n 500 -g "texto|otro"` (hora local, sin colores) |
+
+**Antes de que rote**: el servidor guarda 100 grabaciones (tope 150 MB) pero
+`/api/recordings` solo lista 10 salvo `?n=`. `grab.nu bajar -b beta -n 50` las copia a
+`tools/.cache/` (ignorado en git). Haz esto **antes** de probar cosas en beta.
+
+## Las grabaciones
+
+JSONL público (`/api/recordings/<fichero>`). Una línea por evento, con `ms` desde que
+empezó la partida:
+
+- `in` / `out`: mensajes del cliente al servidor y al revés (`from` / `to`; sin `to` =
+  difusión). Los secretos de asiento no se graban.
+- `key`: foto del estado verdadero cada pocos segundos (manos, centro, conexiones).
+- `ping`: latencias.
+- `conn`: **conexión** — `close` (con motivo: cierre limpio, error, `silencio`),
+  `grace_start`, `grace_end` (`volvio` / `retirado`), `replaced`, `cancel`.
+- `desync`: el cliente dice un tablero distinto al del servidor en dos muestras seguidas.
+- `end`: cierre y motivo. **Sin `end` el servidor se cortó** o la partida sigue.
+- Notas del cliente (la caja negra) llegan como `in` con `m.type = client_note`:
+  `state` (cada 5 s), `tap_ignored`, `tap_refused`, `ws` (`open`, `close`, `rejoin_ok`),
+  `vis` (pestaña oculta/visible), `err`, `pong_timeout`.
+
+## Herramientas
+
+### `grab.nu` — leer grabaciones
+
+`listar`, `bajar`, `resumen`, `humanos`, `jugadas`, `peleas`, `bots`, `notas`, `linea`.
+Cada subcomando acepta una ruta, un nombre de fichero o `ultima` (la más reciente de la
+caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
+
+- `jugadas` clasifica cada **deuda forzada** (se agotaron los 3 s): pelea perdida o
+  cedida · intento rechazado · intento sin respuesta (carrera del plazo) · **sin ningún
+  intento** (aquí mira `notas`: si el cliente descartó el toque, saldrá `tap_ignored`).
+- `linea <f> <quien> <desde_ms> <hasta_ms>`: todo lo de una persona alrededor de un
+  instante, sin el ruido de `qte_click`/`pong`/`combo_update`.
+
+### `log.nu`, `estado.nu`
+
+`log.nu`: `tail` por SSH del log de pm2 (solo lectura) filtrado en local.
+`estado.nu`: `/api/estado` → "NO / CON CUIDADO / SÍ". Un servidor sin `/api/estado`
+(versión antigua) responde con el estado de su última grabación y código 2.
+
+### `repro/` — sockets reales (Node + `ws`, sin navegador)
+
+| Script | Comprueba |
+|---|---|
+| `asiento.mjs [--largo]` | Reconectar con el secreto, salir de verdad, gracia de 30 s, salas fantasma |
+| `silencio.mjs` | ~20 s sin hablar en partida = caída; quien manda pings no se corta |
+| `plazo.mjs` | Un `take_card` a los 2,85 s no pierde contra el reloj de 3 s |
+| `notas.mjs` | `client_note` se graba; la demasiado grande no; `desync` aparece |
+| `estado.mjs` | `/api/estado` dice la verdad y no regala salas privadas |
+
+### `browser/` — Playwright (`--ver` abre la ventana)
+
+| Script | Comprueba |
+|---|---|
+| `toques.mjs` | Con ratón, el clic cuenta al bajar (movido, mantenido, saliendo del centro); 3 toques = 1 envío |
+| `peleas.mjs` | Una pelea ajena no pisa la propia |
+| `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |
+| `rangos.mjs` | Rangos en los diales de Elo (fin de partida y perfil): pastilla ▲/▼, un sonido por cruce, corona del Top 3, partículas solo en glory, movimiento reducido |
+| `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |
+
+`toques.mjs` y `peleas.mjs` fallan contra un cliente **sin** el arreglo: sirven de prueba
+de que el bug estaba. Para reproducir un bug nuevo, escribe antes la prueba que falla.
+
+## Reglas
+
+- Pruebas contra **beta**: sí (no hay anti-cheat, es de amigos). Contra **prod**: solo
+  lectura (`grab.nu`, `estado.nu`, `repro/estado.mjs`).
+- No despliegues a beta con una partida en curso: reiniciar la corta. `estado.nu` primero.
+- Las pruebas crean salas y grabaciones reales; con 100 plazas no desplazan lo que
+  importa, pero **baja primero lo que necesites**.
+
+Los scripts `*-test.mjs` y `*-audit.mjs` sueltos en `tools/` son anteriores a esto y
+siguen valiendo: `node take-race-test.mjs ws://127.0.0.1:3077/ws` (igual `two-fights`,
+`giveup`, `spectator`). `tap-test.mjs` prueba `bindTap` sin servidor ni navegador: lo
+saca de `client/lobby.html`, así que si cambias la función se prueba la nueva.

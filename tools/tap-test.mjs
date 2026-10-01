@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 
 const html = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html'), 'utf8');
-const src = html.match(/function bindTap\(container, handler\) \{[\s\S]*?\n\}/);
+const src = html.match(/function bindTap\(container, handler(?:, target = '\?')?\) \{[\s\S]*?\n\}/);
 if (!src) { console.log('FALLO: no se encontró bindTap'); process.exit(1); }
 
 // ── DOM mínimo, solo lo que bindTap usa ──
@@ -45,13 +45,20 @@ class El {
 }
 
 const TAP_SLOP_PX = 12, TAP_MAX_MS = 700;
+// Lo que bindTap toma de fuera: el estilo calculado y la caja negra del cliente.
+const notas = [];
+globalThis.getComputedStyle = (el) => ({ overflowY: el.overflowY ?? 'visible' });
+globalThis.diag = { note: (kind, detail) => notas.push({ kind, ...detail }) };
 const bindTap = eval(`(${src[0].replace(/^function bindTap/, 'function')})`);
 
-function scenario(name, run, { scrollable = false } = {}) {
+function scenario(name, run, { scrollable = false, desborda = scrollable, overflowY = scrollable ? 'auto' : 'visible' } = {}) {
     const container = new El('div');
-    // Con scroll disponible se responde al soltar; sin él, al bajar el dedo.
-    container.scrollHeight = scrollable ? 500 : 100;
+    // Con scroll REAL (overflow auto y contenido de sobra) se responde al soltar
+    // con el dedo; sin él, al bajar. Desbordar con `overflow: visible` no cuenta.
+    container.scrollHeight = desborda ? 500 : 100;
     container.clientHeight = 100;
+    container.overflowY = overflowY;
+    notas.length = 0;
     let got = null;
     bindTap(container, (v) => { got = v; });
     const card = new El('div');
@@ -127,6 +134,57 @@ all &= scenario('con scroll, pointercancel anula el toque', (c, card, got) => {
     c.fire('pointerup', ev(card, 100, 100));
     return got() === null;
 }, { scrollable: true });
+
+// ── Lo del 2026-09-30: en escritorio el centro desborda ~18 px con overflow visible ──
+const raton = (target, x, y) => ({ target, clientX: x, clientY: y, pointerType: 'mouse', button: 0 });
+
+all &= scenario('ratón: el clic cuenta al bajar aunque el centro desborde', (c, card, got) => {
+    c.fire('pointerdown', raton(card, 100, 100));
+    return got() === '42';
+}, { desborda: true, overflowY: 'visible' });
+
+all &= scenario('ratón: aunque el contenedor tenga scroll real, dispara al bajar', (c, card, got) => {
+    c.fire('pointerdown', raton(card, 100, 100));
+    return got() === '42';
+}, { scrollable: true });
+
+all &= scenario('ratón: moverse 40 px antes de soltar no lo pierde ni lo cuenta dos veces', (c, card, got) => {
+    let veces = 0;
+    c.listeners = {};
+    bindTap(c, () => { veces++; });
+    c.fire('pointerdown', raton(card, 100, 100));
+    c.fire('pointerup', raton(card, 140, 130));
+    return veces === 1;
+}, { desborda: true, overflowY: 'visible' });
+
+all &= scenario('táctil: desbordar con overflow visible no es poder desplazarse (dispara al bajar)', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    return got() === '42';
+}, { desborda: true, overflowY: 'visible' });
+
+all &= scenario('un clic con el botón derecho no cuenta', (c, card, got) => {
+    c.fire('pointerdown', { ...raton(card, 100, 100), button: 2 });
+    return got() === null;
+});
+
+// Lo descartado ya no es mudo: queda anotado para la grabación.
+all &= scenario('arrastrar con scroll real anota tap_ignored: moved', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    c.fire('pointerup', ev(card, 100, 160));
+    return got() === null && notas.some(n => n.kind === 'tap_ignored' && n.reason === 'moved' && n.dist === 60);
+}, { scrollable: true });
+
+all &= scenario('pointercancel con scroll real anota tap_ignored: cancel', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    c.fire('pointercancel', { type: 'pointercancel' });
+    return got() === null && notas.some(n => n.kind === 'tap_ignored' && n.reason === 'cancel');
+}, { scrollable: true });
+
+all &= scenario('lo que sí se disparó al bajar no se anota como ignorado', (c, card, got) => {
+    c.fire('pointerdown', ev(card, 100, 100));
+    c.fire('pointercancel', { type: 'pointercancel' });
+    return got() === '42' && notas.length === 0;
+});
 
 console.log(all ? 'TODO OK' : 'HAY FALLOS');
 process.exit(all ? 0 : 1);

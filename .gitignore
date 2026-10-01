@@ -22,6 +22,9 @@
 /ratings.json
 /ratings.json.tmp
 
+# Herramientas de depuración (tools/): las grabaciones que bajan y sus capturas.
+/tools/.cache/
+
 # OS
 .DS_Store
 Thumbs.db

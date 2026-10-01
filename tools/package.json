@@ -1,0 +1,10 @@
+{
+  "name": "piles-tools",
+  "private": true,
+  "type": "module",
+  "description": "Herramientas para depurar piles: pruebas con sockets reales (repro/) y con navegador (browser/). Ver README.md.",
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "ws": "^8.18.0"
+  }
+}

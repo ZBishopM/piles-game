@@ -10,6 +10,14 @@ para el servidor.
 En nu, `;` encadena y se detiene si un comando falla, así que ocupa el lugar
 de `&&`. Las líneas seguidas de un bloque se comportan igual.
 
+# Depurar
+
+Antes de adivinar, mira `tools/README.md`: qué herramienta usar según el síntoma
+(grabaciones con `tools/grab.nu`, log del VPS con `tools/log.nu`, "¿puedo
+desplegar?" con `tools/estado.nu`, pruebas con sockets y con navegador).
+Las grabaciones rotan (100 en disco): bájalas con `grab.nu bajar` **antes** de
+probar nada en beta.
+
 # Despliegue
 
 Los cambios van siempre a beta antes que a producción. El flujo completo está

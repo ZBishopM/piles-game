@@ -23,6 +23,8 @@
          (combo, cartas, frenesí) conservan sus colores propios. -->
     <link rel="stylesheet" href="/agapornis-ui/agapornis.css">
     <script src="/agapornis-ui/toast.js" defer></script>
+    <script src="/agapornis-ui/rank.js" defer></script>
+    <script src="/agapornis-ui/rank-fx.js" defer></script>
     <script src="/agapornis-ui/dial.js" defer></script>
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
@@ -1725,6 +1727,12 @@ let pingSentAt = 0;
 let lastPingAt = 0;
 let lastRtt = null;
 
+// Perro guardián de la conexión: si un ping lleva tanto sin su pong, el socket
+// está muerto aunque el navegador no lo sepa (con la red caída tarda minutos en
+// avisar) y se vuelve a conectar sin esperarle.
+let pendingPongSince = 0;
+const PONG_TIMEOUT_MS = 9000;
+
 // Reconexión: el overlay ya traía un botón "Reconectar", pero había que
 // encontrarlo y pulsarlo. La partida sigue viva en el servidor y volver es lo
 // único que quiere el jugador, así que se reintenta solo. El botón se queda
@@ -1732,6 +1740,104 @@ let lastRtt = null;
 let reconnectAttempt = 0;
 let reconnectTimer = null;
 const RECONNECT_MAX_DELAY = 15000;
+
+// ─── Caja negra del cliente ───────────────────────────────────────────────
+// Lo que el cliente descarta o rechaza no lo ve nadie más: un toque ignorado,
+// una caída, un error de JavaScript. En la sesión del 2026-09-30 hubo tres
+// plazos de 3 s agotados sin ningún intento de coger y no se pudo saber por
+// qué. Esto manda esas observaciones al servidor (`client_note`), que las graba
+// con la partida. Sin apodos ni secretos: tipo, tiempos, distancias y banderas.
+//
+// - Mientras no hay asiento (sin conexión, o recién reconectado y todavía no
+//   vuelto a la sala) se guardan en una cola y salen al volver, con cuánto
+//   hace que pasaron: así queda lo que ocurrió DURANTE la caída.
+// - Límites: una por tipo cada 400 ms, 400 por partida, 60 en cola.
+const diag = (() => {
+    const POR_TIPO_MS = 400, POR_PARTIDA = 400, COLA_MAX = 60, DETALLE_MAX = 560;
+    const cola = [];
+    const ultimaPorTipo = new Map();
+    let enPartida = 0;
+    let listo = false;            // ¿hay asiento en el servidor para recibirlas?
+
+    function enviar(kind, detail, hace) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        if (hace > 1500) detail = { ...detail, hace_ms: hace };
+        let texto = JSON.stringify(detail);
+        if (texto.length > DETALLE_MAX) detail = { recortada: true, kind };
+        ws.send(JSON.stringify({ type: 'client_note', kind, detail }));
+        return true;
+    }
+
+    return {
+        note(kind, detail = {}) {
+            if (!currentLobbyId) return;               // sin sala no hay grabación
+            const ahora = Date.now();
+            // El límite es por tipo Y evento: `ws:open` y `ws:rejoin_ok` ocurren
+            // con milisegundos de diferencia y son cosas distintas.
+            const clave = detail.ev ? `${kind}:${detail.ev}` : kind;
+            if (ahora - (ultimaPorTipo.get(clave) || 0) < POR_TIPO_MS) return;
+            if (enPartida >= POR_PARTIDA) return;
+            ultimaPorTipo.set(clave, ahora);
+            enPartida++;
+            if (listo && enviar(kind, detail, 0)) return;
+            if (cola.length >= COLA_MAX) cola.shift();
+            cola.push({ kind, detail, t: ahora });
+        },
+        /** Hay asiento: vaciar la cola, en orden. */
+        ready() {
+            listo = true;
+            const ahora = Date.now();
+            while (cola.length) {
+                const n = cola[0];
+                if (!enviar(n.kind, n.detail, ahora - n.t)) break;
+                cola.shift();
+            }
+        },
+        /** Sin conexión: lo que se anote espera. */
+        notReady() { listo = false; },
+        newGame() { enPartida = 0; },
+        /** Te vas de la sala: lo que esperaba ya no pertenece a ninguna. */
+        clear() { cola.length = 0; },
+    };
+})();
+
+window.addEventListener('error', e => diag.note('err', {
+    msg: String(e.message || '').slice(0, 160),
+    at: `${String(e.filename || '').split('/').pop()}:${e.lineno || 0}`,
+}));
+window.addEventListener('unhandledrejection', e => diag.note('err', {
+    msg: String(e.reason?.message ?? e.reason ?? '').slice(0, 160), promise: true,
+}));
+document.addEventListener('visibilitychange', () => diag.note('vis', { hidden: document.hidden }));
+
+/** El tablero tal y como cree tenerlo este cliente, para compararlo con el del
+ *  servidor (nota `state`, cada 5 s en partida). La mano va aplanada, 6 sets × 4
+ *  huecos, con `null` donde cree que hay un hueco. */
+function clientStateSample() {
+    const hand = [];
+    for (let s = 0; s < 6; s++) {
+        const set = allSets[s] || [];
+        for (let i = 0; i < 4; i++) hand.push(set[i] ? set[i].id : null);
+    }
+    const ahora = Date.now();
+    return {
+        hand,
+        center: centerCards.map(c => c.id),
+        owes: owesCard(),
+        qte: qteActive,
+        stun_ms: Math.max(0, stunnedUntil - ahora),
+        p_drop_ms: pendingDrop ? ahora - pendingDrop.t : null,
+        p_take_ms: pendingTake ? ahora - pendingTake.t : null,
+        blocked: qteBlockedCards.size,
+        vis: !document.hidden,
+        ws: ws ? ws.readyState : -1,
+    };
+}
+setInterval(() => {
+    if (document.getElementById('gameScreen')?.classList.contains('active') && !gameOver) {
+        diag.note('state', clientStateSample());
+    }
+}, 5000);
 
 // ─── WebSocket ────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', () => {
@@ -1885,6 +1991,7 @@ function forgetLobby() {
     currentLobbyId = '';
     seatToken = null;
     writeSeat(null);
+    diag.clear();
 }
 
 /** Lo ha tomado otra pestaña: solo se limpia esta pestaña. Lo guardado en el
@@ -1894,6 +2001,7 @@ function dropSeatLocally() {
     currentLobbyId = '';
     seatToken = null;
     rejoinInFlight = false;
+    diag.clear();
 }
 
 function attemptRejoin() {
@@ -1913,7 +2021,10 @@ function connectWs() {
     ws.onopen = () => {
         st.textContent = '✅ Conectado al servidor';
         clearTimeout(reconnectTimer);
+        diag.notReady();   // hasta que se recupere el asiento
+        diag.note('ws', { ev: 'open', attempt: reconnectAttempt });
         reconnectAttempt = 0;
+        pendingPongSince = 0;
         document.getElementById('reconnectOverlay').style.display = 'none';
         // Ping para mantener viva la conexión y, de paso, para medir la ida y
         // vuelta. El servidor no puede medirla: solo el cliente sabe cuándo
@@ -1925,6 +2036,14 @@ function connectWs() {
         clearInterval(pingInterval);
         pingInterval = setInterval(() => {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            // Perro guardián: un ping sin su pong tanto rato es un socket
+            // muerto, aunque el navegador no lo sepa. Se mira en cada tic, no
+            // solo cuando toca mandar otro ping.
+            if (pendingPongSince && Date.now() - pendingPongSince > PONG_TIMEOUT_MS) {
+                diag.note('pong_timeout', { sin_pong_ms: Date.now() - pendingPongSince });
+                abandonDeadSocket();
+                return;
+            }
             // "Visto hace poco": es lo que dice, al volver a abrir, si el
             // asiento guardado aún puede existir. Solo la pestaña que lo tiene.
             if (seatToken && currentLobbyId) {
@@ -1934,6 +2053,7 @@ function connectWs() {
             if (!enPartida && Date.now() - lastPingAt < 25000) return;
             lastPingAt = Date.now();
             pingSentAt = performance.now();
+            if (!pendingPongSince) pendingPongSince = Date.now();
             ws.send(JSON.stringify({ type: 'ping', rtt_ms: lastRtt }));
         }, 3000);
 
@@ -1947,10 +2067,16 @@ function connectWs() {
         }
     };
 
-    ws.onerror = () => { st.textContent = '❌ Error de conexión. ¿Está el servidor corriendo?'; };
+    ws.onerror = () => {
+        st.textContent = '❌ Error de conexión. ¿Está el servidor corriendo?';
+        diag.note('ws', { ev: 'error' });
+    };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
         clearInterval(pingInterval);
+        pendingPongSince = 0;
+        diag.notReady();
+        diag.note('ws', { ev: 'close', code: e.code, clean: e.wasClean });
         st.textContent = '🔌 Desconectado.';
         document.getElementById('reconnectOverlay').style.display = 'flex';
         scheduleReconnect();
@@ -1961,6 +2087,25 @@ function connectWs() {
         console.log('📨', msg.type, msg);
         handleMsg(msg);
     };
+}
+
+/** El socket no contesta: se deja y se abre otro, sin esperar a que el
+ *  navegador se entere (con la red muerta tarda minutos). Al volver, el secreto
+ *  del asiento le quita la sala al servidor aunque este aún vea viva la
+ *  conexión vieja. */
+function abandonDeadSocket() {
+    const vieja = ws;
+    clearInterval(pingInterval);
+    pendingPongSince = 0;
+    diag.notReady();
+    if (vieja) {
+        // Sin manejadores: su `onclose` tardío no puede programar otra reconexión.
+        vieja.onopen = vieja.onmessage = vieja.onerror = vieja.onclose = null;
+        try { vieja.close(); } catch { /* ya estaba rota */ }
+    }
+    document.getElementById('connStatus').textContent = '🔌 Sin respuesta del servidor.';
+    document.getElementById('reconnectOverlay').style.display = 'flex';
+    scheduleReconnect();
 }
 
 /** Backoff 1s, 2s, 4s, 8s y luego cada 15s, sin límite de intentos: mientras
@@ -2002,6 +2147,7 @@ function handleMsg(msg) {
             currentLobbyId = msg.lobby_id;
             currentPlayerId = msg.player_id;
             soyEspectador = !!msg.spectator;
+            if (rejoinInFlight) diag.note('ws', { ev: 'rejoin_ok', espectador: soyEspectador });
             onEnteredLobby(msg.lobby_id);
             break;
 
@@ -2009,6 +2155,9 @@ function handleMsg(msg) {
             // El secreto del asiento, solo para ti. Con él se vuelve a la sala.
             seatToken = msg.token;
             writeSeat({ lobby: msg.lobby_id, token: msg.token, seen: Date.now() });
+            // Ya hay asiento: las notas que esperaban (lo ocurrido durante la
+            // caída) pueden salir y quedar grabadas con la partida.
+            diag.ready();
             break;
 
         case 'seat_replaced':
@@ -2163,12 +2312,14 @@ function handleMsg(msg) {
 
         case 'pong':
             // Keep-alive confirmado, y la medida de la ida y vuelta.
+            pendingPongSince = 0;
             if (pingSentAt) lastRtt = Math.round(performance.now() - pingSentAt);
             break;
 
         case 'error':
             console.warn('Error del servidor:', msg.message);
             if (rejoinInFlight) {
+                diag.note('ws', { ev: 'rejoin_fail', msg: String(msg.message).slice(0, 80) });
                 // La sala ya no existe (o el nombre está ocupado). Sin esto
                 // el jugador se quedaba mirando una sala fantasma.
                 rejoinInFlight = false;
@@ -2627,6 +2778,7 @@ function onGameStart(msg) {
     // Una partida nueva no arrastra bloqueos ni movimientos a medias.
     pendingDrop = null;
     pendingTake = null;
+    diag.newGame();
     centerSlots = [];        // una partida nueva reparte la mesa de cero
     clearStun();
     clearDebtCountdown();
@@ -3488,6 +3640,19 @@ const SFX = {
     // plástico. Glory: un golpe grave de piedra, con su polvo.
     dialFun: () => tone({ freq: 1800, dur: 0.03, type: 'square', gain: 0.035 }),
     dialGlory: () => { tone({ freq: 95, dur: 0.14, type: 'triangle', gain: 0.22, slideTo: 60 }); noise({ dur: 0.05, gain: 0.08, hp: 600 }); },
+    // Cambio de rango en el contador. Subir: arpegio mayor que se abre y un
+    // brillo al final. Bajar: golpe grave y un crujido, como algo que se parte.
+    rankUp: () => {
+        [0, 4, 7, 12, 16].forEach((s, i) =>
+            setTimeout(() => tone({ freq: 523 * Math.pow(2, s / 12), dur: i === 4 ? 0.5 : 0.14, gain: i === 4 ? 0.16 : 0.13 }), i * 85));
+        setTimeout(() => noise({ dur: 0.35, gain: 0.05, hp: 5000 }), 340);
+    },
+    rankDown: () => {
+        tone({ freq: 150, dur: 0.45, type: 'sawtooth', gain: 0.2, slideTo: 48 });
+        noise({ dur: 0.18, gain: 0.2, hp: 300 });
+        setTimeout(() => noise({ dur: 0.1, gain: 0.12, hp: 1500 }), 140);
+        setTimeout(() => noise({ dur: 0.08, gain: 0.09, hp: 2500 }), 260);
+    },
 };
 
 function playSfx(name, arg) {
@@ -3609,15 +3774,28 @@ function toggleMute() {
 // bajar el dedo. Lo que haya pasado con el DOM mientras tanto da igual.
 //
 // Se dispara al BAJAR el dedo siempre que se pueda, que es lo que se siente
-// instantáneo. La excepción es cuando el contenedor puede desplazarse: en móvil
-// el centro tiene altura fija y scroll propio, y ahí disparar al bajar
-// convertiría cada intento de deslizar en una carta cogida sin querer. Se mira
-// en el momento, no una vez: el centro solo desborda cuando hay cartas de
+// instantáneo. La excepción es cuando el contenedor puede desplazarse CON EL
+// DEDO: en móvil el centro tiene altura fija y scroll propio, y ahí disparar al
+// bajar convertiría cada intento de deslizar en una carta cogida sin querer. Se
+// mira en el momento, no una vez: el centro solo desborda cuando hay cartas de
 // sobra, así que la mayor parte del tiempo responde al bajar el dedo.
+//
+// Dos cosas que no se miraban y costaban toques (medido el 2026-09-30):
+// - Con RATÓN no hay gesto de scroll que confundir con un clic. Pero
+//   `scrollHeight > clientHeight` daba verdadero SIEMPRE en escritorio: las
+//   cartas giradas desbordan el contenedor unos 18 px aunque su overflow es
+//   `visible`. Resultado: en escritorio el clic esperaba a soltar el botón y se
+//   descartaba, en silencio, si te movías más de 12 px, tardabas más de 700 ms
+//   o el puntero salía del contenedor. Ahora el ratón siempre dispara al bajar.
+// - Desbordar no es poder desplazarse: hace falta además un `overflow-y` que
+//   lo permita (`auto`/`scroll`).
+//
+// Y lo que se descarta ya no es mudo: queda anotado (`tap_ignored`) para poder
+// saber, en la grabación, por qué un toque no llegó al servidor.
 const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
 const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 
-function bindTap(container, handler) {
+function bindTap(container, handler, target = '?') {
     if (!container) {
         // Sin esto el juego se queda mudo y sin decir por qué.
         console.error('[piles] falta el contenedor de cartas: no habrá toques');
@@ -3625,28 +3803,44 @@ function bindTap(container, handler) {
     }
     let start = null;
 
-    // ¿Hay algo que desplazar AHORA MISMO? Si no, no hay gesto de scroll que
-    // confundir con un toque y se puede responder al instante.
-    const canScroll = () => container.scrollHeight > container.clientHeight + 2;
+    // ¿Puede desplazarse AHORA MISMO este contenedor? Solo entonces un gesto
+    // con el dedo puede ser un scroll y no un toque.
+    const canScroll = () => {
+        const oy = getComputedStyle(container).overflowY;
+        return (oy === 'auto' || oy === 'scroll')
+            && container.scrollHeight > container.clientHeight + 2;
+    };
+
+    const ignorado = (reason, s, extra = {}) => diag.note('tap_ignored', {
+        reason, target, pointer: s.pointer, ms: Date.now() - s.t, ...extra,
+    });
 
     container.addEventListener('pointerdown', (e) => {
         start = null;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
         const el = e.target.closest('[data-tap]');
         if (!el || !container.contains(el)) return;
-        start = { tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el, fired: false };
+        start = {
+            tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el,
+            fired: false, pointer: e.pointerType,
+        };
         // Confirmación inmediata, sin esperar al servidor: el toque se ve
         // acusado aunque la respuesta tarde.
         el.classList.add('tapped');
 
-        if (!canScroll()) {
+        if (e.pointerType === 'mouse' || !canScroll()) {
             start.fired = true;
             handler(start.tap, el);
         }
     });
 
-    const cancel = () => {
-        if (start) start.el.classList.remove('tapped');
+    const cancel = (e) => {
+        if (start) {
+            start.el.classList.remove('tapped');
+            // Solo si aún no se había hecho: lo que ya se disparó al bajar no
+            // se perdió.
+            if (!start.fired) ignorado(e?.type === 'pointerleave' ? 'left' : 'cancel', start);
+        }
         start = null;
     };
     container.addEventListener('pointercancel', cancel);
@@ -3658,8 +3852,9 @@ function bindTap(container, handler) {
         start = null;
         s.el.classList.remove('tapped');
         if (s.fired) return;          // ya se hizo al bajar el dedo
-        if (Math.hypot(e.clientX - s.x, e.clientY - s.y) > TAP_SLOP_PX) return;
-        if (Date.now() - s.t > TAP_MAX_MS) return;
+        const dist = Math.round(Math.hypot(e.clientX - s.x, e.clientY - s.y));
+        if (dist > TAP_SLOP_PX) return ignorado('moved', s, { dist });
+        if (Date.now() - s.t > TAP_MAX_MS) return ignorado('slow', s, { dist });
         handler(s.tap, s.el);
     });
 }
@@ -3722,21 +3917,33 @@ function refuseTap(el) {
 // Un espectador no juega. El servidor ya lo ignora; esto es para que la
 // interfaz no prometa algo que no va a pasar.
 bindTap(document.getElementById('centerCards'),
-        (v, el) => { if (!soyEspectador) onCenterCardClick(Number(v), el); });
+        (v, el) => { if (!soyEspectador) onCenterCardClick(Number(v), el); }, 'center');
 bindTap(document.getElementById('yourCards'),
-        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); });
+        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); }, 'own');
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
 // una del centro la coge. Nada que seleccionar, nada que confirmar.
+/** Una jugada pedida cuenta como "en vuelo" este rato. Pasado esto se da por
+ *  perdida y se deja volver a tocar: es el seguro por si el servidor no
+ *  contesta (el mayor RTT visto fue 1,9 s). */
+const PENDING_MAX_MS = 2500;
+const enVuelo = p => !!p && Date.now() - p.t < PENDING_MAX_MS;
+
 function onPlayerCardClick(index, el) {
     // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
     // quieto: sigues jugando con tus cartas y con el resto del centro.
     // Debiendo una carta no se puede soltar otra: primero se tapa el hueco.
     if (qteActive || isStunned() || owesCard()) return refuseTap(el);
+    // Ya soltaste una y el servidor aún no ha contestado: otro toque no añade
+    // nada. Antes cada toque mandaba otro `drop_card`, el servidor rechazaba
+    // los sobrantes ("Coge una carta del centro antes de soltar otra") y su
+    // `swap_failed` borraba el estado pendiente de lo que SÍ estabas haciendo
+    // (visto 4 veces en dos partidas, con 3 duplicados en el mismo milisegundo).
+    if (enVuelo(pendingDrop)) return;
     const card = (allSets[currentSetIndex] || [])[index];
     if (!card) return;
-    pendingDrop = { index, card };
+    pendingDrop = { index, card, t: Date.now() };
     markPending(el);
     playSfx('drop', card.id);
     send({ type: 'drop_card', my_card_index: index });
@@ -3746,18 +3953,34 @@ function onCenterCardClick(cardId, el) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta ya explica por qué no
     // pasa nada. La carta en disputa es la única intocable; las demás siguen
     // disponibles para quien no está peleando.
-    if (qteActive || isStunned()) return refuseTap(el);
-    if (qteBlockedCards.has(cardId)) return refuseTap(el);
+    //
+    // Pero si DEBES una carta y se rechaza el toque, queda anotado con el
+    // motivo: es justo el caso de "no me deja seleccionar", y hasta ahora no
+    // dejaba rastro.
+    const rechazo = (why) => {
+        if (owesCard()) {
+            diag.note('tap_refused', {
+                why, qte: qteActive, stun_ms: Math.max(0, stunnedUntil - Date.now()),
+                blocked: qteBlockedCards.size, p_take_ms: pendingTake ? Date.now() - pendingTake.t : null,
+            });
+        }
+        return refuseTap(el);
+    };
+    if (qteActive) return rechazo('qte');
+    if (isStunned()) return rechazo('stun');
+    if (qteBlockedCards.has(cardId)) return rechazo('blocked');
     // Solo se coge para tapar un hueco: sin deuda no hay dónde meterla. Es el
     // "no pasa nada" más frecuente, así que conviene que se vea.
     if (!owesCard()) return refuseTap(el);
-    // Ya pedida: el segundo toque no añade nada (en el clip del 2026-09-28
-    // llegaban 2 y 3 peticiones por carta).
-    if (pendingTake?.card.id === cardId) return;
+    // Ya pediste una (la misma o OTRA) y el servidor aún no ha contestado: el
+    // segundo toque no añade nada. Antes solo se miraba la misma carta; pedir
+    // otra mandaba otro `take_card`, el servidor lo rechazaba y su
+    // `swap_failed` borraba la carta fantasma de la primera.
+    if (enVuelo(pendingTake)) return;
     const card = centerCards.find(c => c.id === cardId);
     if (!card) return;
     // El hueco donde estaba, para animar el vuelo desde ahí.
-    pendingTake = { centerIndex: centerSlots.indexOf(cardId), card };
+    pendingTake = { centerIndex: centerSlots.indexOf(cardId), card, t: Date.now() };
     markPending(el);
     showGhost(card);
     // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
@@ -3970,6 +4193,9 @@ function onSetFlipped(playerName, setIndex, cards) {
 const qteNotifs = new Map();
 let qtePlayers = [];        // Jugadores en la pelea actual
 let qteContestedCard = null;   // La carta por la que se pelea
+let qteMyCardId = null;        // Su id, aunque la carta ya no esté en el centro:
+                               // sin esto, mi pelea no se reconoce como mía si
+                               // el centro cambió justo al empezar.
 let qteContestedIndex = null;  // En qué hueco del centro estaba
 let qteWonSlot = null;         // Si ganaste: carta y hueco de origen, para el vuelo
 let qteResultTimer = null;     // Temporizador del resultado — separado de
@@ -4017,25 +4243,37 @@ function clearStun() {
 }
 
 function onSwapConflict(players, cardId, durationMs) {
-    qtePlayers = players;
+    const isParticipant = players.includes(currentNickname);
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
     // carta se guarda aparte para el overlay: al acabar la pelea ya no estará
     // en el centro.
     const card = centerCards.find(c => c && c.id === cardId) || null;
-    if (card) qteBlockedCards.add(card.id);
-    qteContestedCard = card;
-    // El hueco donde está, que es el que ocupa en pantalla: hace falta para
-    // animar el vuelo si la ganas.
-    qteContestedIndex = card ? centerSlots.indexOf(card.id) : null;
+    // El id viene en el mensaje: se marca aunque la carta ya no esté en nuestra
+    // copia del centro, y `qte_resolved` lo desmarcará por ese mismo id.
+    qteBlockedCards.add(cardId);
+    // El estado de LA TUYA (jugadores, carta, hueco) solo lo escribe tu pelea.
+    // Antes lo escribía cualquiera, así que una pelea ajena que empezara a
+    // media tuya lo pisaba: el overlay propio dejaba de recibir su
+    // `qte_update`/`qte_resolved` y se cerraba cuando se resolvía la ajena.
+    if (isParticipant) {
+        qtePlayers = players;
+        qteMyCardId = cardId;
+        qteContestedCard = card;
+        // El hueco donde está, que es el que ocupa en pantalla: hace falta para
+        // animar el vuelo si la ganas.
+        qteContestedIndex = card ? centerSlots.indexOf(card.id) : null;
+    }
     // Un movimiento propio a medias queda anulado por la pelea: ibas a coger
     // esa carta y ahora hay que ganársela. Para quien la estaba pidiendo, el
-    // overlay que entra a continuación es la respuesta a su toque.
-    pendingDrop = null;
-    pendingTake = null;
-    clearPending();
+    // overlay que entra a continuación es la respuesta a su toque. Una pelea
+    // por OTRA carta no toca lo tuyo.
+    if (isParticipant || pendingTake?.card.id === cardId) {
+        pendingDrop = null;
+        pendingTake = null;
+        clearPending();
+    }
     renderCenterCards();
-    const isParticipant = players.includes(currentNickname);
 
     if (isParticipant) {
         // ── Overlay completo para participantes ──
@@ -4142,7 +4380,8 @@ function cerrarAvisoPelea(cardId) {
  *  comportaba antes. */
 function esMiPelea(cardId) {
     if (cardId === undefined || cardId === null) return true;
-    if (qteContestedCard) return qteContestedCard.id === cardId;
+    // Peleando yo, solo cuenta la mía: las ajenas ya no la pisan.
+    if (qteMyCardId !== null) return qteMyCardId === cardId;
     return qteBlockedCards.has(cardId);
 }
 
@@ -4224,6 +4463,7 @@ function closeQteOverlay() {
     qtePlayers = [];
     qteContestedCard = null;
     qteContestedIndex = null;
+    qteMyCardId = null;
 }
 
 function sendQteClick() {
@@ -4448,6 +4688,7 @@ function clearMatchNotifications() {
     otherVerifications.clear();
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
     qteBlockedCards.clear();
+    qteMyCardId = null;
 }
 
 function onGameOver(rankings, elo = []) {
@@ -4503,7 +4744,11 @@ function showMyElo(elo) {
         from: mio.before,
         to: mio.after,
         skin: glory ? 'glory' : 'fun',
+        // El Top 3 lo decide el servidor (los 3 mejores con 10 partidas y más de 1000).
+        top3Before: !!mio.top3_before,
+        top3After: !!mio.top3_after,
         onStep: () => playSfx(glory ? 'dialGlory' : 'dialFun'),
+        onRank: e => playSfx(e.dir === 'up' ? 'rankUp' : 'rankDown'),
     }), 450);
 }
 
@@ -4531,7 +4776,7 @@ async function loadProfileElo() {
     try { rec = key ? await fetchElo(key) : null; } catch { /* sin conexión: se ve el inicial */ }
     for (const [pool, id] of [['fun', 'profileEloFun'], ['glory', 'profileEloGlory']]) {
         const r = rec?.[pool]?.r ?? 1000;
-        agDial(document.getElementById(id), { from: r, to: r, skin: pool });
+        agDial(document.getElementById(id), { from: r, to: r, skin: pool, top3Before: !!rec?.top3?.[pool] });
     }
     note.textContent = key?.startsWith('sm:')
         ? 'Elo de tu cuenta de Session Manager.'
