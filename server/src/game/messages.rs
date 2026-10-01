@@ -41,7 +41,15 @@ pub enum ClientMessage {
         nickname: String,
         #[serde(default)]
         rating_key: Option<String>,
+        /// El secreto del asiento, si venía de uno (`ServerMessage::SeatToken`).
+        /// Con él se recupera el asiento y la mano; sin él, o con uno que no
+        /// coincide, se entra como nuevo.
+        #[serde(default)]
+        seat_token: Option<String>,
     },
+    /// Irse de la sala de verdad. Quien solo cambia de pantalla se queda
+    /// sentado: la sala sigue listada y su apodo, ocupado.
+    LeaveLobby,
     /// Listar lobbies disponibles
     ListLobbies,
     /// Marcar como listo/no listo
@@ -109,6 +117,16 @@ pub enum ServerMessage {
         /// Llegó con la partida ya empezada: mira, no juega.
         spectator: bool,
     },
+    /// El secreto de tu asiento: guárdalo, y con él puedes volver tras un
+    /// corte (`JoinLobby.seat_token`). Va solo a su dueño y **no se graba**:
+    /// las grabaciones son públicas. No rota; vive lo que vive el asiento.
+    SeatToken {
+        lobby_id: String,
+        token: String,
+    },
+    /// Tu asiento lo ha tomado otra conexión tuya (otra pestaña, o tú mismo
+    /// tras un corte). Esta ya no es la buena: no reintentes entrar.
+    SeatReplaced,
     /// Lista de lobbies disponibles
     LobbyList {
         lobbies: Vec<LobbyInfo>,

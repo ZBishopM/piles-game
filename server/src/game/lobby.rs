@@ -49,6 +49,22 @@ pub struct LobbyPlayer {
     pub bot_level: Option<crate::bot::Difficulty>,
     /// De quién es su Elo (`anon:…` / `sm:…`). No se reenvía a nadie.
     pub rating_key: Option<String>,
+    /// Secreto del asiento: lo que demuestra que quien vuelve es quien se
+    /// sentó. Lo recibe solo el dueño (y no se graba), y con él recupera el
+    /// asiento al instante aunque la conexión vieja siga pareciendo viva.
+    ///
+    /// Antes el asiento se reclamaba por apodo y solo si el servidor ya había
+    /// notado la caída — hasta ~100 s después en un socket muerto, y todos los
+    /// reintentos chocaban con "Ya hay alguien llamado…". `None` en los
+    /// mirones, que no tienen asiento que recuperar.
+    pub seat_token: Option<String>,
+}
+
+/// 128 bits aleatorios en hexadecimal.
+pub fn new_seat_token() -> String {
+    use rand::Rng;
+    let bytes: [u8; 16] = rand::thread_rng().gen();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Cuánto dura el bloqueo tras perder una pelea.
@@ -147,6 +163,7 @@ impl Lobby {
             is_bot: false,
             bot_level: None,
             rating_key: None,
+            seat_token: None,
         };
 
         // Con partida en curso —o sin sitio en la mesa— se entra a mirar.
@@ -160,6 +177,8 @@ impl Lobby {
             return Err("Lobby lleno".to_string());
         }
 
+        let mut nuevo = nuevo;
+        nuevo.seat_token = Some(new_seat_token());
         self.players.push(nuevo);
         self.empty_since = None;
         Ok(false)
@@ -176,8 +195,11 @@ impl Lobby {
     /// Sin esto se quedarían mirando para siempre una sala que ya no juega.
     pub fn promote_spectators(&mut self) -> Vec<LobbyPlayer> {
         let mut fuera = Vec::new();
-        for s in std::mem::take(&mut self.spectators) {
+        for mut s in std::mem::take(&mut self.spectators) {
             if self.players.len() < self.max_players as usize {
+                // Ahora tiene asiento, y con él su secreto. Quien llama se lo
+                // manda (`send_seat_tokens`): el mirón no tenía ninguno.
+                s.seat_token = Some(new_seat_token());
                 self.players.push(s);
             } else {
                 fuera.push(s);
@@ -346,16 +368,23 @@ impl Lobby {
         Some(p.nickname.clone())
     }
 
-    /// Vuelve dentro de la ventana: recupera su asiento **y sus cartas**.
+    /// Recupera un asiento **y sus cartas** con su secreto.
     ///
     /// Hay que reasignar el id porque la identidad de un jugador es el uuid de
     /// su socket, y al reconectar el socket es otro. Antes esto pasaba por
     /// `remove_player` + `add_player`, que es justo lo que le borraba las
     /// cartas. Devuelve el id viejo, que es el que hay que limpiar de las
     /// conexiones.
-    pub fn rebind_disconnected(&mut self, nickname: &str, new_id: Uuid) -> Option<Uuid> {
+    ///
+    /// Se busca por secreto y no por apodo, y **no** se exige que el servidor
+    /// haya notado ya la caída: un socket muerto puede parecer vivo durante
+    /// minutos, y quien vuelve no tiene por qué esperar a que se entere.
+    pub fn rebind_seat(&mut self, token: &str, new_id: Uuid) -> Option<Uuid> {
+        if token.is_empty() {
+            return None;
+        }
         let p = self.players.iter_mut()
-            .find(|p| p.nickname == nickname && p.disconnected_at.is_some())?;
+            .find(|p| p.seat_token.as_deref() == Some(token))?;
         let old_id = p.id;
         p.id = new_id;
         p.disconnected_at = None;
@@ -489,12 +518,18 @@ impl LobbyManager {
         let lobby = lobbies.get_mut(lobby_id)
             .ok_or("Lobby no encontrado")?;
 
-        let abandoned: Vec<Uuid> = lobby.players.iter().chain(&lobby.spectators)
-            .filter(|p| p.nickname == nickname && !live.contains(&p.id))
-            .map(|p| p.id)
-            .collect();
-        for stale_id in abandoned {
-            lobby.remove_player(&stale_id);
+        // Solo fuera de partida. En partida un asiento sin conexión no está
+        // abandonado: está esperando a su dueño, que vuelve con su secreto
+        // (`rebind_seat`), y quitárselo a quien solo comparte el apodo es
+        // borrarle las cartas.
+        if lobby.status != LobbyStatus::Playing {
+            let abandoned: Vec<Uuid> = lobby.players.iter().chain(&lobby.spectators)
+                .filter(|p| p.nickname == nickname && !live.contains(&p.id))
+                .map(|p| p.id)
+                .collect();
+            for stale_id in abandoned {
+                lobby.remove_player(&stale_id);
+            }
         }
 
         let mirando = lobby.add_player(player_id, nickname)?;
@@ -819,9 +854,11 @@ mod tests {
         assert_eq!(lobby.players.len(), 2, "pero su sitio sigue ahí");
         assert!(lobby.game_state.is_some(), "la partida no se cancela");
 
-        // Vuelve con otro socket, así que con otro uuid.
+        // Vuelve con otro socket, así que con otro uuid, y con su secreto.
         let ana_again = Uuid::new_v4();
-        let old = lobby.rebind_disconnected("Ana", ana_again).expect("recupera su sitio");
+        let token = lobby.players.iter().find(|p| p.id == ana).unwrap()
+            .seat_token.clone().expect("quien se sienta tiene secreto");
+        let old = lobby.rebind_seat(&token, ana_again).expect("recupera su sitio");
         assert_eq!(old, ana);
         assert_eq!(lobby.connected_count(), 2);
 
@@ -950,16 +987,96 @@ mod tests {
         let _ = quiet;
     }
 
+    // 2026-09-30, beta: tras un corte de red el servidor tardó ~100 s en notar
+    // que la conexión vieja había muerto, y mientras tanto cada reintento de la
+    // misma persona chocaba con su propio apodo. El asiento se recupera con el
+    // secreto, no con el apodo, y no hace falta que el servidor ya se haya
+    // enterado de la caída.
     #[test]
-    fn rebinding_needs_a_disconnected_seat() {
+    fn a_seat_is_taken_back_with_its_secret_even_if_the_old_socket_looks_alive() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let (ana, beto) = (Uuid::new_v4(), Uuid::new_v4());
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+        lobby.add_player(beto, "Beto".to_string()).unwrap();
+        let token = lobby.players[0].seat_token.clone().unwrap();
+
+        // Sin `mark_disconnected`: para el servidor Ana sigue conectada.
+        let nuevo = Uuid::new_v4();
+        assert_eq!(lobby.rebind_seat(&token, nuevo), Some(ana));
+        assert_eq!(lobby.players[0].id, nuevo);
+        assert_eq!(lobby.players[0].nickname, "Ana");
+        // El uuid viejo ya no es de nadie: su cierre posterior no toca nada.
+        assert!(lobby.mark_disconnected(&ana).is_none());
+        assert!(lobby.remove_player(&ana).is_none());
+    }
+
+    #[test]
+    fn a_nickname_is_not_a_key() {
         let mut lobby = Lobby::new("TEST123".to_string(), 4);
         let ana = Uuid::new_v4();
         lobby.add_player(ana, "Ana".to_string()).unwrap();
 
-        // Ana está conectada: nadie puede apropiarse de su sitio.
-        assert!(lobby.rebind_disconnected("Ana", Uuid::new_v4()).is_none());
-        // Y un nombre que no existe tampoco.
-        assert!(lobby.rebind_disconnected("Nadie", Uuid::new_v4()).is_none());
+        // Ni con el apodo, ni con un secreto inventado, ni vacío.
+        assert!(lobby.rebind_seat("Ana", Uuid::new_v4()).is_none());
+        assert!(lobby.rebind_seat(&new_seat_token(), Uuid::new_v4()).is_none());
+        assert!(lobby.rebind_seat("", Uuid::new_v4()).is_none());
+        assert_eq!(lobby.players[0].id, ana, "el asiento no se movió");
+    }
+
+    #[test]
+    fn every_seat_has_its_own_secret_and_spectators_have_none() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        lobby.add_player(Uuid::new_v4(), "Ana".to_string()).unwrap();
+        lobby.add_player(Uuid::new_v4(), "Beto".to_string()).unwrap();
+        let (a, b) = (lobby.players[0].seat_token.clone().unwrap(), lobby.players[1].seat_token.clone().unwrap());
+        assert_ne!(a, b);
+        assert_eq!(a.len(), 32, "128 bits en hexadecimal");
+
+        lobby.set_player_ready(&lobby.players[0].id.clone(), true).unwrap();
+        lobby.set_player_ready(&lobby.players[1].id.clone(), true).unwrap();
+        lobby.start_game().unwrap();
+        let mirón = Uuid::new_v4();
+        assert_eq!(lobby.add_player(mirón, "Caro".to_string()), Ok(true));
+        assert!(lobby.spectators[0].seat_token.is_none(), "un mirón no tiene asiento que recuperar");
+    }
+
+    // La expulsión por apodo de un asiento "sin conexión" es para una sala en
+    // espera. En partida ese asiento espera a su dueño con las cartas dentro.
+    #[tokio::test]
+    async fn in_a_match_a_namesake_does_not_evict_a_dropped_seat() {
+        let manager = LobbyManager::new();
+        let id = manager.create_lobby(4, true).await;
+        let (ana, beto) = (Uuid::new_v4(), Uuid::new_v4());
+        let todos: HashSet<Uuid> = [ana, beto].into_iter().collect();
+        manager.join_lobby(&id, ana, "Ana".to_string(), &todos).await.unwrap();
+        manager.join_lobby(&id, beto, "Beto".to_string(), &todos).await.unwrap();
+        manager.mutate(&id, |l| {
+            l.set_player_ready(&ana, true).unwrap();
+            l.set_player_ready(&beto, true).unwrap();
+            l.start_game().unwrap();
+            l.mark_disconnected(&ana);
+        }).await.unwrap();
+
+        // Ana ya no tiene conexión (no está en `live`), y alguien más escribe «Ana».
+        let solo_beto: HashSet<Uuid> = [beto].into_iter().collect();
+        let intruso = manager.join_lobby(&id, Uuid::new_v4(), "Ana".to_string(), &solo_beto).await;
+        assert!(intruso.is_err(), "el apodo sigue siendo de Ana");
+        let lobby = manager.get_lobby(&id).await.unwrap();
+        assert!(lobby.players.iter().any(|p| p.id == ana), "su asiento sigue ahí");
+        assert!(lobby.game_state.as_ref().unwrap().players.iter().any(|p| p.id == ana),
+                "y sus cartas también");
+    }
+
+    // En espera el asiento abandonado sí cede el apodo (recarga con el socket
+    // nuevo llegando antes de que el servidor limpie el viejo).
+    #[tokio::test]
+    async fn while_waiting_an_abandoned_seat_still_yields_its_nickname() {
+        let manager = LobbyManager::new();
+        let id = manager.create_lobby(4, true).await;
+        let vieja = Uuid::new_v4();
+        let ninguna = HashSet::new();
+        manager.join_lobby(&id, vieja, "Ana".to_string(), &ninguna).await.unwrap();
+        assert!(manager.join_lobby(&id, Uuid::new_v4(), "Ana".to_string(), &ninguna).await.is_ok());
     }
 
     #[test]

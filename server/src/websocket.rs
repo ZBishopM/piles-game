@@ -68,9 +68,9 @@ pub struct RecState {
     pub t0: Instant,
     /// Última vez que se guardó un fotograma clave.
     pub last_key: Instant,
-    /// Quién es quién. Por **nickname**, no por uuid: al reconectar,
-    /// `rebind_disconnected` le cambia el uuid a media partida y el mismo
-    /// jugador aparecería partido en dos en el registro.
+    /// Quién es quién. Se muestra el **nickname**, no el uuid: al reconectar,
+    /// `rebind_seat` le cambia el uuid a media partida (y `rec_rebind` apunta
+    /// el nuevo aquí) y el mismo jugador aparecería partido en dos.
     pub nicks: HashMap<Uuid, String>,
 }
 
@@ -243,6 +243,12 @@ impl AppState {
     /// Un mensaje que va a UNA persona. Es la mitad que ningún cliente puede
     /// grabar por su cuenta, y por eso esto vive en el servidor.
     async fn rec_private(&self, player_id: &Uuid, msg: &ServerMessage) {
+        // El secreto del asiento NO se graba: `/api/recordings` es público y
+        // se puede leer con la partida en curso, así que un secreto ahí sería
+        // regalar el asiento a quien mire la lista.
+        if matches!(msg, ServerMessage::SeatToken { .. }) {
+            return;
+        }
         let mapa = self.grabando.read().await;
         // El mapa tiene una entrada por partida en curso: buscar ahí es más
         // barato que mantener un índice jugador→sala aparte.
@@ -264,14 +270,30 @@ impl AppState {
     async fn rec_in(&self, player_id: &Uuid, msg: &ClientMessage) {
         let mapa = self.grabando.read().await;
         let Some(est) = mapa.values().find(|e| e.nicks.contains_key(player_id)) else { return };
+        // Sin el secreto del asiento (ver `rec_private`).
+        let mut m = serde_json::to_value(msg).unwrap_or_default();
+        if let Some(obj) = m.as_object_mut() {
+            obj.remove("seat_token");
+        }
         let linea = serde_json::json!({
             "t": "in",
             "ms": est.t0.elapsed().as_millis() as u64,
             "w": crate::record::now_ms(),
             "from": est.nicks.get(player_id),
-            "m": msg,
+            "m": m,
         });
         self.rec.line(&est.file, format!("{linea}\n"));
+    }
+
+    /// Quien recupera su asiento llega con otro uuid; sin esto sus mensajes
+    /// dejaban de grabarse en cuanto volvía.
+    async fn rec_rebind(&self, old: &Uuid, new: &Uuid) {
+        let mut mapa = self.grabando.write().await;
+        for est in mapa.values_mut() {
+            if let Some(nick) = est.nicks.get(old).cloned() {
+                est.nicks.insert(*new, nick);
+            }
+        }
     }
 
     /// El ping que informa el propio cliente. Es lo que dice si una pelea se
@@ -435,80 +457,94 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     // Si estaba en un lobby, decidir qué hacer con su sitio.
     if let Some(lobby_id) = &current_lobby {
-        if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
-            // En plena partida NO se le quita el sitio: se le espera.
-            //
-            // Antes un solo corte de conexión cancelaba la partida de todos, y
-            // lo hacía porque quitarle el sitio le borraba las 24 cartas — con
-            // 4 cartas por prenda, eso dejaba media partida sin poder
-            // completarse. Ahora sus cartas se quedan en la mesa, los demás
-            // siguen jugando, y solo si no vuelve en GRACE_PERIOD se
-            // redimensiona la partida retirando prendas enteras.
-            if lobby.status == LobbyStatus::Playing {
-                if let Some(nickname) = lobby.mark_disconnected(&player_id) {
-                    tracing::info!(
-                        "⏳ {} ({}) se cayó en partida; {}s para volver",
-                        nickname, player_id, GRACE_PERIOD.as_secs()
-                    );
-                    let connected = lobby.connected_count();
-                    // Los bots cuentan como conectados: sin esto, 1 persona + 2
-                    // bots seguían jugando entre ellos sin nadie mirando.
-                    let human_left = lobby.players.iter()
-                        .any(|p| !p.is_bot && p.disconnected_at.is_none());
-                    state.lobby_manager.update_lobby(lobby).await;
-
-                    state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
-                        nickname: nickname.clone(),
-                        seconds: GRACE_PERIOD.as_secs(),
-                    }).await;
-
-                    if connected < 2 || !human_left {
-                        // Sin dos jugadores, o sin ninguna persona, no hay
-                        // partida que sostener.
-                        cancel_match(&state, lobby_id, &nickname).await;
-                    } else {
-                        tokio::spawn(run_grace_period(
-                            state.clone(), lobby_id.clone(), player_id));
-                    }
-                }
-                return;
-            }
-
-            if let Some(nickname) = lobby.remove_player(&player_id) {
-                tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
-
-                if lobby.players.is_empty() {
-                    // Lobby vacío: se queda en `Waiting` a propósito (ver
-                    // `remove_player`) para que quien se cayó pueda volver a
-                    // su misma sala. Aquí solo se limpian los intents.
-                    state.lobby_manager.update_lobby(lobby).await;
-                    state.take_intents.write().await.remove(lobby_id);
-                } else {
-                    // En lobby normal: notificar actualización
-                    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-                        id: p.id.to_string(),
-                        nickname: p.nickname.clone(),
-                        is_ready: p.is_ready,
-                        is_bot: p.is_bot,
-                    }).collect();
-                    let ready_count = lobby.ready_count();
-                    let max_players = lobby.max_players;
-                    let mirones = lobby.spectators.len();
-                    state.lobby_manager.update_lobby(lobby).await;
-
-                    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
-                        players: player_infos,
-                        ready_count,
-                        max_players,
-                        spectators: mirones,
-                    }).await;
-                }
-                retire_orphan_bots(&state, lobby_id).await;
-            }
-        }
+        leave_current_lobby(&state, player_id, lobby_id, false).await;
     }
 
     tracing::info!("🔌 Conexión WebSocket cerrada: {}", player_id);
+}
+
+/// Qué pasa con el asiento de una conexión que se va de su sala.
+///
+/// `voluntary`: pulsó "Salir" (o abrió otra sala con la misma conexión), no se
+/// le cayó la red. Importa en un único sitio: una sala que se queda sin nadie.
+/// Si fue una caída se guarda un rato, sin listarse, para volver con el código
+/// tras un F5; si se fue a propósito, deja de existir ya.
+///
+/// Antes esto vivía dentro de `handle_socket`, así que solo se ejecutaba al
+/// cerrarse el socket. Y "Salir" solo cambiaba de pantalla: el asiento seguía,
+/// la sala seguía listada y el apodo seguía ocupado.
+async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, voluntary: bool) {
+    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+
+    // En plena partida NO se le quita el sitio a quien juega: se le espera.
+    //
+    // Antes un solo corte de conexión cancelaba la partida de todos, y lo hacía
+    // porque quitarle el sitio le borraba las 24 cartas — con 4 cartas por
+    // prenda, eso dejaba media partida sin poder completarse. Ahora sus cartas
+    // se quedan en la mesa, los demás siguen jugando, y solo si no vuelve en
+    // GRACE_PERIOD se redimensiona la partida retirando prendas enteras.
+    //
+    // Tampoco se cancela al instante cuando se cae la única persona o falta
+    // gente para seguir (2026-09-30: la única persona contra un bot se cayó, la
+    // partida se canceló en el mismo milisegundo y no tuvo a qué volver). Se
+    // espera igual; `run_grace_period` decide al cumplirse el plazo.
+    if lobby.status == LobbyStatus::Playing && !lobby.is_spectator(&player_id) {
+        if let Some(nickname) = lobby.mark_disconnected(&player_id) {
+            tracing::info!(
+                "⏳ {} ({}) se cayó en partida; {}s para volver",
+                nickname, player_id, GRACE_PERIOD.as_secs()
+            );
+            state.lobby_manager.update_lobby(lobby).await;
+            state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
+                nickname,
+                seconds: GRACE_PERIOD.as_secs(),
+            }).await;
+            tokio::spawn(run_grace_period(state.clone(), lobby_id.to_string(), player_id));
+        }
+        // Si no está en `players`, su asiento ya lo tomó otra conexión suya
+        // (`rebind_seat`): este cierre ya no pinta nada.
+        return;
+    }
+
+    let Some(nickname) = lobby.remove_player(&player_id) else { return };
+    tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
+
+    if lobby.players.is_empty() {
+        if voluntary {
+            // Se fue la última persona a propósito: la sala deja de existir.
+            state.lobby_manager.remove_lobby(lobby_id).await;
+            tracing::info!("🚪 sala {} cerrada: se fue la última persona", lobby_id);
+        } else {
+            // Se queda en `Waiting` a propósito (ver `remove_player`) para que
+            // quien se cayó pueda volver a su misma sala.
+            state.lobby_manager.update_lobby(lobby).await;
+        }
+        state.take_intents.write().await.remove(lobby_id);
+        return;
+    }
+
+    // Un mirón que se va en plena partida no mueve nada de la sala de espera.
+    let en_partida = lobby.status == LobbyStatus::Playing;
+    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+        id: p.id.to_string(),
+        nickname: p.nickname.clone(),
+        is_ready: p.is_ready,
+        is_bot: p.is_bot,
+    }).collect();
+    let ready_count = lobby.ready_count();
+    let max_players = lobby.max_players;
+    let mirones = lobby.spectators.len();
+    state.lobby_manager.update_lobby(lobby).await;
+
+    if !en_partida {
+        state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
+            players: player_infos,
+            ready_count,
+            max_players,
+            spectators: mirones,
+        }).await;
+        retire_orphan_bots(state, lobby_id).await;
+    }
 }
 
 /// Si en la sala solo quedan bots, se cierra: los bots se van y la sala deja
@@ -566,13 +602,33 @@ pub(crate) async fn handle_client_message(
     // `frenzy`, `give_up_card`, `flip_set`, `switch_set`,
     // `request_verification` y `set_ready`: un mensaje nuevo queda cubierto sin
     // que nadie tenga que acordarse.
-    if !matches!(msg, ClientMessage::Ping { .. } | ClientMessage::ListLobbies) {
+    // Irse o abrir otra sala sí se le deja: el guardia lo dejaba sin salida, y
+    // un mirón que volvía a "Crear sala" no creaba nada.
+    if !matches!(msg, ClientMessage::Ping { .. } | ClientMessage::ListLobbies
+        | ClientMessage::LeaveLobby | ClientMessage::CreateLobby { .. }
+        | ClientMessage::QuickMatch { .. } | ClientMessage::JoinLobby { .. })
+    {
         if let Some(id) = current_lobby.as_deref() {
             if state.lobby_manager.get_lobby(id).await
                 .is_some_and(|l| l.is_spectator(&player_id))
             {
                 return;
             }
+        }
+    }
+
+    // Una conexión, un asiento. Abrir o entrar en otra sala con la conexión ya
+    // sentada es irse de la anterior; si no, el asiento viejo se quedaba
+    // ocupando su sala y su apodo para siempre (el cliente de antes ni avisaba
+    // al darle a "Salir").
+    let abre_otra = match &msg {
+        ClientMessage::CreateLobby { .. } | ClientMessage::QuickMatch { .. } => true,
+        ClientMessage::JoinLobby { lobby_id, .. } => current_lobby.as_deref() != Some(lobby_id.as_str()),
+        _ => false,
+    };
+    if abre_otra {
+        if let Some(anterior) = current_lobby.take() {
+            leave_current_lobby(state, player_id, &anterior, true).await;
         }
     }
 
@@ -596,7 +652,7 @@ pub(crate) async fn handle_client_message(
                     {
                         // `fullest_open_lobby` solo devuelve salas en espera, así
                         // que por aquí nunca se entra a mirar.
-                        Ok((_, mirando)) => {
+                        Ok((lobby, mirando)) => {
                             *current_lobby = Some(lobby_id.clone());
                             remember_rating_key(state, &lobby_id, player_id, rating_key).await;
                             state.send_to_player(&player_id, ServerMessage::JoinedLobby {
@@ -604,6 +660,7 @@ pub(crate) async fn handle_client_message(
                                 player_id: player_id.to_string(),
                                 spectator: mirando,
                             }).await;
+                            send_seat_token(state, &lobby, player_id).await;
                             send_lobby_update(state, &lobby_id).await;
                         }
                         Err(_) => {
@@ -621,13 +678,44 @@ pub(crate) async fn handle_client_message(
             }
         }
 
-        ClientMessage::JoinLobby { lobby_id, nickname, rating_key } => {
-            // ¿Es alguien a quien estamos esperando en una partida en curso?
-            // Entonces no "entra": recupera su asiento y sus cartas. Pasar por
-            // join_lobby lo trataría como nuevo y le borraría la mano.
-            if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-                if lobby.status == LobbyStatus::Playing {
-                    if let Some(old_id) = lobby.rebind_disconnected(&nickname, player_id) {
+        ClientMessage::LeaveLobby => {
+            if let Some(lobby_id) = current_lobby.take() {
+                leave_current_lobby(state, player_id, &lobby_id, true).await;
+            }
+        }
+
+        ClientMessage::JoinLobby { lobby_id, nickname, rating_key, seat_token } => {
+            // Ya está sentado en esa sala con esta misma conexión (doble toque
+            // en "Unirse", o un cliente que "salió" solo en pantalla): no hay
+            // nada que hacer, solo confirmar. Antes chocaba con su propio apodo.
+            if current_lobby.as_deref() == Some(lobby_id.as_str()) {
+                if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                    // En partida la confirmación llevaría a la pantalla de
+                    // sala, encima del tablero.
+                    if lobby.status != LobbyStatus::Playing {
+                        state.send_to_player(&player_id, ServerMessage::JoinedLobby {
+                            lobby_id: lobby_id.clone(),
+                            player_id: player_id.to_string(),
+                            spectator: lobby.is_spectator(&player_id),
+                        }).await;
+                        send_seat_token(state, &lobby, player_id).await;
+                        send_lobby_update(state, &lobby_id).await;
+                    }
+                }
+                return;
+            }
+
+            // ¿Vuelve alguien a su asiento? Entonces no "entra": lo recupera
+            // con sus cartas. Pasar por join_lobby lo trataría como nuevo y le
+            // borraría la mano.
+            //
+            // Con el SECRETO del asiento, no con el apodo: el apodo lo escribe
+            // cualquiera, y exigir que el servidor ya hubiera notado la caída
+            // dejaba fuera a quien volvía antes de que se enterase (2026-09-30:
+            // ~100 s de reintentos rechazados con un socket muerto).
+            if let Some(token) = seat_token.as_deref() {
+                if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                    if let Some(old_id) = lobby.rebind_seat(token, player_id).filter(|o| *o != player_id) {
                         *current_lobby = Some(lobby_id.clone());
                         let resumed = lobby.game_state.as_ref()
                             .and_then(|g| g.players.iter().find(|p| p.id == player_id))
@@ -638,16 +726,26 @@ pub(crate) async fn handle_client_message(
                         let names: Vec<String> = lobby.players.iter()
                             .map(|p| p.nickname.clone()).collect();
                         let (center, _, _) = snapshot(&lobby);
+                        let nick = lobby.players.iter().find(|p| p.id == player_id)
+                            .map(|p| p.nickname.clone()).unwrap_or_default();
+                        let asiento = lobby.clone();
                         state.lobby_manager.update_lobby(lobby).await;
-                        state.connections.write().await.remove(&old_id);
 
-                        tracing::info!("↩️ {} volvió a la partida {}", nickname, lobby_id);
+                        // La conexión vieja ya no es la buena. Se le avisa para
+                        // que no intente volver (dos pestañas se quitarían el
+                        // asiento sin parar) y se la saca del mapa.
+                        state.send_to_player(&old_id, ServerMessage::SeatReplaced).await;
+                        state.connections.write().await.remove(&old_id);
+                        state.rec_rebind(&old_id, &player_id).await;
+
+                        tracing::info!("↩️ {} recuperó su asiento en {}", nick, lobby_id);
                         state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                             lobby_id: lobby_id.clone(),
                             player_id: player_id.to_string(),
                             // Recupera su asiento, no entra a mirar.
                             spectator: false,
                         }).await;
+                        send_seat_token(state, &asiento, player_id).await;
                         // El tablero entero tal y como está ahora: es lo que
                         // faltaba para poder reanudar una partida en curso.
                         if let Some((your_sets, current_set)) = resumed {
@@ -680,6 +778,7 @@ pub(crate) async fn handle_client_message(
                         player_id: player_id.to_string(),
                         spectator: mirando,
                     }).await;
+                    send_seat_token(state, &lobby, player_id).await;
 
                     // Quien entra a mirar necesita el tablero de una vez: a
                     // partir de ahí las difusiones lo mantienen al día. Sin
@@ -1483,6 +1582,7 @@ async fn run_verification(
                                 message: "La sala se llenó al acabar la partida".to_string(),
                             }).await;
                         }
+                        send_seat_tokens(&state, &lobby_id).await;
                     }
                 }
             }
@@ -1608,6 +1708,20 @@ async fn remember_rating_key(state: &AppState, lobby_id: &str, player_id: Uuid, 
     state.lobby_manager.update_lobby(lobby).await;
 }
 
+/// Le manda su secreto de asiento a quien se acaba de sentar a jugar. Los
+/// mirones no tienen asiento y no reciben nada. Por `send_to_player`, que no
+/// lo graba (ver `rec_private`).
+async fn send_seat_token(state: &AppState, lobby: &crate::game::Lobby, player_id: Uuid) {
+    let Some(token) = lobby.players.iter()
+        .find(|p| p.id == player_id)
+        .and_then(|p| p.seat_token.clone())
+    else { return };
+    state.send_to_player(&player_id, ServerMessage::SeatToken {
+        lobby_id: lobby.id.clone(),
+        token,
+    }).await;
+}
+
 async fn enter_new_lobby(
     state: &AppState,
     player_id: Uuid,
@@ -1619,13 +1733,14 @@ async fn enter_new_lobby(
     // Sala recién creada: está vacía, no hay ningún sitio que reclamar.
     let live = std::collections::HashSet::new();
     match state.lobby_manager.join_lobby(lobby_id, player_id, nickname, &live).await {
-        Ok(_lobby) => {
+        Ok((lobby, _)) => {
             *current_lobby = Some(lobby_id.to_string());
             remember_rating_key(state, lobby_id, player_id, rating_key).await;
             state.send_to_player(&player_id, ServerMessage::LobbyCreated {
                 lobby_id: lobby_id.to_string(),
                 player_id: player_id.to_string(),
             }).await;
+            send_seat_token(state, &lobby, player_id).await;
             send_lobby_update(state, lobby_id).await;
         }
         Err(e) => {
@@ -1733,8 +1848,18 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
     }
 }
 
-/// Corta la partida y devuelve a todos a la sala. Es el único caso que queda
-/// en el que una desconexión cancela: cuando no quedan dos personas.
+/// Manda su secreto a cada persona sentada. Hace falta tras `promote_spectators`
+/// (los mirones que se sientan al acabar la partida no tenían ninguno); a quien
+/// ya lo tenía se le repite el mismo, que no cuesta nada.
+async fn send_seat_tokens(state: &AppState, lobby_id: &str) {
+    let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    for p in lobby.players.iter().filter(|p| !p.is_bot) {
+        send_seat_token(state, &lobby, p.id).await;
+    }
+}
+
+/// Corta la partida y devuelve a todos a la sala. Una caída la cancela cuando,
+/// agotado el plazo de gracia, no quedan dos jugadores o ninguna persona.
 async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     state.rec_close(lobby_id, "cancelled").await;
     let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
@@ -1778,14 +1903,19 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
             message: "La sala se llenó al acabar la partida".to_string(),
         }).await;
     }
+    send_seat_tokens(state, lobby_id).await;
     retire_orphan_bots(state, lobby_id).await;
 }
 
 /// Espera a quien se cayó y, si no vuelve, redimensiona la partida.
 ///
-/// Si vuelve, `rebind_disconnected` le cambia el id, así que este id ya no
-/// existe en el lobby y la tarea se va sin hacer nada — no hace falta
-/// cancelarla desde fuera.
+/// Si vuelve, `rebind_seat` le cambia el id, así que este id ya no existe en
+/// el lobby y la tarea se va sin hacer nada — no hace falta cancelarla desde
+/// fuera.
+///
+/// Es aquí, y no en el momento de la caída, donde se decide si la partida se
+/// cancela: antes se cancelaba al instante cuando se caía la única persona (o
+/// quedaba una sola), y quien volvía a los pocos segundos ya no tenía partida.
 async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     sleep(GRACE_PERIOD).await;
 
@@ -1815,7 +1945,11 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
         .map(|p| p.nickname.clone())
         .unwrap_or_default();
 
-    if lobby.connected_count() < 2 {
+    // Sin dos jugadores, o sin ninguna persona, no hay partida que sostener.
+    // Los bots cuentan como conectados: sin la segunda condición, 1 persona +
+    // 2 bots seguían jugando entre ellos sin nadie mirando.
+    let hay_persona = lobby.players.iter().any(|p| !p.is_bot && p.disconnected_at.is_none());
+    if lobby.connected_count() < 2 || !hay_persona {
         cancel_match(&state, &lobby_id, &nickname).await;
         return;
     }

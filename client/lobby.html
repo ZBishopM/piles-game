@@ -1796,12 +1796,19 @@ window.addEventListener('DOMContentLoaded', () => {
     buildMaxPlayersSelector();
     handleJoinDeepLink();
 
-    // Tras un F5 estando en una sala, volver a ella. Un enlace ?join= manda
-    // sobre esto: es una intención más reciente que la sala anterior.
+    // Tras un F5 (o al volver a abrir el navegador) estando en una sala, volver
+    // a ella. Un enlace ?join= manda sobre esto: es una intención más reciente
+    // que la sala anterior.
     if (!pendingAutoJoin) {
-        let stored = null;
-        try { stored = sessionStorage.getItem('piles_lobby'); } catch { /* modo privado */ }
-        if (stored && localStorage.getItem('piles_nickname')) pendingRejoinCode = stored;
+        const seat = readSeat();
+        if (seat && localStorage.getItem('piles_nickname')) {
+            if (Date.now() - (seat.seen || 0) < SEAT_FRESH_MS) {
+                pendingRejoinCode = seat.lobby;
+                seatToken = seat.token || null;
+            } else {
+                writeSeat(null);   // demasiado viejo: ese asiento ya no existe
+            }
+        }
     }
 
     connectWs();
@@ -1832,20 +1839,61 @@ let pendingAutoJoin = false;
 // solo se reabría el socket, así que el overlay prometía "reconecta para
 // volver a la sala" y luego no se podía ni marcar Listo. Hay que volver a
 // entrar explícitamente.
+//
+// Y hay que demostrar quién eres, y no con el apodo (que lo escribe
+// cualquiera): el servidor da a cada asiento un SECRETO (`seat_token`) y con él
+// se recupera el asiento y la mano al instante, aunque la conexión vieja
+// siga pareciendo viva. Antes se volvía por apodo y solo si el servidor ya
+// había notado la caída; tras un corte de red eso tardó ~100 s (2026-09-30) y
+// cada reintento chocaba con "Ya hay alguien llamado…".
 let pendingRejoinCode = null;
 let rejoinInFlight = false;
+let seatToken = null;
 
-/** sessionStorage y no localStorage a propósito: sobrevive a un F5 (el otro
- *  botón del overlay) pero no a cerrar la pestaña. */
-function rememberLobby(lobbyId) {
-    pendingRejoinCode = lobbyId;
-    try { sessionStorage.setItem('piles_lobby', lobbyId); } catch { /* modo privado */ }
+// El asiento vive en el NAVEGADOR (localStorage), no en la pestaña: sobrevive
+// a cerrar la pestaña o el navegador y volver dentro del plazo. Coste: una
+// pestaña nueva se lleva el asiento de la que ya lo tenía, que lo avisa
+// (`seat_replaced`) en vez de pelearse por él.
+const SEAT_KEY = 'piles_seat';
+/** 30 s de gracia del servidor más margen. Más viejo que esto, el asiento ya
+ *  no existe y no merece la pena intentarlo. */
+const SEAT_FRESH_MS = 90000;
+
+function readSeat() {
+    try { return JSON.parse(localStorage.getItem(SEAT_KEY) || 'null'); } catch { return null; }
+}
+function writeSeat(seat) {
+    try {
+        if (seat) localStorage.setItem(SEAT_KEY, JSON.stringify(seat));
+        else localStorage.removeItem(SEAT_KEY);
+    } catch { /* modo privado */ }
 }
 
+function rememberLobby(lobbyId) {
+    pendingRejoinCode = lobbyId;
+    // El secreto llega en un mensaje aparte justo después (`seat_token`); si
+    // ya había uno de esta misma sala, se conserva.
+    const prev = readSeat();
+    if (prev && prev.lobby !== lobbyId) seatToken = null;   // el de otra sala no vale
+    else if (prev && !seatToken) seatToken = prev.token || null;
+    writeSeat({ lobby: lobbyId, token: seatToken, seen: Date.now() });
+}
+
+/** Te vas de verdad (o la sala ya no existe): se olvida aquí y en el navegador. */
 function forgetLobby() {
     pendingRejoinCode = null;
     currentLobbyId = '';
-    try { sessionStorage.removeItem('piles_lobby'); } catch { /* modo privado */ }
+    seatToken = null;
+    writeSeat(null);
+}
+
+/** Lo ha tomado otra pestaña: solo se limpia esta pestaña. Lo guardado en el
+ *  navegador ya es de la otra. */
+function dropSeatLocally() {
+    pendingRejoinCode = null;
+    currentLobbyId = '';
+    seatToken = null;
+    rejoinInFlight = false;
 }
 
 function attemptRejoin() {
@@ -1853,7 +1901,8 @@ function attemptRejoin() {
     if (!pendingRejoinCode || !nickname) { forgetLobby(); return; }
     currentNickname = nickname;
     rejoinInFlight = true;
-    send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname, rating_key: ratingKey() });
+    send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname,
+           rating_key: ratingKey(), seat_token: seatToken });
 }
 
 function connectWs() {
@@ -1876,6 +1925,11 @@ function connectWs() {
         clearInterval(pingInterval);
         pingInterval = setInterval(() => {
             if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            // "Visto hace poco": es lo que dice, al volver a abrir, si el
+            // asiento guardado aún puede existir. Solo la pestaña que lo tiene.
+            if (seatToken && currentLobbyId) {
+                writeSeat({ lobby: currentLobbyId, token: seatToken, seen: Date.now() });
+            }
             const enPartida = document.getElementById('gameScreen')?.classList.contains('active');
             if (!enPartida && Date.now() - lastPingAt < 25000) return;
             lastPingAt = Date.now();
@@ -1949,6 +2003,16 @@ function handleMsg(msg) {
             currentPlayerId = msg.player_id;
             soyEspectador = !!msg.spectator;
             onEnteredLobby(msg.lobby_id);
+            break;
+
+        case 'seat_token':
+            // El secreto del asiento, solo para ti. Con él se vuelve a la sala.
+            seatToken = msg.token;
+            writeSeat({ lobby: msg.lobby_id, token: msg.token, seen: Date.now() });
+            break;
+
+        case 'seat_replaced':
+            onSeatReplaced();
             break;
 
         case 'lobby_update':
@@ -2470,9 +2534,37 @@ function toggleReady() {
 }
 
 function leaveLobby() {
+    // Avisar al servidor. Antes solo se cambiaba de pantalla: el asiento
+    // seguía, la sala seguía en la lista y el apodo seguía ocupado, así que
+    // volver a entrar con el mismo nombre daba "Ya hay alguien llamado…".
+    if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'leave_lobby' });
     showScreen('homeScreen');
     forgetLobby();
     isReady = false;
+}
+
+/** Otra pestaña ha tomado tu asiento (o lo has recuperado tú tras un corte
+ *  desde otro sitio). Esta ya no es la buena: se vuelve al inicio sin
+ *  reintentar, que es lo que evita que dos pestañas se lo quiten sin parar. */
+function onSeatReplaced() {
+    dropSeatLocally();
+    stopMusic();
+    closeVerifyOverlay();
+    closeQteOverlay();
+    clearStun();
+    clearMatchNotifications();
+    resetCombo();
+    gameOver = false;
+    isReady = false;
+    document.getElementById('gameOverOverlay').classList.remove('active');
+    document.getElementById('fxLayer').innerHTML = '';
+    agToast({
+        kind: 'warning',
+        title: 'Partida abierta en otro sitio',
+        message: 'Tu asiento lo ha tomado otra pestaña. Aquí te quedas fuera.',
+        duration: 8000,
+    });
+    showScreen('homeScreen');
 }
 
 function onLobbyUpdate(msg) {

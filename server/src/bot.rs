@@ -822,6 +822,7 @@ async fn spawn_bot_inner(
             lobby_id: lobby_id.to_string(),
             nickname: nickname.clone(),
             rating_key: None,
+            seat_token: None,
         },
         id,
         &mut current_lobby,
