@@ -597,7 +597,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 /// cerrarse el socket. Y "Salir" solo cambiaba de pantalla: el asiento seguía,
 /// la sala seguía listada y el apodo seguía ocupado.
 async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, voluntary: bool) {
-    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
 
     // En plena partida NO se le quita el sitio a quien juega: se le espera.
     //
@@ -617,7 +617,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
                 "⏳ {} ({}) se cayó en partida; {}s para volver",
                 nickname, player_id, GRACE_PERIOD.as_secs()
             );
-            state.lobby_manager.update_lobby(lobby).await;
+            lobby.commit().await;
             state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
                 "kind": "grace_start", "player": nickname, "secs": GRACE_PERIOD.as_secs(),
                 "voluntaria": voluntary,
@@ -644,7 +644,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
         } else {
             // Se queda en `Waiting` a propósito (ver `remove_player`) para que
             // quien se cayó pueda volver a su misma sala.
-            state.lobby_manager.update_lobby(lobby).await;
+            lobby.commit().await;
         }
         state.take_intents.write().await.remove(lobby_id);
         return;
@@ -661,7 +661,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     let ready_count = lobby.ready_count();
     let max_players = lobby.max_players;
     let mirones = lobby.spectators.len();
-    state.lobby_manager.update_lobby(lobby).await;
+    lobby.commit().await;
 
     if !en_partida {
         state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
@@ -740,6 +740,23 @@ async fn retire_orphan_bots(state: &AppState, lobby_id: &str) {
     state.lobby_manager.remove_lobby(lobby_id).await;
     state.take_intents.write().await.remove(lobby_id);
     tracing::info!("🚪 sala {} cerrada: solo quedaban {} bot(s)", lobby_id, bots.len());
+}
+
+/// Le manda a una persona su mano y el centro tal como los tiene el servidor
+/// (`SetsResynced`: el cliente y el bot ya lo tratan como "esto es lo que hay",
+/// sin tocar la racha) y lo deja en la grabación como línea `resync`.
+async fn resync_hand(
+    state: &AppState,
+    player_id: Uuid,
+    gs: &crate::game::models::GameState,
+    motivo: &str,
+) {
+    let Some(p) = gs.players.iter().find(|p| p.id == player_id) else { return };
+    let your_sets: Vec<Vec<Option<CardInfo>>> = p.sets.iter().map(|s| set_to_info(s)).collect();
+    let center_cards: Vec<CardInfo> = gs.center_cards.iter().map(|&c| CardInfo::from(c)).collect();
+    tracing::warn!("🔁 {}: lo que cree no es lo que hay ({}); se le reenvía su mano", p.nickname, motivo);
+    state.rec_line_player(&player_id, "resync", serde_json::json!({ "motivo": motivo })).await;
+    state.send_to_player(&player_id, ServerMessage::SetsResynced { your_sets, center_cards }).await;
 }
 
 /// Centro, progreso y cuánta gente mira: los tres campos de un `GameUpdate`.
@@ -898,7 +915,7 @@ pub(crate) async fn handle_client_message(
             // dejaba fuera a quien volvía antes de que se enterase (2026-09-30:
             // ~100 s de reintentos rechazados con un socket muerto).
             if let Some(token) = seat_token.as_deref() {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
                     if let Some(old_id) = lobby.rebind_seat(token, player_id).filter(|o| *o != player_id) {
                         *current_lobby = Some(lobby_id.clone());
                         let resumed = lobby.game_state.as_ref()
@@ -913,7 +930,7 @@ pub(crate) async fn handle_client_message(
                         let nick = lobby.players.iter().find(|p| p.id == player_id)
                             .map(|p| p.nickname.clone()).unwrap_or_default();
                         let asiento = lobby.clone();
-                        state.lobby_manager.update_lobby(lobby).await;
+                        lobby.commit().await;
 
                         // La conexión vieja ya no es la buena. Se le avisa para
                         // que no intente volver (dos pestañas se quitarían el
@@ -956,8 +973,36 @@ pub(crate) async fn handle_client_message(
                 }
             }
 
+            // Con secreto pero sin asiento al que volver: el secreto no abrió
+            // nada (el asiento ya se retiró tras la gracia, la sala es otra, o el
+            // secreto es de otra sala). Hasta ahora esto pasaba sin dejar rastro y
+            // el jugador solo veía un error o entraba a mirar: se apunta.
+            if seat_token.is_some() {
+                let motivo = match state.lobby_manager.get_lobby(&lobby_id).await {
+                    None => "la sala ya no existe".to_string(),
+                    Some(l) => {
+                        let apodo = l.players.iter().find(|p| p.nickname == nickname);
+                        format!(
+                            "sala {:?}, {} sentados, apodo {}",
+                            l.status, l.players.len(),
+                            match apodo {
+                                Some(p) if p.disconnected_at.is_some() => "ocupado por un asiento caído (en gracia)",
+                                Some(_) => "ocupado por alguien conectado",
+                                None => "libre (su asiento ya se retiró)",
+                            },
+                        )
+                    }
+                };
+                tracing::warn!("🔑 {} volvió a {} con secreto pero no abrió ningún asiento: {}", nickname, lobby_id, motivo);
+                state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+                    "kind": "rejoin_sin_asiento", "player": nickname, "motivo": motivo,
+                })).await;
+            }
+
             let live: std::collections::HashSet<Uuid> =
                 state.connections.read().await.keys().copied().collect();
+            let quien = nickname.clone();
+            let con_secreto = seat_token.is_some();
             match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
                 Ok((lobby, mirando)) => {
                     *current_lobby = Some(lobby_id.clone());
@@ -988,6 +1033,12 @@ pub(crate) async fn handle_client_message(
                     send_lobby_update(&state, &lobby_id).await;
                 }
                 Err(e) => {
+                    // El error solo lo veía el jugador: sin esto no quedaba
+                    // constancia de por qué alguien "no podía volver a entrar".
+                    tracing::warn!("🚫 {} no pudo entrar en {}: {} (con secreto: {})", quien, lobby_id, e, con_secreto);
+                    state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+                        "kind": "join_error", "player": quien, "motivo": e, "con_secreto": con_secreto,
+                    })).await;
                     state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
                 }
             }
@@ -1037,7 +1088,7 @@ pub(crate) async fn handle_client_message(
 
         ClientMessage::SetReady { ready } => {
             if let Some(ref lobby_id) = current_lobby {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+                if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     // Un SetReady tardío (el del bot que esperaba 400 ms, o
                     // una pestaña vieja) no significa nada con la partida en
                     // marcha: se ignora sin avisar a nadie.
@@ -1050,7 +1101,7 @@ pub(crate) async fn handle_client_message(
                             if lobby.status == LobbyStatus::Ready {
                                 if let Ok(_) = lobby.start_game() {
                                     // Juego iniciado, actualizar lobby
-                                    state.lobby_manager.update_lobby(lobby.clone()).await;
+                                    let lobby = lobby.commit_keep().await;
                                     // Grabar desde aquí: los GameStart de
                                     // más abajo son privados y traen la mano
                                     // de cada uno.
@@ -1084,7 +1135,7 @@ pub(crate) async fn handle_client_message(
                             }
 
                             // Actualizar lobby en el manager
-                            state.lobby_manager.update_lobby(lobby.clone()).await;
+                            lobby.commit().await;
 
                             // Broadcast actualización a todos
                             send_lobby_update(&state, lobby_id).await;
@@ -1107,7 +1158,7 @@ pub(crate) async fn handle_client_message(
 
         ClientMessage::SwitchSet { set_index } => {
             if let Some(ref lobby_id) = *current_lobby {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+                if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     if set_index >= 6 {
                         state.send_to_player(&player_id, ServerMessage::Error {
                             message: "Índice de set inválido (debe ser 0-5)".to_string(),
@@ -1150,7 +1201,7 @@ pub(crate) async fn handle_client_message(
                         set_to_info(&player.sets[set_index])
                     };
 
-                    state.lobby_manager.update_lobby(lobby).await;
+                    lobby.save().await;
 
                     state.send_to_player(&player_id, ServerMessage::SetSwitched {
                         set_index,
@@ -1170,7 +1221,7 @@ pub(crate) async fn handle_client_message(
 
         ClientMessage::RequestVerification => {
             if let Some(ref lobby_id) = *current_lobby {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+                if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     let verification_data = {
                         let game_state = match lobby.game_state.as_mut() {
                             Some(gs) => gs,
@@ -1216,7 +1267,7 @@ pub(crate) async fn handle_client_message(
                     let (player_nickname, sets) = verification_data;
                     let lobby_id_owned = lobby_id.clone();
 
-                    state.lobby_manager.update_lobby(lobby).await;
+                    lobby.save().await;
 
                     state.broadcast_to_lobby(&lobby_id_owned, ServerMessage::VerificationStarted {
                         player: player_nickname.clone(),
@@ -1250,7 +1301,10 @@ pub(crate) async fn handle_client_message(
             };
             if my_card_index >= 4 { return; }
 
-            let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+            // En transacción: dos personas soltando en el mismo milisegundo se
+            // pisaban (cada una leía una copia y la última en escribir borraba
+            // la jugada de la otra).
+            let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
             if let Some(left) = lobby.stun_remaining(&player_id) {
                 state.send_to_player(&player_id, ServerMessage::Stunned {
                     ms: left.as_millis() as u64,
@@ -1297,11 +1351,20 @@ pub(crate) async fn handle_client_message(
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
                         reason: reason.to_string(), kind: kind.to_string(),
                     }).await;
+                    // Soltar con deuda: el cliente cree que ya la saldó y el
+                    // servidor no. Lo mismo que al coger sin deuda.
+                    if reason.starts_with("Coge una carta del centro antes") {
+                        if let Some(gs) = lobby.game_state.as_ref() {
+                            resync_hand(state, player_id, gs, "drop_con_deuda").await;
+                        }
+                    }
                     return;
                 }
             };
             let (new_center, players_progress, mirones) = snapshot(&lobby);
-            state.lobby_manager.update_lobby(lobby).await;
+            // `save` y no `commit`: los avisos salen con la sala aún cogida, para
+            // que lleguen en el mismo orden en que cambió el estado.
+            lobby.save().await;
 
             state.send_to_player(&player_id, ServerMessage::SwapSuccess {
                 set_index,
@@ -1365,6 +1428,12 @@ pub(crate) async fn handle_client_message(
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
                         reason: "Suelta una carta antes de coger otra".to_string(), kind: "rule".to_string(),
                     }).await;
+                    // Quien intenta coger cree deber una carta y el servidor
+                    // dice que no: lo que ve no es lo que hay. Se le manda su
+                    // mano verdadera. Sin esto se quedaba así hasta que otra
+                    // cosa (un reenvío por un abandono) lo arreglara: un bot
+                    // estuvo 6 minutos pidiendo cartas sin soltar nada.
+                    resync_hand(state, player_id, game_state, "take_sin_deuda").await;
                     return;
                 }
                 p.nickname.clone()
@@ -1394,7 +1463,7 @@ pub(crate) async fn handle_client_message(
                     let me = QtePlayerData { player_id, nickname: nickname.clone() };
                     let them = QtePlayerData { player_id: other.player_id, nickname: other.nickname };
 
-                    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                    if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
                         if let Some(gs) = lobby.game_state.as_mut() {
                             // Se añade, no se sustituye: con cuatro jugadores
                             // puede haber dos peleas a la vez y antes la segunda
@@ -1416,7 +1485,7 @@ pub(crate) async fn handle_client_message(
                                 conceded_by: None,
                             });
                         }
-                        state.lobby_manager.update_lobby(lobby).await;
+                        lobby.commit().await;
                     }
 
                     state.broadcast_to_lobby(&lobby_id, ServerMessage::SwapConflict {
@@ -1444,7 +1513,7 @@ pub(crate) async fn handle_client_message(
 
         ClientMessage::FlipSet { set_index } => {
             if let Some(ref lobby_id) = *current_lobby {
-                if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+                if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     if set_index >= 6 {
                         state.send_to_player(&player_id, ServerMessage::Error {
                             message: "Índice de set inválido (debe ser 0-5)".to_string(),
@@ -1500,7 +1569,7 @@ pub(crate) async fn handle_client_message(
                     let (player_nickname, _is_flipped, cards) = flip_data;
                     let lobby_id_owned = lobby_id.clone();
 
-                    state.lobby_manager.update_lobby(lobby).await;
+                    lobby.save().await;
 
                     state.broadcast_to_lobby(&lobby_id_owned, ServerMessage::SetFlipped {
                         player: player_nickname,
@@ -1547,7 +1616,7 @@ pub(crate) async fn handle_client_message(
         // decisión de verdad, porque soltarlo cuesta la racha entera.
         ClientMessage::Frenzy => {
             let Some(ref lobby_id) = *current_lobby else { return };
-            let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+            let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
 
             let resultado = {
                 let Some(gs) = lobby.game_state.as_mut() else { return };
@@ -1591,7 +1660,7 @@ pub(crate) async fn handle_client_message(
                     }
                 }
             }
-            state.lobby_manager.update_lobby(lobby).await;
+            lobby.save().await;
 
             for (id, msg) in avisos {
                 state.send_to_player(&id, msg).await;
@@ -1693,7 +1762,7 @@ async fn run_verification(
 
     if failed_sets.is_empty() {
         // Todos los sets son correctos → asignar posición
-        if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+        if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
             if let Some(game_state) = lobby.game_state.as_mut() {
                 let position = game_state.rankings.len() as u8 + 1;
 
@@ -1719,7 +1788,7 @@ async fn run_verification(
                     tracing::info!("🏆 {} {:?}: {} → {}", c.nickname, c.pool, c.before, c.after);
                 }
 
-                state.lobby_manager.update_lobby(lobby).await;
+                lobby.commit().await;
 
                 state.broadcast_to_lobby(&lobby_id, ServerMessage::VerificationSuccess {
                     player: player_nickname,
@@ -1752,7 +1821,7 @@ async fn run_verification(
                     state.rec_close(&lobby_id, "game_over").await;
 
                     // Resetear lobby para siguiente ronda
-                    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+                    if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
                         lobby.game_state = None;
                         lobby.status = LobbyStatus::Waiting;
                         for player in lobby.players.iter_mut() {
@@ -1769,7 +1838,7 @@ async fn run_verification(
                             is_bot: p.is_bot,
                         }).collect();
                         let max_players = lobby.max_players;
-                        state.lobby_manager.update_lobby(lobby).await;
+                        lobby.commit().await;
                         // Limpiar intents de swap del lobby terminado
                         state.take_intents.write().await.remove(&lobby_id);
                         state.broadcast_to_lobby(&lobby_id, ServerMessage::LobbyUpdate {
@@ -1790,7 +1859,7 @@ async fn run_verification(
         }
     } else {
         // Verificación fallida → limpiar estado y desoltear sets incorrectos
-        if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+        if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
             if let Some(game_state) = lobby.game_state.as_mut() {
                 if let Some(player) = game_state.find_player_mut(&player_id) {
                     player.is_verifying = false;
@@ -1800,7 +1869,7 @@ async fn run_verification(
                     }
                 }
             }
-            state.lobby_manager.update_lobby(lobby).await;
+            lobby.commit().await;
         }
 
         // Broadcast desoltear cada set fallido
@@ -1837,7 +1906,7 @@ async fn execute_delayed_take(
         if let Some(m) = intents.get_mut(&lobby_id) { m.remove(&card_id); }
     }
 
-    let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+    let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
     let (taken, combo_msg) = {
         let Some(game_state) = lobby.game_state.as_mut() else { return };
         if qte_blocks(game_state, player_id, Some(card_id)) { return; }
@@ -1861,7 +1930,8 @@ async fn execute_delayed_take(
 
     // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
     let (new_center, players_progress, mirones) = snapshot(&lobby);
-    state.lobby_manager.update_lobby(lobby).await;
+    // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
+    lobby.save().await;
 
     state.send_to_player(&player_id, ServerMessage::SwapSuccess {
         set_index,
@@ -1900,13 +1970,17 @@ async fn clear_intents_for(state: &AppState, lobby_id: &str, player_id: &Uuid) {
 /// se juega igual, sin Elo.
 async fn remember_rating_key(state: &AppState, lobby_id: &str, player_id: Uuid, key: Option<String>) {
     let Some(key) = key.filter(|k| crate::ratings::valid_key(k)) else { return };
-    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
-    if let Some(p) = lobby.players.iter_mut().chain(lobby.spectators.iter_mut())
-        .find(|p| p.id == player_id)
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
     {
-        p.rating_key = Some(key);
+        // `&mut Lobby` y no la transacción: así los dos campos se toman prestados a la vez.
+        let l: &mut crate::game::Lobby = &mut lobby;
+        if let Some(p) = l.players.iter_mut().chain(l.spectators.iter_mut())
+            .find(|p| p.id == player_id)
+        {
+            p.rating_key = Some(key);
+        }
     }
-    state.lobby_manager.update_lobby(lobby).await;
+    lobby.commit().await;
 }
 
 /// Le manda su secreto de asiento a quien se acaba de sentar a jugar. Los
@@ -1964,7 +2038,7 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
     loop {
         sleep(wait).await;
 
-        let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+        let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
         if lobby.status != LobbyStatus::Playing {
             return;
         }
@@ -2045,7 +2119,8 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             .find(|p| p.id == player_id)
             .map(|p| p.nickname.clone())
             .unwrap_or_default();
-        state.lobby_manager.update_lobby(lobby).await;
+        // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
+        lobby.save().await;
         // Ya no debe nada: cualquier intento suyo que siguiera vivo provocaría
         // una pelea que no podría ganar, porque no le queda hueco.
         clear_intents_for(&state, &lobby_id, &player_id).await;
@@ -2094,7 +2169,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
         "kind": "cancel", "por": because_of,
     })).await;
     state.rec_close(lobby_id, "cancelled").await;
-    let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
     lobby.game_state = None;
     lobby.status = LobbyStatus::Waiting;
     // Por remove_player y no con retain: si la sala se queda sin nadie,
@@ -2118,7 +2193,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
         is_bot: p.is_bot,
     }).collect();
     let max_players = lobby.max_players;
-    state.lobby_manager.update_lobby(lobby).await;
+    lobby.commit().await;
     state.take_intents.write().await.remove(lobby_id);
 
     state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
@@ -2151,7 +2226,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
 async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     sleep(GRACE_PERIOD).await;
 
-    let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
+    let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
     // ¿Sigue esperándose a este mismo id?
     if !lobby.players.iter().any(|p| p.id == player_id && p.disconnected_at.is_some()) {
         state.rec_line_player(&player_id, "conn", serde_json::json!({
@@ -2167,7 +2242,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
         // remove_player y no retain: fecha la sala como vacía si lo queda.
         lobby.remove_player(&player_id);
         let empty = lobby.players.is_empty();
-        state.lobby_manager.update_lobby(lobby).await;
+        lobby.commit().await;
         if !empty {
             send_lobby_update(&state, &lobby_id).await;
         }
@@ -2185,6 +2260,9 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
     // 2 bots seguían jugando entre ellos sin nadie mirando.
     let hay_persona = lobby.players.iter().any(|p| !p.is_bot && p.disconnected_at.is_none());
     if lobby.connected_count() < 2 || !hay_persona {
+        // Se suelta la transacción ANTES: `cancel_match` abre la suya, y dos
+        // seguidas de la misma sala se esperarían la una a la otra.
+        drop(lobby);
         cancel_match(&state, &lobby_id, &nickname).await;
         return;
     }
@@ -2218,7 +2296,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
             .collect())
         .unwrap_or_default();
     let (new_center, players_progress, mirones) = snapshot(&lobby);
-    state.lobby_manager.update_lobby(lobby).await;
+    lobby.commit().await;
     state.take_intents.write().await.remove(&lobby_id);
 
     for (pid, your_sets) in per_player {
@@ -2398,7 +2476,7 @@ async fn run_qte(
     }
 
     // Resolver QTE: determinar ganador
-    if let Some(mut lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
+    if let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await {
         let outcome = {
             let game_state = match lobby.game_state.as_mut() {
                 Some(gs) => gs,
@@ -2485,7 +2563,8 @@ async fn run_qte(
             );
         }
         let mirones = lobby.spectators.len();
-        state.lobby_manager.update_lobby(lobby).await;
+        // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
+        lobby.save().await;
 
         // Broadcast: esta pelea se acabó. Va con la carta porque puede haber
         // otra en marcha, y quien esté en ésa no debe cerrar la suya.

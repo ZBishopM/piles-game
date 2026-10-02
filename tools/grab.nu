@@ -243,12 +243,15 @@ def "main notas" [f: string, --base (-b): string = "local", --state] {
   let g = (cargar $f $base)
   let notas = ($g.ev_m | where {|e| $e.t == "in" and $e.m.type == "client_note" })
   let estados = ($notas | where {|e| $e.m.kind == "state" } | length)
-  print $"notas del cliente: ($notas | length) \(de ellas, `state`: ($estados)\); desync: ($g.ev | where t == 'desync' | length); conn: ($g.ev | where t == 'conn' | length)"
+  print $"notas del cliente: ($notas | length) \(de ellas, `state`: ($estados)\); desync: ($g.ev | where t == 'desync' | length); resync: ($g.ev | where t == 'resync' | length); conn: ($g.ev | where t == 'conn' | length)"
   let notas_vis = if $state { $notas } else { $notas | where {|e| $e.m.kind != "state" } }
   let filas = ($notas_vis | each {|e|
     {ms: $e.ms, que: $"nota ($e.from)", txt: $"($e.m.kind) ($e.m.detail? | default {} | to json -r | str substring 0..200)"}
   } | append ($g.ev | where t == "conn" | each {|c|
     {ms: $c.ms, que: $"conn ($c.player? | default '*')", txt: ($c | reject -o t ms w player | to json -r)}
+  }) | append ($g.ev | where t == "resync" | each {|c|
+    # El servidor rechazó una jugada porque el cliente creía algo falso (coger sin deber, soltar debiendo) y le reenvió su mano.
+    {ms: $c.ms, que: $"RESYNC ($c.player? | default '*')", txt: ($c | reject -o t ms w player | to json -r)}
   }) | append ($g.ev | where t == "desync" | each {|c|
     {ms: $c.ms, que: "DESYNC", txt: ($c | reject -o t ms w | to json -r | str substring 0..300)}
   }) | sort-by ms)

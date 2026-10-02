@@ -838,13 +838,13 @@ async fn spawn_bot_inner(
 
     // Marcarlo como bot: juega por el mismo camino que una persona, pero hay
     // que poder echarlo y enseñarlo marcado.
-    if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+    if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
         if let Some(p) = lobby.players.iter_mut().find(|p| p.id == id) {
             p.is_bot = true;
             p.bot_level = Some(difficulty);
             tracing::info!("🤖 {} entró en {} ({:?})", p.nickname, lobby_id, difficulty);
         }
-        state.lobby_manager.update_lobby(lobby).await;
+        lobby.commit().await;
     }
 
     // Un bot no tiene nada que preparar: entra ya listo, en este mismo paso.
@@ -859,9 +859,9 @@ async fn spawn_bot_inner(
 
 /// Saca un bot de la sala y cierra su canal.
 pub async fn remove_bot(state: &AppState, lobby_id: &str, bot_id: Uuid) {
-    if let Some(mut lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+    if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
         lobby.remove_player(&bot_id);
-        state.lobby_manager.update_lobby(lobby).await;
+        lobby.commit().await;
     }
     // Al cerrarse el canal, el bucle del bot termina solo.
     state.connections.write().await.remove(&bot_id);

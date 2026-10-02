@@ -1,8 +1,9 @@
 use super::models::{PlayerState, GameState};
 use super::deck::{generate_deck, distribute_cards};
 use std::collections::{HashMap, HashSet};
+use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock};
 use uuid::Uuid;
 use std::time::{Duration, Instant};
 
@@ -437,13 +438,108 @@ pub fn is_valid_lobby_code(code: &str) -> bool {
 /// Gestor de lobbies global
 pub struct LobbyManager {
     lobbies: Arc<RwLock<HashMap<String, Lobby>>>,
+    /// Un candado por sala para las transacciones (ver `LobbyManager::txn`).
+    txn_locks: std::sync::Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+}
+
+/// Una sala en préstamo para leerla, cambiarla y devolverla **sin que nadie
+/// más la toque entretanto** (ver `LobbyManager::txn`).
+///
+/// Se usa como una `Lobby` (`Deref`/`DerefMut`). `commit` la devuelve y suelta
+/// el candado; si se descarta sin `commit` (un `return` temprano), el candado
+/// también se suelta y no se escribe nada.
+pub struct LobbyTxn {
+    lobby: Lobby,
+    lobbies: Arc<RwLock<HashMap<String, Lobby>>>,
+    _guard: OwnedMutexGuard<()>,
+}
+
+impl Deref for LobbyTxn {
+    type Target = Lobby;
+    fn deref(&self) -> &Lobby { &self.lobby }
+}
+impl DerefMut for LobbyTxn {
+    fn deref_mut(&mut self) -> &mut Lobby { &mut self.lobby }
+}
+
+impl LobbyTxn {
+    /// Escribe los cambios. Solo si la sala sigue existiendo: una sala cerrada
+    /// entretanto no resucita.
+    pub async fn commit(self) {
+        let LobbyTxn { lobby, lobbies, _guard } = self;
+        let mut lobbies = lobbies.write().await;
+        if let Some(slot) = lobbies.get_mut(&lobby.id) {
+            *slot = lobby;
+        }
+    }
+
+    /// Escribe los cambios **sin soltar** la sala: el candado sigue hasta que la
+    /// transacción se descarte (al acabar el bloque).
+    ///
+    /// Es lo que hay que usar cuando a continuación se mandan los mensajes del
+    /// cambio. Si se suelta antes, dos jugadas seguidas pueden notificarse al
+    /// revés —la segunda envía su aviso antes de que la primera envíe el suyo— y
+    /// los clientes se quedan con el centro de la jugada VIEJA: una carta
+    /// pintada que ya no existe ("no me deja coger esta carta"). Enviar dentro
+    /// del candado hace que el orden de los avisos sea el de los cambios.
+    ///
+    /// Con la transacción abierta solo se puede mandar mensajes (`send_to_player`,
+    /// `broadcast_to_lobby`) o lanzar tareas; abrir otra transacción de la misma
+    /// sala se esperaría a sí mismo.
+    pub async fn save(&mut self) {
+        let mut lobbies = self.lobbies.write().await;
+        if let Some(slot) = lobbies.get_mut(&self.lobby.id) {
+            *slot = self.lobby.clone();
+        }
+    }
+
+    /// Como `commit`, pero devuelve la sala escrita para seguir usándola.
+    pub async fn commit_keep(self) -> Lobby {
+        let LobbyTxn { lobby, lobbies, _guard } = self;
+        {
+            let mut lobbies = lobbies.write().await;
+            if let Some(slot) = lobbies.get_mut(&lobby.id) {
+                *slot = lobby.clone();
+            }
+        }
+        lobby
+    }
 }
 
 impl LobbyManager {
     pub fn new() -> Self {
         Self {
             lobbies: Arc::new(RwLock::new(HashMap::new())),
+            txn_locks: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// El candado de transacciones de una sala. Siempre se coge ANTES que el de
+    /// `lobbies`, y nunca dentro de otra transacción de la misma sala (un
+    /// `tokio::Mutex` no es reentrante: se quedaría esperándose a sí mismo).
+    async fn txn_guard(&self, lobby_id: &str) -> OwnedMutexGuard<()> {
+        let lock = {
+            let mut locks = self.txn_locks.lock().unwrap_or_else(|e| e.into_inner());
+            locks.entry(lobby_id.to_string()).or_default().clone()
+        };
+        lock.lock_owned().await
+    }
+
+    /// Lee la sala para cambiarla y devolverla. **Es la única forma de escribir
+    /// una sala entera**: `get_lobby` + volcar una copia hacía que dos mensajes
+    /// a la vez se pisaran —el segundo en escribir borraba lo del primero—, y
+    /// así se perdió una jugada: dos personas soltaron una carta en el mismo
+    /// milisegundo y una de las dos se quedó con una deuda que el servidor ya
+    /// no tenía. Aquí el segundo espera a que el primero termine.
+    ///
+    /// Mientras se tiene la transacción solo debe hacerse trabajo síncrono y
+    /// mandar mensajes (`send_to_player`): llamar a otra cosa que abra una
+    /// transacción de la misma sala (`txn`, `mutate`, `join_lobby`) se queda
+    /// esperando para siempre. Para cambios pequeños, `mutate`.
+    pub async fn txn(&self, lobby_id: &str) -> Option<LobbyTxn> {
+        let guard = self.txn_guard(lobby_id).await;
+        let lobby = self.get_lobby(lobby_id).await?;
+        Some(LobbyTxn { lobby, lobbies: self.lobbies.clone(), _guard: guard })
     }
 
     /// Genera un ID único para un lobby (código de 6 caracteres)
@@ -478,7 +574,9 @@ impl LobbyManager {
         lobbies.get(lobby_id).cloned()
     }
 
-    /// Actualiza un lobby
+    /// Escribe una copia entera. Solo para pruebas: en el código normal se
+    /// escribe con `txn` + `commit` o con `mutate`, que no se pisan entre sí.
+    #[cfg(test)]
     pub async fn update_lobby(&self, lobby: Lobby) {
         let mut lobbies = self.lobbies.write().await;
         lobbies.insert(lobby.id.clone(), lobby);
@@ -495,6 +593,9 @@ impl LobbyManager {
     ///
     /// Úsalo para cualquier cambio pequeño que compita con otro.
     pub async fn mutate<T>(&self, lobby_id: &str, f: impl FnOnce(&mut Lobby) -> T) -> Option<T> {
+        // Con el candado de las transacciones: si no, un `mutate` en mitad de
+        // una transacción abierta quedaba borrado cuando ésta escribía.
+        let _guard = self.txn_guard(lobby_id).await;
         let mut lobbies = self.lobbies.write().await;
         lobbies.get_mut(lobby_id).map(f)
     }
@@ -514,6 +615,7 @@ impl LobbyManager {
         nickname: String,
         live: &HashSet<Uuid>,
     ) -> Result<(Lobby, bool), String> {
+        let _guard = self.txn_guard(lobby_id).await;
         let mut lobbies = self.lobbies.write().await;
         let lobby = lobbies.get_mut(lobby_id)
             .ok_or("Lobby no encontrado")?;
@@ -568,6 +670,7 @@ impl LobbyManager {
     /// Cierra una sala del todo (deja de existir también por código).
     pub async fn remove_lobby(&self, lobby_id: &str) {
         self.lobbies.write().await.remove(lobby_id);
+        self.txn_locks.lock().unwrap_or_else(|e| e.into_inner()).remove(lobby_id);
     }
 
     /// Recicla los lobbies que llevan vacíos más de `EMPTY_LOBBY_TTL`.
@@ -580,6 +683,9 @@ impl LobbyManager {
             Some(since) => since.elapsed() < EMPTY_LOBBY_TTL,
             None => true,
         });
+        // Y los candados de las salas que ya no existen.
+        self.txn_locks.lock().unwrap_or_else(|e| e.into_inner())
+            .retain(|id, _| lobbies.contains_key(id));
     }
 }
 
@@ -1134,5 +1240,97 @@ mod tests {
         let game_state = lobby.game_state.unwrap();
         assert_eq!(game_state.players.len(), 2);
         assert_eq!(game_state.center_cards.len(), 4);
+    }
+
+    // ── Transacciones: dos mensajes a la vez no se pisan ──────────────────
+
+    /// El fallo de la partida del 2026-10-02: dos personas soltaron una carta en
+    /// el mismo milisegundo y una de las dos jugadas se perdió (cada una leía una
+    /// copia de la sala y la última en escribir borraba lo de la otra). Un bot se
+    /// quedó 6 minutos pidiendo cartas que el servidor ya no le debía.
+    /// Aquí, 200 tareas a la vez, cada una sienta a alguien: si una se pisa, faltan.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_transactions_do_not_overwrite_each_other() {
+        let manager = Arc::new(LobbyManager::new());
+        let id = manager.create_lobby(8, true).await;
+        // `Lobby::new` limita a 8: aquí hacen falta muchos más sentados.
+        manager.mutate(&id, |l| l.max_players = 255).await.unwrap();
+        let mut tareas = Vec::new();
+        for i in 0..200 {
+            let (m, id) = (manager.clone(), id.clone());
+            tareas.push(tokio::spawn(async move {
+                let mut txn = m.txn(&id).await.unwrap();
+                // Un cambio de tarea justo en mitad: ahí se colaban las otras.
+                tokio::task::yield_now().await;
+                txn.add_player(Uuid::new_v4(), format!("p{i}")).unwrap();
+                txn.commit().await;
+            }));
+        }
+        for t in tareas { t.await.unwrap(); }
+        assert_eq!(manager.get_lobby(&id).await.unwrap().players.len(), 200);
+    }
+
+    /// `mutate` y `txn` comparten candado: un `mutate` a mitad de una transacción
+    /// abierta no queda borrado cuando ésta escribe.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn mutate_and_transactions_do_not_overwrite_each_other() {
+        let manager = Arc::new(LobbyManager::new());
+        let id = manager.create_lobby(8, true).await;
+        // `Lobby::new` limita a 8: aquí hacen falta muchos más sentados.
+        manager.mutate(&id, |l| l.max_players = 255).await.unwrap();
+        let mut tareas = Vec::new();
+        for i in 0..100 {
+            let (m1, id1) = (manager.clone(), id.clone());
+            tareas.push(tokio::spawn(async move {
+                let mut txn = m1.txn(&id1).await.unwrap();
+                tokio::task::yield_now().await;
+                txn.add_player(Uuid::new_v4(), format!("t{i}")).unwrap();
+                txn.commit().await;
+            }));
+            let (m2, id2) = (manager.clone(), id.clone());
+            tareas.push(tokio::spawn(async move {
+                m2.mutate(&id2, |l| { l.add_player(Uuid::new_v4(), format!("m{i}")).unwrap(); }).await.unwrap();
+            }));
+        }
+        for t in tareas { t.await.unwrap(); }
+        assert_eq!(manager.get_lobby(&id).await.unwrap().players.len(), 200);
+    }
+
+    /// Un `return` a medias (la transacción se descarta sin `commit`) no escribe
+    /// nada y no deja la sala bloqueada.
+    #[tokio::test]
+    async fn a_dropped_transaction_writes_nothing_and_frees_the_room() {
+        let manager = LobbyManager::new();
+        let id = manager.create_lobby(4, true).await;
+        {
+            let mut txn = manager.txn(&id).await.unwrap();
+            txn.add_player(Uuid::new_v4(), "Ana".to_string()).unwrap();
+        }
+        assert!(manager.get_lobby(&id).await.unwrap().players.is_empty());
+        let otra = tokio::time::timeout(Duration::from_millis(500), manager.txn(&id)).await;
+        assert!(otra.is_ok(), "la sala quedó bloqueada tras descartar la transacción");
+    }
+
+    /// Una sala cerrada mientras alguien tenía la transacción no resucita al escribir.
+    #[tokio::test]
+    async fn committing_to_a_closed_room_does_not_bring_it_back() {
+        let manager = LobbyManager::new();
+        let id = manager.create_lobby(4, true).await;
+        let mut txn = manager.txn(&id).await.unwrap();
+        txn.add_player(Uuid::new_v4(), "Ana".to_string()).unwrap();
+        manager.remove_lobby(&id).await;
+        txn.commit().await;
+        assert!(manager.get_lobby(&id).await.is_none());
+    }
+
+    /// Transacciones de salas distintas no se esperan entre sí.
+    #[tokio::test]
+    async fn transactions_of_different_rooms_do_not_block_each_other() {
+        let manager = LobbyManager::new();
+        let a = manager.create_lobby(4, true).await;
+        let b = manager.create_lobby(4, true).await;
+        let _ta = manager.txn(&a).await.unwrap();
+        let tb = tokio::time::timeout(Duration::from_millis(500), manager.txn(&b)).await;
+        assert!(tb.is_ok(), "la sala B esperó a la A");
     }
 }

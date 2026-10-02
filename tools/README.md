@@ -20,6 +20,8 @@ Playwright se bajan aparte: `pnpm exec playwright install chromium`).
 | "Se canceló la partida" | `grab.nu resumen` (línea `end` y su motivo) y `grab.nu notas` (eventos `conn`: gracia, relevo, cancelación) |
 | "Los bots hacen cosas raras" | `grab.nu bots` (ciclos soltar→coger, ping-pong, cuánto dura lo que sueltan) |
 | "Se quedó pillado en una pelea" | `grab.nu peleas` (ganador, solapes, `SIN RESOLVER`) |
+| "El bot se quedó parado" / "pido cartas y no pasa nada" | `grab.nu bots`; `grab.nu notas` (líneas `RESYNC`: el servidor le corrigió la mano); en bruto, rechazos "Suelta una carta antes de coger otra" repetidos al mismo jugador = su mano no coincide con la del servidor |
+| "No puedo volver a entrar" | `grab.nu notas` (`rejoin_sin_asiento` / `join_error` con el porqué) y `log.nu -g "🔑|🚫|recuperó"`. Ojo: una pestaña de antes de un despliegue no manda `client_note`; recargar la actualiza |
 | "Lo veo distinto a como lo ve el otro" | `grab.nu notas`: líneas `DESYNC` (el servidor compara el tablero del cliente cada 5 s) |
 | "¿Puedo desplegar?" | `estado.nu -b beta` (código 1 = hay partida en curso) |
 | Hay que mirar el log del servidor | `log.nu -b beta -n 500 -g "texto|otro"` (hora local, sin colores) |
@@ -38,7 +40,12 @@ empezó la partida:
 - `key`: foto del estado verdadero cada pocos segundos (manos, centro, conexiones).
 - `ping`: latencias.
 - `conn`: **conexión** — `close` (con motivo: cierre limpio, error, `silencio`),
-  `grace_start`, `grace_end` (`volvio` / `retirado`), `replaced`, `cancel`.
+  `grace_start`, `grace_end` (`volvio` / `retirado`), `replaced`, `cancel`, y los
+  reingresos que no salieron: `rejoin_sin_asiento` (volvió con secreto y no abrió
+  ningún asiento, con el porqué) y `join_error` (el servidor le contestó un error).
+- `resync`: el servidor rechazó una jugada porque el cliente creía algo falso (coger
+  sin deber nada, soltar debiendo) y le reenvió su mano verdadera. Si salen muchas,
+  hay un fallo de sincronización que investigar.
 - `desync`: el cliente dice un tablero distinto al del servidor en dos muestras seguidas.
 - `end`: cierre y motivo. **Sin `end` el servidor se cortó** o la partida sigue.
 - Notas del cliente (la caja negra) llegan como `in` con `m.type = client_note`:
@@ -74,6 +81,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `plazo.mjs` | Un `take_card` a los 2,85 s no pierde contra el reloj de 3 s |
 | `notas.mjs` | `client_note` se graba; la demasiado grande no; `desync` aparece |
 | `estado.mjs` | `/api/estado` dice la verdad y no regala salas privadas |
+| `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 
 ### `browser/` — Playwright (`--ver` abre la ventana)
 
