@@ -75,6 +75,9 @@ pub struct AppState {
     /// de ritmo (`chat::MIN_GAP`). Candado normal: nunca se sostiene a través de
     /// un await.
     pub chat_last: Arc<std::sync::Mutex<HashMap<Uuid, Instant>>>,
+    /// Salas con un reloj que manda la mano de todos a quien mira (uno por
+    /// sala). Ver `spawn_spectator_feed`.
+    pub feeds: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Desde cuándo corre el servidor. Para `/api/estado`.
     pub started: Instant,
 }
@@ -126,6 +129,7 @@ impl AppState {
             last_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
             desync_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
             chat_last: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            feeds: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             started: Instant::now(),
         }
     }
@@ -423,18 +427,7 @@ fn keyframe_json(
     conn: serde_json::Map<String, serde_json::Value>,
 ) -> String {
     let jugadores: serde_json::Map<String, serde_json::Value> = gs.players.iter()
-        .map(|p| (p.nickname.clone(), serde_json::json!({
-            "sets": p.sets.iter().map(|s| s.iter()
-                    .map(|c| c.map(|c| c.id)).collect::<Vec<_>>()).collect::<Vec<_>>(),
-            "cur": p.current_set_index,
-            "flip": p.flipped_sets,
-            "owed": p.owed_slot,
-            "mult": p.combo_multiplier_x100(),
-            "pts": p.combo_points,
-            "frenzy": p.frenzy_ready,
-            "fin": p.finished_position,
-            "verif": p.is_verifying,
-        })))
+        .map(|p| (p.nickname.clone(), serde_json::to_value(player_snapshot(p)).unwrap_or_default()))
         .collect();
 
     let linea = serde_json::json!({
@@ -444,12 +437,130 @@ fn keyframe_json(
         "center": gs.center_cards.iter().map(|c| c.id).collect::<Vec<_>>(),
         "players": jugadores,
         "conn": conn,
-        "qtes": gs.active_qtes.iter().map(|q| serde_json::json!({
-            "card": q.card_id,
-            "players": q.participants.iter().map(|(_, n)| n).collect::<Vec<_>>(),
-        })).collect::<Vec<_>>(),
+        "qtes": spectator_qtes(gs),
     });
     format!("{linea}\n")
+}
+
+/// Un jugador, por ids de carta: su mano entera y lo que se ve de su racha.
+///
+/// **La usan a la vez** el fotograma clave de las grabaciones y la foto que
+/// recibe quien mira en directo, para que los dos vean lo mismo y no puedan
+/// separarse. Cambiar un campo aquí cambia las dos.
+fn player_snapshot(p: &crate::game::models::PlayerState) -> crate::game::messages::SpectatorPlayer {
+    crate::game::messages::SpectatorPlayer {
+        sets: p.sets.iter()
+            .map(|s| s.iter().map(|c| c.map(|c| c.id)).collect())
+            .collect(),
+        cur: p.current_set_index,
+        flip: p.flipped_sets,
+        owed: p.owed_slot,
+        mult: p.combo_multiplier_x100(),
+        pts: p.combo_points,
+        frenzy: p.frenzy_ready,
+        fin: p.finished_position,
+        verif: p.is_verifying,
+    }
+}
+
+/// Las peleas en marcha: la carta en disputa y quién la pelea.
+fn spectator_qtes(gs: &crate::game::models::GameState) -> Vec<crate::game::messages::SpectatorQte> {
+    gs.active_qtes.iter().map(|q| crate::game::messages::SpectatorQte {
+        card: q.card_id,
+        players: q.participants.iter().map(|(_, n)| n.clone()).collect(),
+    }).collect()
+}
+
+/// Lo que ve quien mira: la mano de todos y el centro, por ids.
+fn spectator_state_msg(gs: &crate::game::models::GameState) -> ServerMessage {
+    ServerMessage::SpectatorState {
+        players: gs.players.iter().map(|p| (p.nickname.clone(), player_snapshot(p))).collect(),
+        center: gs.center_cards.iter().map(|c| c.id).collect(),
+        qtes: spectator_qtes(gs),
+    }
+}
+
+/// La tabla de cartas de la partida (id → prenda y nombre): el centro y la mano
+/// de cada uno. Con ella se dibuja cualquier mano a partir de ids.
+fn spectator_cards_msg(gs: &crate::game::models::GameState) -> ServerMessage {
+    let mut cards = std::collections::BTreeMap::new();
+    let mut anota = |c: &crate::game::Card| {
+        cards.insert(c.id, crate::game::messages::SpectatorCard {
+            c: c.clothing_type,
+            n: crate::game::get_clothing_name(c.clothing_type).to_string(),
+        });
+    };
+    for c in &gs.center_cards { anota(c); }
+    for p in &gs.players {
+        for set in &p.sets {
+            for c in set.iter().flatten() { anota(c); }
+        }
+    }
+    ServerMessage::SpectatorCards { cards }
+}
+
+/// Cada cuánto se mira si hay algo nuevo que enseñar a quien mira.
+const SPECTATOR_TICK: Duration = Duration::from_millis(200);
+
+/// Le manda a quien entra a mirar (o a quien esperaba hueco cuando arranca una
+/// partida) lo necesario para verla: el `GameStart` de siempre, sin sets
+/// propios, la tabla de cartas y la mano de todos.
+async fn send_spectator_start(state: &AppState, lobby: &crate::game::Lobby, spectator_id: Uuid) {
+    let Some(gs) = lobby.game_state.as_ref() else { return };
+    let (center, _, _) = snapshot(lobby);
+    state.send_to_player(&spectator_id, ServerMessage::GameStart {
+        your_sets: Vec::new(),
+        center_cards: center,
+        current_set: 0,
+        players: lobby.players.iter().map(|p| p.nickname.clone()).collect(),
+    }).await;
+    state.send_to_player(&spectator_id, spectator_cards_msg(gs)).await;
+    state.send_to_player(&spectator_id, spectator_state_msg(gs)).await;
+}
+
+/// Un reloj por sala que, mientras dura la partida, manda la mano de todos a
+/// quien mira **cuando algo cambia**. Con uno por sala y no un aviso en cada
+/// sitio que toca el estado (hay una decena) no se puede olvidar ninguno, y el
+/// coste está acotado: como mucho 5 mensajes por segundo por espectador.
+///
+/// Si ya hay uno para esta sala no hace nada. Acaba solo cuando la sala deja de
+/// estar en partida; si la siguiente arranca justo entonces, se relanza.
+fn spawn_spectator_feed(state: &AppState, lobby_id: &str) {
+    {
+        let mut activos = state.feeds.lock().unwrap_or_else(|e| e.into_inner());
+        if !activos.insert(lobby_id.to_string()) {
+            return;
+        }
+    }
+    let state = state.clone();
+    let lobby_id = lobby_id.to_string();
+    tokio::spawn(async move {
+        let mut ultimo: Option<String> = None;
+        loop {
+            sleep(SPECTATOR_TICK).await;
+            let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { break };
+            if lobby.status != LobbyStatus::Playing { break }
+            let Some(gs) = lobby.game_state.as_ref() else { break };
+            if lobby.spectators.is_empty() {
+                ultimo = None;   // al entrar el siguiente se le manda la foto en el acto
+                continue;
+            }
+            let msg = spectator_state_msg(gs);
+            let huella = serde_json::to_string(&msg).unwrap_or_default();
+            if ultimo.as_deref() == Some(huella.as_str()) { continue }
+            for s in &lobby.spectators {
+                state.send_to_player(&s.id, msg.clone()).await;
+            }
+            ultimo = Some(huella);
+        }
+        state.feeds.lock().unwrap_or_else(|e| e.into_inner()).remove(&lobby_id);
+        // Si arrancó otra partida mientras esta salía, que no se quede sin reloj.
+        if state.lobby_manager.get_lobby(&lobby_id).await
+            .is_some_and(|l| l.status == LobbyStatus::Playing)
+        {
+            spawn_spectator_feed(&state, &lobby_id);
+        }
+    });
 }
 
 /// Handler para el upgrade de WebSocket
@@ -494,6 +605,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         lobbies: state.lobby_manager.list_available_lobbies().await
             .into_iter()
             .map(|l| LobbyInfo {
+                status: l.status_name().to_string(),
+                spectators: l.spectators.len(),
                 id: l.id,
                 player_count: l.players.len(),
                 max_players: l.max_players,
@@ -650,6 +763,15 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     let Some(nickname) = lobby.remove_player(&player_id) else { return };
     tracing::info!("🚪 {} ({}) salió del lobby {}", nickname, player_id, lobby_id);
 
+    // Con la sala en espera, el hueco que deja es de quien esperaba plaza (la
+    // mesa estaba llena al acabar la partida). Antes de mirar si queda alguien:
+    // una sala con gente esperando no está vacía.
+    let sentados = if lobby.status != LobbyStatus::Playing {
+        lobby.promote_spectators()
+    } else {
+        Vec::new()
+    };
+
     if lobby.players.is_empty() {
         if voluntary {
             // Se fue la última persona a propósito: la sala deja de existir.
@@ -669,10 +791,32 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     let update = lobby_update_msg(state, &lobby);
     lobby.commit().await;
 
+    if !sentados.is_empty() {
+        // Su asiento nuevo trae su secreto: el mirón no tenía ninguno.
+        send_seat_tokens(state, lobby_id).await;
+    }
     if !en_partida {
         state.broadcast_to_lobby(lobby_id, update).await;
         retire_orphan_bots(state, lobby_id).await;
     }
+}
+
+/// Sienta a quien esperaba plaza cuando se libera una (se echó un bot). Solo con
+/// la sala en espera y sitio libre; no hace nada si no hay nadie esperando.
+/// (Cuando se va una persona lo hace `leave_current_lobby` en el mismo paso.)
+async fn seat_waiting_spectators(state: &AppState, lobby_id: &str) {
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
+    if lobby.status == LobbyStatus::Playing || lobby.spectators.is_empty() || lobby.is_full() {
+        return;
+    }
+    let sentados = lobby.promote_spectators();
+    if sentados.is_empty() {
+        return;
+    }
+    let update = lobby_update_msg(state, &lobby);
+    lobby.commit().await;
+    send_seat_tokens(state, lobby_id).await;
+    state.broadcast_to_lobby(lobby_id, update).await;
 }
 
 /// Compara lo que el cliente dice tener (nota `state`) con el tablero del
@@ -811,9 +955,12 @@ pub(crate) async fn handle_client_message(
     // que nadie tenga que acordarse.
     // Irse o abrir otra sala sí se le deja: el guardia lo dejaba sin salida, y
     // un mirón que volvía a "Crear sala" no creaba nada.
+    // El chat también: quien espera plaza en la sala de espera puede escribir (el
+    // manejador del chat ya lo rechaza en partida).
     if !matches!(msg, ClientMessage::Ping { .. } | ClientMessage::ListLobbies
         | ClientMessage::LeaveLobby | ClientMessage::CreateLobby { .. }
-        | ClientMessage::QuickMatch { .. } | ClientMessage::JoinLobby { .. })
+        | ClientMessage::QuickMatch { .. } | ClientMessage::JoinLobby { .. }
+        | ClientMessage::Chat { .. })
     {
         if let Some(id) = current_lobby.as_deref() {
             if state.lobby_manager.get_lobby(id).await
@@ -1026,16 +1173,13 @@ pub(crate) async fn handle_client_message(
                     send_seat_token(state, &lobby, player_id).await;
 
                     // Quien entra a mirar necesita el tablero de una vez: a
-                    // partir de ahí las difusiones lo mantienen al día. Sin
-                    // sets propios, porque no tiene.
-                    if mirando {
-                        let (center, _, _) = snapshot(&lobby);
-                        state.send_to_player(&player_id, ServerMessage::GameStart {
-                            your_sets: Vec::new(),
-                            center_cards: center,
-                            current_set: 0,
-                            players: lobby.players.iter().map(|p| p.nickname.clone()).collect(),
-                        }).await;
+                    // partir de ahí las difusiones y el reloj de la sala lo
+                    // mantienen al día. Sin sets propios, porque no tiene; pero
+                    // con la mano de todos (`spectator_state`) para poder
+                    // mirar desde cualquiera.
+                    if mirando && lobby.status == LobbyStatus::Playing {
+                        send_spectator_start(state, &lobby, player_id).await;
+                        spawn_spectator_feed(state, &lobby_id);   // por si no hubiera reloj
                     }
 
                     // Broadcast actualización a todos los jugadores del lobby
@@ -1083,11 +1227,15 @@ pub(crate) async fn handle_client_message(
             }
             crate::bot::remove_bot(state, &lobby_id, bot_id).await;
             send_lobby_update(state, &lobby_id).await;
+            // El hueco que deja el bot es para quien esperaba plaza.
+            seat_waiting_spectators(state, &lobby_id).await;
         }
 
         ClientMessage::ListLobbies => {
             let lobbies = state.lobby_manager.list_available_lobbies().await;
             let lobby_infos: Vec<LobbyInfo> = lobbies.into_iter().map(|l| LobbyInfo {
+                status: l.status_name().to_string(),
+                spectators: l.spectators.len(),
                 id: l.id,
                 player_count: l.players.len(),
                 max_players: l.max_players,
@@ -1140,6 +1288,13 @@ pub(crate) async fn handle_client_message(
                                             }).await;
                                         }
                                     }
+                                    // Quien esperaba hueco en la sala (la mesa estaba
+                                    // llena) ve la partida desde el principio, y desde
+                                    // aquí el reloj de la sala le manda las manos.
+                                    for s in &lobby.spectators {
+                                        send_spectator_start(state, &lobby, s.id).await;
+                                    }
+                                    spawn_spectator_feed(state, lobby_id);
                                     return; // Juego iniciado, salir
                                 }
                             }
@@ -1746,8 +1901,11 @@ pub(crate) async fn handle_client_message(
                 if lobby.status == LobbyStatus::Playing {
                     return Err("El chat es de la sala de espera: durante la partida no se puede escribir.");
                 }
-                let Some(p) = lobby.players.iter().find(|p| p.id == player_id && !p.is_bot) else {
-                    return Err("Solo quien está sentado en la sala puede escribir.");
+                // Quien espera plaza (la mesa estaba llena) también escribe.
+                let Some(p) = lobby.players.iter().chain(&lobby.spectators)
+                    .find(|p| p.id == player_id && !p.is_bot)
+                else {
+                    return Err("Solo quien está en la sala puede escribir.");
                 };
                 let linea = crate::game::ChatLine {
                     from: p.nickname.clone(),
@@ -1896,8 +2054,9 @@ async fn run_verification(
                         }
                         // Quien estaba mirando se sienta a la mesa: la sala ya
                         // no juega, así que seguir de mirón no significaría
-                        // nada. Los que no quepan salen.
-                        let sin_sitio = lobby.promote_spectators();
+                        // nada. Los que no quepan se quedan en la sala
+                        // esperando plaza, no salen.
+                        lobby.promote_spectators();
                         // Después de `settle`: el Elo que se enseña ya es el nuevo.
                         let update = lobby_update_msg(&state, &lobby);
                         lobby.commit().await;
@@ -1905,11 +2064,6 @@ async fn run_verification(
                         state.take_intents.write().await.remove(&lobby_id);
                         state.broadcast_to_lobby(&lobby_id, update).await;
                         broadcast_chat_history(&state, &lobby_id).await;
-                        for s in &sin_sitio {
-                            state.send_to_player(&s.id, ServerMessage::Error {
-                                message: "La sala se llenó al acabar la partida".to_string(),
-                            }).await;
-                        }
                         send_seat_tokens(&state, &lobby_id).await;
                     }
                 }
@@ -2243,8 +2397,9 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     for p in lobby.players.iter_mut() {
         p.is_ready = false;
     }
-    // La sala vuelve a estar en espera, así que los mirones se sientan.
-    let sin_sitio = lobby.promote_spectators();
+    // La sala vuelve a estar en espera, así que los mirones se sientan; los que
+    // no quepan esperan plaza en la sala.
+    lobby.promote_spectators();
     let update = lobby_update_msg(state, &lobby);
     lobby.commit().await;
     state.take_intents.write().await.remove(lobby_id);
@@ -2254,11 +2409,6 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     }).await;
     state.broadcast_to_lobby(lobby_id, update).await;
     broadcast_chat_history(state, lobby_id).await;
-    for s in &sin_sitio {
-        state.send_to_player(&s.id, ServerMessage::Error {
-            message: "La sala se llenó al acabar la partida".to_string(),
-        }).await;
-    }
     send_seat_tokens(state, lobby_id).await;
     retire_orphan_bots(state, lobby_id).await;
 }
@@ -2709,6 +2859,7 @@ fn lobby_update_msg(state: &AppState, lobby: &crate::game::Lobby) -> ServerMessa
         max_players: lobby.max_players,
         spectators: lobby.spectators.len(),
         pool,
+        status: lobby.status_name().to_string(),
     }
 }
 
@@ -2864,5 +3015,102 @@ mod pending_take_tests {
         m.insert(7, intent(yo, Duration::from_millis(900)));
         assert!(!has_pending_take(&m, &yo, CONFLICT_WINDOW));
         assert!(!has_pending_take(&HashMap::new(), &yo, CONFLICT_WINDOW));
+    }
+}
+
+#[cfg(test)]
+mod spectator_tests {
+    use super::*;
+    use crate::game::models::{Card, GameState, PlayerState};
+
+    /// Dos jugadores con 24 cartas cada una (ids 0..23 y 24..47) y 4 en el centro.
+    fn partida() -> (GameState, Uuid, Uuid) {
+        let mano = |desde: u32| {
+            let mut sets = [[Card::new(0, 0); 4]; 6];
+            for (s, set) in sets.iter_mut().enumerate() {
+                for (i, c) in set.iter_mut().enumerate() {
+                    *c = Card::new(desde + (s * 4 + i) as u32, s as u8);
+                }
+            }
+            sets
+        };
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let centro = (100..104).map(|id| Card::new(id, 9)).collect();
+        let gs = GameState::new(vec![
+            PlayerState::new(a, "Ana".into(), mano(0)),
+            PlayerState::new(b, "Beto".into(), mano(24)),
+        ], centro);
+        (gs, a, b)
+    }
+
+    // El fotograma de las grabaciones y la foto de quien mira salen de la misma
+    // función. Esto fija la forma del fotograma, que el visor de grabaciones y
+    // `tools/` leen: sacar `player_snapshot` no puede cambiarla.
+    #[test]
+    fn the_recording_keyframe_keeps_its_shape() {
+        let (mut gs, _, _) = partida();
+        gs.players[0].flipped_sets[2] = true;
+        let linea = keyframe_json(&gs, 1234, serde_json::Map::new());
+        let j: serde_json::Value = serde_json::from_str(linea.trim()).unwrap();
+        assert_eq!(j["t"], "key");
+        assert_eq!(j["ms"], 1234);
+        assert_eq!(j["center"], serde_json::json!([100, 101, 102, 103]));
+        assert_eq!(j["qtes"], serde_json::json!([]));
+
+        let ana = j["players"]["Ana"].as_object().unwrap();
+        let mut claves: Vec<&str> = ana.keys().map(|k| k.as_str()).collect();
+        claves.sort();
+        assert_eq!(claves, ["cur", "fin", "flip", "frenzy", "mult", "owed", "pts", "sets", "verif"]);
+        assert_eq!(ana["sets"][0], serde_json::json!([0, 1, 2, 3]));
+        assert_eq!(ana["sets"][5], serde_json::json!([20, 21, 22, 23]));
+        assert_eq!(ana["cur"], 0);
+        assert_eq!(ana["flip"], serde_json::json!([false, false, true, false, false, false]));
+        assert!(ana["owed"].is_null() && ana["fin"].is_null());
+        assert_eq!(ana["verif"], false);
+        assert_eq!(j["players"]["Beto"]["sets"][0], serde_json::json!([24, 25, 26, 27]));
+    }
+
+    #[test]
+    fn a_spectator_sees_every_hand_with_its_debt_and_its_revealed_sets() {
+        let (mut gs, a, _) = partida();
+        // Ana suelta la carta 6 (set 1, posición 2): deja un hueco y lo debe.
+        gs.players.iter_mut().find(|p| p.id == a).unwrap().sets[1][2] = None;
+        gs.players.iter_mut().find(|p| p.id == a).unwrap().owed_slot = Some((1, 2));
+        gs.players[1].flipped_sets[4] = true;
+        gs.center_cards.push(Card::new(6, 1));
+
+        let ServerMessage::SpectatorState { players, center, qtes } = spectator_state_msg(&gs)
+            else { panic!("no es la foto") };
+        assert_eq!(players.keys().map(String::as_str).collect::<Vec<_>>(), ["Ana", "Beto"], "las manos de TODOS");
+        assert_eq!(players["Ana"].sets[1], vec![Some(4), Some(5), None, Some(7)], "el hueco viaja como null");
+        assert_eq!(players["Ana"].owed, Some((1, 2)));
+        assert_eq!(players["Beto"].sets[3], vec![Some(36), Some(37), Some(38), Some(39)]);
+        assert!(players["Beto"].flip[4], "lo que ha enseñado");
+        assert_eq!(center, vec![100, 101, 102, 103, 6]);
+        assert!(qtes.is_empty());
+    }
+
+    // El reloj de la sala compara la foto serializada con la anterior para no
+    // mandar lo que no cambió: tiene que salir idéntica si el estado es el mismo.
+    #[test]
+    fn the_same_state_gives_the_same_fingerprint_and_a_change_gives_another() {
+        let (mut gs, _, _) = partida();
+        let huella = |gs: &GameState| serde_json::to_string(&spectator_state_msg(gs)).unwrap();
+        assert_eq!(huella(&gs), huella(&gs));
+        let antes = huella(&gs);
+        gs.players[0].current_set_index = 3;
+        assert_ne!(huella(&gs), antes, "cambiar de set se nota");
+    }
+
+    #[test]
+    fn the_card_table_has_the_center_and_every_hand() {
+        let (gs, _, _) = partida();
+        let ServerMessage::SpectatorCards { cards } = spectator_cards_msg(&gs) else { panic!() };
+        assert_eq!(cards.len(), 24 * 2 + 4, "las dos manos y el centro");
+        assert_eq!(cards[&30].c, 1, "la prenda de la carta 30 (set 1 de Beto)");
+        assert!(!cards[&100].n.is_empty(), "con su nombre");
+        let j = serde_json::to_value(spectator_cards_msg(&gs)).unwrap();
+        assert_eq!(j["type"], "spectator_cards");
+        assert_eq!(j["cards"]["30"]["c"], 1, "misma forma que `cards` de la cabecera de una grabación");
     }
 }

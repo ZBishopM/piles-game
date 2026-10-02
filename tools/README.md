@@ -82,6 +82,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `notas.mjs` | `client_note` se graba; la demasiado grande no; `desync` aparece |
 | `estado.mjs` | `/api/estado` dice la verdad y no regala salas privadas |
 | `chat.mjs` | Chat de la sala de espera (llega a todos, historial al entrar o volver, limpieza y límites, rechazado en partida y fuera de la grabación pública) y el Elo junto a cada nombre (`pool` y `elo` del `lobby_update`, Elo fijo de los bots) |
+| `mirar.mjs [--largo]` | Mirar partidas: la lista pública con las que están en curso (`status`, jugadores, mirones), la mano de TODOS por ids (coincide con el `game_start` de cada jugador y se actualiza en <1 s), sin mensajes privados ni acciones; `--largo` (~35 s) añade la cola de espera: la mesa llena no echa a quien miraba, se sienta al liberarse un hueco y puede escribir en el chat |
 | `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 
 ### `browser/` — Playwright (`--ver` abre la ventana)
@@ -91,6 +92,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `toques.mjs` | Con ratón, el clic cuenta al bajar (movido, mantenido, saliendo del centro); 3 toques = 1 envío |
 | `peleas.mjs` | Una pelea ajena no pisa la propia |
 | `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |
+| `mirar.mjs` | Mirar desde «Unirse» (~45 s): la lista se refresca sola y pasa la sala a «En partida · Mirar»; «Mirando desde» cada jugador y «Todos» enseñan las cartas de verdad (comparadas con el `allSets` de su pestaña); ver la deuda al soltar; móvil sin desborde; «Salir de la sala»; y al acabar la partida, de vuelta en la sala de espera con chat |
 | `sala.mjs` | La sala de espera: chat entre pestañas e historial, texto sin interpretar (apodos y mensajes con `<img onerror>`), chips de Elo con el color de su rango, For glory ↔ For fun al añadir un bot, móvil sin desborde, y pantalla final sin puntos ni combo (capturas en `$CAPTURAS` o en la carpeta temporal) |
 | `rangos.mjs` | Rangos en los diales de Elo (fin de partida y perfil): pastilla ▲/▼, un sonido por cruce, corona del Top 3, partículas solo en glory, movimiento reducido |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |

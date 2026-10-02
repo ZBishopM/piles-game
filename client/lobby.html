@@ -286,6 +286,13 @@
         }
         #readyBtn.active { background: #e74c3c; box-shadow: none; }
         #readyCount { text-align: center; color: var(--text-faint); margin-top: 10px; font-size: 0.9rem; }
+        /* Esperando plaza: la mesa estaba llena al acabar la partida. Se ve la
+           sala y el chat, y se sienta solo en cuanto haya un hueco. */
+        #huecoBanda { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 0.82rem; text-align: center; }
+        #lobbyScreen.espera-hueco #readyBtn,
+        #lobbyScreen.espera-hueco #readyCount,
+        #lobbyScreen.espera-hueco #botControls,
+        #lobbyScreen.espera-hueco #quickBotOffer { display: none; }
 
         /* ── GAME ── */
         #gameScreen {
@@ -565,6 +572,39 @@
         #gameScreen.espectador .section-head,
         #gameScreen.espectador #swapHint { display: none; }
         #gameScreen.espectador .card { cursor: default; }
+        #espectadorBanda { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+        #espectadorBanda button {
+            margin: 0; width: auto; padding: 4px 10px; font-size: 0.78rem;
+            border: 1px solid var(--accent-line); border-radius: 6px;
+            background: transparent; color: var(--accent); cursor: pointer;
+        }
+
+        /* ── Espectador: la mano de todos ──
+           «Mirando desde» elige a quién ves (o «Todos»); el tablero que se pinta
+           es el de ese jugador, con sus sets y su deuda, hecho de ids de carta. */
+        #specBoard { display: none; }
+        #gameScreen.espectador #specBoard { display: block; }
+        .spec-seats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
+        .spec-seats .quien { font-size: 0.72rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.1em; margin-right: 2px; }
+        .spec-seat {
+            min-height: 36px; padding: 6px 12px; margin: 0; width: auto;
+            border: 2px solid var(--border-strong); border-radius: 999px;
+            background: var(--card); color: var(--text-muted); font-size: 0.85rem; cursor: pointer;
+        }
+        .spec-seat.active { border-color: var(--accent); background: var(--control); color: #fff; }
+        .spec-estado { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 12px; font-size: 0.78rem; color: var(--text-muted); }
+        .spec-estado b { color: var(--text); }
+        #specAll { display: flex; flex-direction: column; gap: 14px; }
+        .spec-player-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 4px; font-size: 0.78rem; color: var(--text-muted); }
+        .spec-player-name b { color: var(--text); font-size: 0.9rem; }
+        .spec-sets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+        @media (min-width: 640px) { .spec-sets { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+        .spec-mini-set { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 6px; }
+        .spec-mini-set.flipped { border-color: var(--accent); border-style: dashed; }
+        .spec-mini-set.current { background: var(--accent-soft); }
+        .spec-mini-set .card { border-radius: 2px; box-shadow: none; pointer-events: none; transition: none; min-width: 0; }
+        .spec-mini-set .card.card-empty { border-width: 1px; }
+        #specCards .card.card-empty { opacity: 1; }
 
         .hud-stripe.is-me {
             border-left-color: var(--accent);
@@ -1068,6 +1108,10 @@
         .lobby-row:hover { border-color: var(--accent); }
         .lr-code { font-family: var(--font-mono); font-size: 1.05rem; letter-spacing: 0.12em; }
         .lr-count { font-size: 0.8rem; color: var(--text-muted); }
+        .lobby-section { margin: 12px 0 2px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
+        /* Una partida que ya empezó: se entra a mirarla. */
+        .lobby-row.en-curso .lr-count { text-align: right; }
+        .lobby-row.en-curso .lr-mirar { color: var(--accent); font-weight: 600; margin-left: 8px; }
 
         /* ── RACHA ──
            El multiplicador se lee de un vistazo o no sirve de nada: número
@@ -1555,6 +1599,7 @@
     <div class="screen-top">
         <button type="button" class="back-btn" onclick="leaveLobby()">← Salir de la sala</button>
     </div>
+    <div id="huecoBanda" hidden>La sala está llena: te sentarás en cuanto haya un hueco. Si antes empieza otra partida, la verás desde el principio.</div>
     <div class="lobby-code-box">
         <small>Código del lobby</small>
         <div class="lobby-code" id="lobbyCodeDisplay">------</div>
@@ -1663,6 +1708,20 @@
 
     <!-- Cards del set actual -->
     <div class="card-row" id="yourCards"></div>
+
+    <!-- Solo para quien mira: la mano de todos. «Mirando desde» elige a quién
+         ves, o «Todos» para los sets de cada uno en miniatura. Se pinta desde
+         `spectator_state` (ids de carta) y la tabla `spectator_cards`. -->
+    <div id="specBoard">
+        <div class="spec-seats" id="specSeats"></div>
+        <div id="specSingle">
+            <div class="section-label" id="specLabel"></div>
+            <div class="set-nav" id="specSetNav"></div>
+            <div class="card-row" id="specCards"></div>
+            <div class="spec-estado" id="specEstado"></div>
+        </div>
+        <div id="specAll" hidden></div>
+    </div>
 
 </div>
 
@@ -2218,6 +2277,14 @@ function handleMsg(msg) {
             onLobbyUpdate(msg);
             break;
 
+        case 'spectator_cards':
+            onSpectatorCards(msg);
+            break;
+
+        case 'spectator_state':
+            onSpectatorState(msg);
+            break;
+
         case 'chat':
             onChat(msg);
             break;
@@ -2497,27 +2564,73 @@ function acceptBotsOffer() {
     for (let i = 0; i < 3; i++) addBot();
 }
 
+/** La lista de «Unirse»: salas abiertas (para jugar) y partidas en curso (para
+ *  mirarlas). Entrar a una en curso es `join_lobby` igual que a una abierta: el
+ *  servidor ya mete en `spectators` a quien llega con la partida empezada. */
 function renderLobbyList(lobbies) {
     const div = document.getElementById('lobbyList');
     if (!div) return;
-    div.innerHTML = '';
-    if (!lobbies.length) {
-        div.innerHTML = '<p class="lobby-empty">No hay salas abiertas ahora mismo.</p>';
-        return;
-    }
-    lobbies.forEach(l => {
+    div.replaceChildren();
+    const abiertas = lobbies.filter(l => l.status !== 'playing');
+    const enCurso = lobbies.filter(l => l.status === 'playing');
+
+    const fila = (l, enPartida) => {
         const row = document.createElement('button');
         row.type = 'button';
-        row.className = 'lobby-row';
-        row.innerHTML = `<span class="lr-code">${l.id}</span>`
-            + `<span class="lr-count">${l.player_count}/${l.max_players}</span>`;
+        row.className = 'lobby-row' + (enPartida ? ' en-curso' : '');
+        const code = document.createElement('span');
+        code.className = 'lr-code';
+        code.textContent = l.id;
+        const count = document.createElement('span');
+        count.className = 'lr-count';
+        if (enPartida) {
+            const quien = l.player_count === 1 ? '1 jugador' : `${l.player_count} jugadores`;
+            const miran = l.spectators > 0 ? ` · 👁 ${l.spectators}` : '';
+            count.textContent = `En partida · ${quien}${miran}`;
+            const mirar = document.createElement('span');
+            mirar.className = 'lr-mirar';
+            mirar.textContent = 'Mirar';
+            count.append(mirar);
+        } else {
+            count.textContent = `${l.player_count}/${l.max_players}`;
+        }
+        row.append(code, count);
         row.onclick = () => {
             document.getElementById('lobbyCode').value = l.id;
             joinLobby();
         };
-        div.appendChild(row);
-    });
+        return row;
+    };
+    const titulo = (texto) => {
+        const t = document.createElement('div');
+        t.className = 'lobby-section';
+        t.textContent = texto;
+        return t;
+    };
+    const vacio = (texto) => {
+        const p = document.createElement('p');
+        p.className = 'lobby-empty';
+        p.textContent = texto;
+        return p;
+    };
+
+    div.append(titulo('Para jugar'));
+    if (abiertas.length) abiertas.forEach(l => div.append(fila(l, false)));
+    else div.append(vacio('No hay salas abiertas ahora mismo.'));
+    div.append(titulo('Partidas en curso · entrar a mirar'));
+    if (enCurso.length) enCurso.forEach(l => div.append(fila(l, true)));
+    else div.append(vacio('Ninguna partida en curso.'));
 }
+
+// Mientras «Unirse» está abierto, la lista se refresca sola: una partida que
+// empieza o acaba aparece sin tener que pulsar «Actualizar».
+setInterval(() => {
+    if (document.getElementById('joinScreen')?.classList.contains('active')
+        && ws && ws.readyState === WebSocket.OPEN
+        && document.visibilityState === 'visible') {
+        refreshLobbies();
+    }
+}, 4000);
 
 function joinLobby() {
     const nickname = requireNickname();
@@ -2540,15 +2653,20 @@ function onEnteredLobby(lobbyId) {
     // Llegaste con la partida empezada: no hay sala de espera que enseñar, el
     // `game_start` que viene detrás pinta el tablero.
     if (soyEspectador) { stopScanner(); return; }
-    document.getElementById('lobbyCodeDisplay').textContent = lobbyId;
+    prepararSala(lobbyId);
+    stopScanner();
+    showScreen('lobbyScreen');
+}
 
+/** El código y el QR de la sala. Aparte de `onEnteredLobby` para que también
+ *  salgan a quien espera plaza (un espectador que vuelve a la sala al acabar la
+ *  partida), que no pasa por ahí. */
+function prepararSala(lobbyId) {
+    document.getElementById('lobbyCodeDisplay').textContent = lobbyId;
     const qr = document.getElementById('lobbyQr');
     qr.src = `/api/qr/${encodeURIComponent(lobbyId)}`;
     qr.hidden = false;
     qr.onerror = () => { qr.hidden = true; };
-
-    stopScanner();
-    showScreen('lobbyScreen');
 }
 
 function joinLinkFor(lobbyId) {
@@ -2750,6 +2868,12 @@ function leaveLobby() {
     showScreen('homeScreen');
     forgetLobby();
     isReady = false;
+    // Si mirabas (o esperabas plaza), ya no.
+    soyEspectador = false;
+    aplicarModoEspectador();
+    document.getElementById('lobbyScreen')?.classList.remove('espera-hueco');
+    const banda = document.getElementById('huecoBanda');
+    if (banda) banda.hidden = true;
 }
 
 /** Otra pestaña ha tomado tu asiento (o lo has recuperado tú tras un corte
@@ -2853,11 +2977,18 @@ function onLobbyUpdate(msg) {
     mirones = msg.spectators ?? 0;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
     // haber hecho nada.
-    if (soyEspectador && msg.players.some(p => p.id === currentPlayerId)) {
+    const sentado = msg.players.some(p => p.id === currentPlayerId);
+    if (soyEspectador && sentado) {
         soyEspectador = false;
         aplicarModoEspectador();
         onEnteredLobby(currentLobbyId);
     }
+    // Esperando plaza: eres de la sala pero la mesa estaba llena al acabar la
+    // partida. Se ve la sala y el chat, sin «Listo» ni bots, y te sientas solo.
+    const esperandoHueco = soyEspectador && !sentado && msg.status === 'waiting';
+    document.getElementById('lobbyScreen')?.classList.toggle('espera-hueco', esperandoHueco);
+    const banda = document.getElementById('huecoBanda');
+    if (banda) banda.hidden = !esperandoHueco;
     document.getElementById('playerCount').textContent = msg.players.length;
     document.getElementById('maxPlayersDisplay').textContent = msg.max_players;
     document.getElementById('readyCount').textContent =
@@ -2964,6 +3095,13 @@ function onGameStart(msg) {
     msg.players.filter(n => n !== currentNickname)
                .forEach(name => opponentFlippedSets.set(name, new Map()));
 
+    // Quien mira: el orden de la mesa para «Mirando desde». La foto y la tabla de
+    // cartas llegan en sus propios mensajes, justo detrás de este.
+    specOrden = msg.players.slice();
+    specState = null;
+    specVista = null;
+    specSet = null;
+
     buildSetNav();
     renderCenterCards();
     renderYourCards();
@@ -2991,11 +3129,177 @@ function aplicarModoEspectador() {
     if (soyEspectador && !banda) {
         banda = document.createElement('div');
         banda.id = 'espectadorBanda';
-        banda.textContent = '👁 estás mirando';
+        const texto = document.createElement('span');
+        texto.textContent = '👁 estás mirando';
+        // Mirando no hay «Salir de la sala» en ninguna otra parte del tablero.
+        const salir = document.createElement('button');
+        salir.type = 'button';
+        salir.textContent = 'Salir de la sala';
+        salir.onclick = () => { stopMusic(); leaveLobby(); };
+        banda.append(texto, salir);
         board.prepend(banda);
     } else if (!soyEspectador && banda) {
         banda.remove();
     }
+    if (!soyEspectador) resetEspectador();
+}
+
+// ─── Espectador: la mano de todos ─────────────────────────────────────────
+// El servidor manda la tabla de cartas (`spectator_cards`, una vez) y la mano
+// de todos por ids (`spectator_state`, cada ~200 ms si algo cambió). Con eso se
+// pinta el tablero de cualquier jugador con las mismas cartas del juego.
+let specCards = {};        // id → { c: prenda, n: nombre }
+let specState = null;      // la última foto
+let specOrden = [];        // los jugadores en el orden de la mesa
+let specVista = null;      // a quién se mira: su apodo, o '*' = todos
+let specSet = null;        // set elegido a mano; null = el que tiene abierto el jugador
+
+function resetEspectador() {
+    specCards = {}; specState = null; specOrden = []; specVista = null; specSet = null;
+    document.getElementById('specSeats')?.replaceChildren();
+    document.getElementById('specCards')?.replaceChildren();
+    document.getElementById('specSetNav')?.replaceChildren();
+    document.getElementById('specAll')?.replaceChildren();
+}
+
+function onSpectatorCards(msg) {
+    specCards = msg.cards || {};
+    renderSpectator();
+}
+
+function onSpectatorState(msg) {
+    specState = msg;
+    renderSpectator();
+}
+
+/** Los jugadores en el orden de la mesa; si falta alguno del orden, al final. */
+function specNicks() {
+    const todos = Object.keys(specState?.players || {});
+    const orden = specOrden.filter(n => todos.includes(n));
+    return orden.concat(todos.filter(n => !orden.includes(n)));
+}
+
+/** Una carta por su id, con el sprite del juego. `null` = hueco (carta soltada). */
+function specCard(id) {
+    if (id === null || id === undefined) {
+        const gap = document.createElement('div');
+        gap.className = 'card card-empty';
+        gap.title = 'Hueco: debe una carta';
+        return gap;
+    }
+    const info = specCards[id] || {};
+    const el = buildCard({ id, clothing_type: info.c ?? 0, name: info.n ?? '' });
+    el.title = `${info.n ?? 'carta'} · #${id}`;
+    return el;
+}
+
+function renderSpectator() {
+    if (!soyEspectador || !specState) return;
+    const board = document.getElementById('gameScreen');
+    if (!board || !board.classList.contains('espectador')) return;
+    const nicks = specNicks();
+    if (!nicks.length) return;
+    if (specVista !== '*' && !nicks.includes(specVista)) specVista = nicks[0];
+
+    // ── Mirando desde ──
+    const seats = document.getElementById('specSeats');
+    seats.replaceChildren();
+    const quien = document.createElement('span');
+    quien.className = 'quien';
+    quien.textContent = 'mirando desde';
+    seats.append(quien);
+    const boton = (valor, texto) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'spec-seat' + (specVista === valor ? ' active' : '');
+        b.dataset.nick = valor;
+        b.textContent = texto;
+        b.onclick = () => { specVista = valor; specSet = null; renderSpectator(); };
+        return b;
+    };
+    nicks.forEach(n => seats.append(boton(n, n)));
+    seats.append(boton('*', 'Todos'));
+
+    const todos = specVista === '*';
+    document.getElementById('specSingle').hidden = todos;
+    document.getElementById('specAll').hidden = !todos;
+    if (todos) renderSpectatorTodos(nicks); else renderSpectatorUno(specState.players[specVista]);
+
+    // Las cartas peleadas del centro, que `renderCenterCards` ya marca por su cuenta.
+}
+
+/** El tablero de un jugador, como lo ve él: sus 6 sets, el abierto, su deuda. */
+function renderSpectatorUno(p) {
+    if (!p) return;
+    document.getElementById('specLabel').textContent = `Sets de ${specVista}`;
+    const actual = specSet ?? p.cur;
+
+    const nav = document.getElementById('specSetNav');
+    nav.replaceChildren();
+    for (let i = 0; i < 6; i++) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'set-btn' + (i === actual ? ' active' : '') + (p.flip[i] ? ' flipped' : '');
+        b.dataset.set = i;
+        b.append(`Set ${i + 1}`);
+        const ojo = document.createElement('span');
+        ojo.className = 'set-eye';
+        ojo.textContent = p.flip[i] ? '👁' : '';
+        b.append(ojo);
+        b.onclick = () => { specSet = i; renderSpectator(); };
+        nav.append(b);
+    }
+
+    const fila = document.getElementById('specCards');
+    fila.replaceChildren(...(p.sets[actual] || []).map(specCard));
+
+    const estado = document.getElementById('specEstado');
+    estado.replaceChildren();
+    const dato = (texto, fuerte) => {
+        const s = document.createElement('span');
+        s.append(texto);
+        if (fuerte !== undefined) { const b = document.createElement('b'); b.textContent = fuerte; s.append(b); }
+        estado.append(s);
+    };
+    if (p.owed) dato(`debe una carta (set ${p.owed[0] + 1}, hueco ${p.owed[1] + 1})`);
+    else dato('sin deuda');
+    dato('racha ', `×${formatMult(p.mult ?? 100)}`);
+    if (p.frenzy) dato('🌈 frenesí cargado');
+    if (p.verif) dato('verificando');
+    if (p.fin) dato('terminó ', `${p.fin}º`);
+    if (specSet !== null && specSet !== p.cur) dato(`(él tiene abierto el set ${p.cur + 1})`);
+}
+
+/** Los sets de cada jugador en miniatura, todos a la vez. */
+function renderSpectatorTodos(nicks) {
+    const cont = document.getElementById('specAll');
+    cont.replaceChildren();
+    nicks.forEach(n => {
+        const p = specState.players[n];
+        const bloque = document.createElement('div');
+        bloque.className = 'spec-player';
+        const cab = document.createElement('div');
+        cab.className = 'spec-player-name';
+        const nombre = document.createElement('b');
+        nombre.textContent = n;
+        cab.append(nombre, `×${formatMult(p.mult ?? 100)}`);
+        if (p.owed) cab.append('debe una carta');
+        if (p.verif) cab.append('verificando');
+        if (p.fin) cab.append(`terminó ${p.fin}º`);
+        bloque.append(cab);
+
+        const sets = document.createElement('div');
+        sets.className = 'spec-sets';
+        p.sets.forEach((set, i) => {
+            const mini = document.createElement('div');
+            mini.className = 'spec-mini-set' + (p.flip[i] ? ' flipped' : '') + (i === p.cur ? ' current' : '');
+            mini.title = `Set ${i + 1}${p.flip[i] ? ' (enseñado)' : ''}`;
+            set.forEach(id => mini.append(specCard(id)));
+            sets.append(mini);
+        });
+        bloque.append(sets);
+        cont.append(bloque);
+    });
 }
 
 
@@ -5128,6 +5432,10 @@ function returnToLobby() {
     const btn = document.getElementById('readyBtn');
     btn.textContent = 'Marcar como Listo ✓';
     btn.classList.remove('active');
+    // Quien miraba vuelve a la sala de espera (sentado, o esperando plaza), que
+    // no pasó por `onEnteredLobby`: el código y el QR se preparan aquí.
+    if (currentLobbyId) prepararSala(currentLobbyId);
+    specState = null; specVista = null; specSet = null;
     showScreen('lobbyScreen');
 }
 

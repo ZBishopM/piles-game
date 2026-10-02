@@ -158,6 +158,23 @@ pub enum ServerMessage {
         /// ahora (con algún bot, `fun`; solo personas, `glory`). Cambia al
         /// añadir o echar un bot.
         pool: crate::elo::Pool,
+        /// `"waiting"` o `"playing"`. Quien mira (en partida, o esperando hueco
+        /// en la sala) lo necesita para saber en qué pantalla está la sala.
+        status: String,
+    },
+    /// Las cartas de la partida (id → prenda y nombre), una vez al entrar a
+    /// mirar y al arrancar una partida a quien esperaba hueco. Con esto basta
+    /// para dibujar cualquier mano a partir de ids. No va a los jugadores.
+    SpectatorCards {
+        cards: std::collections::BTreeMap<u32, SpectatorCard>,
+    },
+    /// La mano de TODOS, para quien mira (nunca para quien juega). Sale al
+    /// entrar y luego cada ~200 ms **solo si algo cambió**. No se graba.
+    SpectatorState {
+        players: std::collections::BTreeMap<String, SpectatorPlayer>,
+        /// Las cartas del centro, por id.
+        center: Vec<u32>,
+        qtes: Vec<SpectatorQte>,
     },
     /// Un mensaje del chat de la sala de espera. **No se graba**: ver
     /// `rec_private` y `rec_broadcast`.
@@ -423,6 +440,7 @@ mod tests {
             max_players: 4,
             spectators: 0,
             pool: crate::elo::Pool::Fun,
+            status: "waiting".to_string(),
         };
         let j = serde_json::to_value(&msg).unwrap();
         assert_eq!(j["type"], "lobby_update");
@@ -433,8 +451,21 @@ mod tests {
         assert!(j["players"][2]["elo"].is_null(), "sin clave de Elo no hay chip");
         let glory = serde_json::to_value(&ServerMessage::LobbyUpdate {
             players: vec![], ready_count: 0, max_players: 4, spectators: 0, pool: crate::elo::Pool::Glory,
+            status: "playing".to_string(),
         }).unwrap();
         assert_eq!(glory["pool"], "glory");
+    }
+
+    // La lista de «Unirse» lee `status` y `spectators` de cada sala.
+    #[test]
+    fn the_lobby_list_says_which_rooms_are_running() {
+        let j = serde_json::to_value(&ServerMessage::LobbyList { lobbies: vec![
+            LobbyInfo { id: "AB12CD".into(), player_count: 3, max_players: 4, status: "playing".into(), spectators: 1 },
+            LobbyInfo { id: "ZZ99XX".into(), player_count: 1, max_players: 4, status: "waiting".into(), spectators: 0 },
+        ] }).unwrap();
+        assert_eq!(j["lobbies"][0]["status"], "playing");
+        assert_eq!(j["lobbies"][0]["spectators"], 1);
+        assert_eq!(j["lobbies"][1]["status"], "waiting");
     }
 
     #[test]
@@ -496,6 +527,51 @@ pub struct LobbyInfo {
     pub id: String,
     pub player_count: usize,
     pub max_players: u8,
+    /// `"waiting"` (se puede entrar a jugar) o `"playing"` (ya empezó: se entra
+    /// a mirar). La lista enseña las dos.
+    pub status: String,
+    /// Cuánta gente está mirando ya.
+    pub spectators: usize,
+}
+
+/// Una carta de la tabla que se manda a quien mira: la prenda y su nombre, que
+/// es lo único que no se deduce del id (`generate_deck` baraja y recorta, así
+/// que `id / 4` NO es la prenda). Misma forma que `cards` en la cabecera de una
+/// grabación.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpectatorCard {
+    pub c: u8,
+    pub n: String,
+}
+
+/// Un jugador tal y como lo ve quien mira: toda su mano, por ids de carta.
+///
+/// Es **el mismo** objeto que `players[nick]` de un fotograma clave de las
+/// grabaciones (`player_snapshot`): quien mira en directo ve lo mismo que el
+/// visor de grabaciones, y si uno cambia el otro no se puede quedar atrás.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SpectatorPlayer {
+    /// Sus 6 sets, 4 huecos cada uno (`null` = debe esa carta).
+    pub sets: Vec<Vec<Option<u32>>>,
+    /// El set que tiene abierto.
+    pub cur: usize,
+    /// Qué sets ha enseñado a los demás.
+    pub flip: [bool; 6],
+    /// El hueco que debe tapar, como (set, posición).
+    pub owed: Option<(usize, usize)>,
+    /// Multiplicador de la racha en centésimas (125 = ×1,25).
+    pub mult: u32,
+    pub pts: u32,
+    pub frenzy: bool,
+    pub fin: Option<u8>,
+    pub verif: bool,
+}
+
+/// Una pelea en marcha, para marcar la carta en disputa.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SpectatorQte {
+    pub card: u32,
+    pub players: Vec<String>,
 }
 
 /// Progreso de un jugador

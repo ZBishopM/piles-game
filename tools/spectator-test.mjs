@@ -94,10 +94,15 @@ console.log('OK  a los jugadores les llega 👁 1');
 if (!caro.ultimo('game_update')) fallo('al espectador no le llegan las difusiones');
 console.log('OK  el espectador recibe las difusiones de la sala');
 
-// ...y ninguna mano privada, que es la mitad que no debe ver.
+// ...y ninguno de los mensajes PRIVADOS de cada jugador (su `swap_success`, su
+// `sets_resynced`…). Las manos de todos le llegan, a propósito, por su propio
+// mensaje (`spectator_state`): es lo que le deja mirar desde cualquier jugador.
 const privados = caro.recibido.filter(m => m.type === 'swap_success' || m.type === 'sets_resynced');
 if (privados.length) fallo(`al espectador le llegaron ${privados.length} mensajes privados`);
 console.log('OK  el espectador no recibe mensajes privados de nadie');
+const foto = caro.ultimo('spectator_state');
+if (!foto || !foto.players.Ana || !foto.players.Beto) fallo('al espectador no le llega la mano de todos (spectator_state)');
+console.log('OK  y sí la mano de todos, por su propio mensaje (spectator_state)');
 
 // ── (c) lo que mande el espectador no mueve nada ──────────────────────────
 const antes = JSON.stringify(beto.centro.map(c => c.id));
