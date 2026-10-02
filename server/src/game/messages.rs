@@ -120,6 +120,13 @@ pub enum ClientMessage {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
+    /// Lo primero que se manda a cada conexión: la versión del servidor (el
+    /// commit, o `"dev"`). Una pestaña que lleva abierta desde antes de un
+    /// despliegue ve aquí que cambió y se recarga sola; ver `onHello` en
+    /// lobby.html. Un cliente que no lo entiende lo ignora sin romperse.
+    Hello {
+        version: String,
+    },
     /// Confirmación de lobby creado
     LobbyCreated {
         lobby_id: String,

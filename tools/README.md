@@ -93,6 +93,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `peleas.mjs` | Una pelea ajena no pisa la propia |
 | `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |
 | `mirar.mjs` | Mirar desde «Unirse» (~45 s): la lista se refresca sola y pasa la sala a «En partida · Mirar»; «Mirando desde» cada jugador y «Todos» enseñan las cartas de verdad (comparadas con el `allSets` de su pestaña); ver la deuda al soltar; móvil sin desborde; «Salir de la sala»; y al acabar la partida, de vuelta en la sala de espera con chat |
+| `version.mjs` | Una pestaña abierta desde antes de un despliegue se recarga sola: la primera versión (`hello`) que ve es la suya, un cambio en una reconexión recarga (con aviso), y no más de una vez cada 30 s. En local la versión es «dev» y se ignora |
 | `sala.mjs` | La sala de espera: chat entre pestañas e historial, texto sin interpretar (apodos y mensajes con `<img onerror>`), chips de Elo con el color de su rango, For glory ↔ For fun al añadir un bot, móvil sin desborde, y pantalla final sin puntos ni combo (capturas en `$CAPTURAS` o en la carpeta temporal) |
 | `rangos.mjs` | Rangos en los diales de Elo (fin de partida y perfil): pastilla ▲/▼, un sonido por cruce, corona del Top 3, partículas solo en glory, movimiento reducido |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |

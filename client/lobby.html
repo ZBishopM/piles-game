@@ -2277,6 +2277,10 @@ function handleMsg(msg) {
             onLobbyUpdate(msg);
             break;
 
+        case 'hello':
+            onHello(msg.version);
+            break;
+
         case 'spectator_cards':
             onSpectatorCards(msg);
             break;
@@ -2898,6 +2902,36 @@ function onSeatReplaced() {
         duration: 8000,
     });
     showScreen('homeScreen');
+}
+
+// ─── Versión del servidor ─────────────────────────────────────────────────
+// El servidor manda su versión (el commit) nada más conectar. La primera que ve
+// esta página es la suya: el HTML y el servidor se despliegan a la vez, y la
+// página se pide sin caché (ver el `Cache-Control` de nginx y del `ServeDir`).
+// Si en una reconexión llega OTRA, el servidor se desplegó con esta pestaña
+// abierta: se reinició —las salas y partidas viven en memoria, no hay ninguna
+// que perder— y esta página es de la versión vieja, así que se recarga sola.
+//
+// No se recarga más de una vez cada 30 s, por si algo raro (dos servidores de
+// versiones distintas detrás del mismo sitio) hiciera cambiar la versión en
+// cada conexión: en ese caso solo se avisa.
+let versionDelServidor = null;
+const RELOAD_KEY = 'piles_reloaded_at';
+
+function onHello(version) {
+    if (!version || version === 'dev') return;     // en local no hay despliegues
+    if (versionDelServidor === null) { versionDelServidor = version; return; }
+    if (version === versionDelServidor) return;
+    versionDelServidor = version;
+    let hace = Infinity;
+    try { hace = Date.now() - Number(sessionStorage.getItem(RELOAD_KEY) || 0); } catch { /* sin storage */ }
+    if (hace < 30000) {
+        agToast({ kind: 'warning', title: 'Hay una versión nueva', message: 'Recarga la página (Ctrl+F5) para actualizar.', duration: 15000 });
+        return;
+    }
+    try { sessionStorage.setItem(RELOAD_KEY, String(Date.now())); } catch { /* sin storage */ }
+    agToast({ kind: 'info', title: 'Versión nueva', message: 'Actualizando…', duration: 2000 });
+    setTimeout(() => location.reload(), 1200);
 }
 
 // ─── Chat de la sala de espera ────────────────────────────────────────────

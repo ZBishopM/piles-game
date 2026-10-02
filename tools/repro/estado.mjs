@@ -15,6 +15,17 @@ const antes = await estado();
 ok(typeof antes.version === 'string' && typeof antes.uptime_s === 'number', `versión ${antes.version}, en marcha ${antes.uptime_s} s`);
 info(`conexiones: ${antes.conexiones}; salas: ${antes.salas.length}; partidas en curso: ${antes.partidas_en_curso}`);
 
+// Lo primero que recibe cada conexión es la versión: con ella una pestaña vieja
+// se entera de que hubo un despliegue y se recarga sola (ver `onHello`).
+{
+  const c = await cliente('Hola');
+  const primero = c.msgs.length ? c.msgs[0] : await esperar(c, () => true, 3000);
+  const hello = primero?.type === 'hello' ? primero : null;
+  ok(hello?.type === 'hello' && hello.version === antes.version,
+     `el primer mensaje de cada conexión es hello con la misma versión que /api/estado (${hello?.version})`);
+  c.ws.close();
+}
+
 // Una sala pública y otra privada
 const pub = await crear('Ana');
 const priv = await cliente('Beto');

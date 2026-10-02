@@ -129,9 +129,7 @@ async fn estado(State(state): State<AppState>) -> Response {
     let salas = state.lobby_manager.all_lobbies().await;
     let conexiones = state.connections.read().await.len();
     let vistos = state.last_seen.lock().map(|v| v.clone()).unwrap_or_default();
-    // El commit lo pone CI al compilar (`GITHUB_SHA`); en local, "dev".
-    let version = option_env!("GITHUB_SHA").map_or("dev", |s| &s[..s.len().min(7)]);
-    let j = debug::estado_json(&salas, conexiones, state.started.elapsed().as_secs(), version, &vistos);
+    let j = debug::estado_json(&salas, conexiones, state.started.elapsed().as_secs(), debug::version(), &vistos);
     ([(header::CACHE_CONTROL, "no-store")], axum::Json(j)).into_response()
 }
 

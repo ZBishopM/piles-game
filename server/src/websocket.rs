@@ -600,6 +600,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         }
     });
 
+    // Lo primero, la versión: antes que cualquier otra cosa, para que una pestaña
+    // vieja la vea nada más reconectar tras un despliegue.
+    let _ = tx.send(ServerMessage::Hello { version: crate::debug::version().to_string() });
+
     // Enviar mensaje de bienvenida
     let welcome_msg = ServerMessage::LobbyList {
         lobbies: state.lobby_manager.list_available_lobbies().await

@@ -10,6 +10,16 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+/// La versión de este servidor: los 7 primeros caracteres del commit, que CI
+/// pone al compilar (`GITHUB_SHA`); en local, `"dev"`.
+///
+/// La usan `/api/estado` y el `hello` que se manda a cada conexión: con ella una
+/// pestaña que lleva abierta desde antes de un despliegue se entera de que el
+/// servidor cambió y se recarga sola.
+pub fn version() -> &'static str {
+    option_env!("GITHUB_SHA").map_or("dev", |s| &s[..s.len().min(7)])
+}
+
 /// ¿Lleva callada esta conexión más de lo que se le aguanta?
 pub fn silent_too_long(ultimo: Instant, limite: Duration) -> bool {
     ultimo.elapsed() >= limite
@@ -137,6 +147,22 @@ pub fn estado_json(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Lo que compara el cliente: tiene que ser algo corto y estable, y nunca
+    // vacío (un `hello` con versión vacía recargaría las pestañas en bucle).
+    #[test]
+    fn the_version_is_a_short_non_empty_label() {
+        let v = version();
+        assert!(!v.is_empty() && v.len() <= 7, "{v:?}");
+        // Dos llamadas dan lo mismo: no depende de la hora ni de nada que cambie.
+        assert_eq!(v, version());
+    }
+
+    #[test]
+    fn the_hello_has_the_shape_the_client_reads() {
+        let j = serde_json::to_value(crate::game::ServerMessage::Hello { version: "8a8c869".into() }).unwrap();
+        assert_eq!(j, serde_json::json!({ "type": "hello", "version": "8a8c869" }));
+    }
     use serde_json::json;
     use uuid::Uuid;
 
