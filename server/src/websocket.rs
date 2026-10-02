@@ -71,6 +71,10 @@ pub struct AppState {
     /// muestra: el desajuste solo se da por bueno si se repite (ver
     /// `check_desync`).
     pub desync_seen: Arc<std::sync::Mutex<HashMap<Uuid, DesyncSeen>>>,
+    /// Cuándo escribió por última vez cada conexión en el chat, para el límite
+    /// de ritmo (`chat::MIN_GAP`). Candado normal: nunca se sostiene a través de
+    /// un await.
+    pub chat_last: Arc<std::sync::Mutex<HashMap<Uuid, Instant>>>,
     /// Desde cuándo corre el servidor. Para `/api/estado`.
     pub started: Instant,
 }
@@ -121,6 +125,7 @@ impl AppState {
             grabando: Arc::new(RwLock::new(HashMap::new())),
             last_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
             desync_seen: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            chat_last: Arc::new(std::sync::Mutex::new(HashMap::new())),
             started: Instant::now(),
         }
     }
@@ -242,6 +247,10 @@ impl AppState {
 
     /// Un mensaje que va a toda la sala, más el fotograma clave si toca.
     async fn rec_broadcast(&self, lobby_id: &str, lobby: &crate::game::Lobby, msg: &ServerMessage) {
+        // El chat no se graba (ver `rec_private`).
+        if matches!(msg, ServerMessage::Chat { .. } | ServerMessage::ChatHistory { .. }) {
+            return;
+        }
         let mut mapa = self.grabando.write().await;
         let Some(est) = mapa.get_mut(lobby_id) else { return };
 
@@ -282,6 +291,10 @@ impl AppState {
         // se puede leer con la partida en curso, así que un secreto ahí sería
         // regalar el asiento a quien mire la lista.
         if matches!(msg, ServerMessage::SeatToken { .. }) {
+            return;
+        }
+        // Ni el chat: es de la sala de espera y las grabaciones son públicas.
+        if matches!(msg, ServerMessage::Chat { .. } | ServerMessage::ChatHistory { .. }) {
             return;
         }
         let mapa = self.grabando.read().await;
@@ -571,6 +584,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     send_task.abort();
     let silencio_ms = ultimo.elapsed().as_millis() as u64;
     if let Ok(mut vistos) = state.last_seen.lock() { vistos.remove(&player_id); }
+    if let Ok(mut chat) = state.chat_last.lock() { chat.remove(&player_id); }
     if let Ok(mut d) = state.desync_seen.lock() { d.remove(&player_id); }
     if current_lobby.is_some() {
         state.rec_line_player(&player_id, "conn", serde_json::json!({
@@ -652,24 +666,11 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
 
     // Un mirón que se va en plena partida no mueve nada de la sala de espera.
     let en_partida = lobby.status == LobbyStatus::Playing;
-    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-        id: p.id.to_string(),
-        nickname: p.nickname.clone(),
-        is_ready: p.is_ready,
-        is_bot: p.is_bot,
-    }).collect();
-    let ready_count = lobby.ready_count();
-    let max_players = lobby.max_players;
-    let mirones = lobby.spectators.len();
+    let update = lobby_update_msg(state, &lobby);
     lobby.commit().await;
 
     if !en_partida {
-        state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
-            players: player_infos,
-            ready_count,
-            max_players,
-            spectators: mirones,
-        }).await;
+        state.broadcast_to_lobby(lobby_id, update).await;
         retire_orphan_bots(state, lobby_id).await;
     }
 }
@@ -796,7 +797,12 @@ pub(crate) async fn handle_client_message(
 
     // Lo que manda cada jugador, grabado antes de atenderlo. Los bots pasan
     // por aquí también, así que sus decisiones quedan registradas igual.
-    state.rec_in(&player_id, &msg).await;
+    // Salvo el chat: las grabaciones son públicas y se leen con la partida en
+    // curso, y quien escribe en plena partida (que se rechaza más abajo) no ha
+    // consentido que se publique.
+    if !matches!(msg, ClientMessage::Chat { .. }) {
+        state.rec_in(&player_id, &msg).await;
+    }
 
     // Un espectador mira y poco más. Un solo guardia aquí en vez de nueve
     // comprobaciones repartidas por `drop_card`, `take_card`, `qte_click`,
@@ -863,6 +869,7 @@ pub(crate) async fn handle_client_message(
                             }).await;
                             send_seat_token(state, &lobby, player_id).await;
                             send_lobby_update(state, &lobby_id).await;
+                            send_chat_history(state, &lobby, player_id).await;
                         }
                         Err(_) => {
                             // Se llenó o arrancó entre la consulta y la
@@ -901,6 +908,7 @@ pub(crate) async fn handle_client_message(
                         }).await;
                         send_seat_token(state, &lobby, player_id).await;
                         send_lobby_update(state, &lobby_id).await;
+                        send_chat_history(state, &lobby, player_id).await;
                     }
                 }
                 return;
@@ -968,6 +976,7 @@ pub(crate) async fn handle_client_message(
                         // una pestaña de antes del Elo y vuelve con la nueva.
                         remember_rating_key(state, &lobby_id, player_id, rating_key).await;
                         send_lobby_update(&state, &lobby_id).await;
+                        send_chat_history(state, &asiento, player_id).await;
                         return;
                     }
                 }
@@ -1031,6 +1040,7 @@ pub(crate) async fn handle_client_message(
 
                     // Broadcast actualización a todos los jugadores del lobby
                     send_lobby_update(&state, &lobby_id).await;
+                    send_chat_history(state, &lobby, player_id).await;
                 }
                 Err(e) => {
                     // El error solo lo veía el jugador: sin esto no quedaba
@@ -1705,6 +1715,63 @@ pub(crate) async fn handle_client_message(
             }
         }
 
+        // ── Chat de la sala de espera ──
+        //
+        // Solo con la sala en espera y para quien esté sentado (los bots no
+        // hablan, y un mirón ni llega aquí: lo corta el guardia de arriba).
+        // Se guarda en la sala (`push_chat`) y se difunde. Nada de esto se graba.
+        ClientMessage::Chat { text } => {
+            let Some(lobby_id) = current_lobby.as_deref() else { return };
+            // Un mensaje vacío o que se queda en nada tras limpiarlo no es un
+            // error que contar: se ignora.
+            let Some(text) = crate::chat::clean(&text) else { return };
+
+            // Límite de ritmo, fuera del await: el candado no puede cruzarlo.
+            let demasiado_deprisa = {
+                let mut ultimo = state.chat_last.lock().unwrap_or_else(|e| e.into_inner());
+                let ahora = Instant::now();
+                let rapido = ultimo.get(&player_id)
+                    .is_some_and(|t| ahora.duration_since(*t) < crate::chat::MIN_GAP);
+                if !rapido { ultimo.insert(player_id, ahora); }
+                rapido
+            };
+            if demasiado_deprisa {
+                state.send_to_player(&player_id, ServerMessage::Error {
+                    message: "Más despacio: espera un momento antes de escribir otra vez.".to_string(),
+                }).await;
+                return;
+            }
+
+            let linea = state.lobby_manager.mutate(lobby_id, |lobby| {
+                if lobby.status == LobbyStatus::Playing {
+                    return Err("El chat es de la sala de espera: durante la partida no se puede escribir.");
+                }
+                let Some(p) = lobby.players.iter().find(|p| p.id == player_id && !p.is_bot) else {
+                    return Err("Solo quien está sentado en la sala puede escribir.");
+                };
+                let linea = crate::game::ChatLine {
+                    from: p.nickname.clone(),
+                    text,
+                    at: crate::record::now_ms(),
+                };
+                lobby.push_chat(linea.clone());
+                Ok(linea)
+            }).await;
+            match linea {
+                Some(Ok(l)) => {
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::Chat {
+                        from: l.from, text: l.text, at: l.at,
+                    }).await;
+                }
+                Some(Err(motivo)) => {
+                    state.send_to_player(&player_id, ServerMessage::Error {
+                        message: motivo.to_string(),
+                    }).await;
+                }
+                None => {}
+            }
+        }
+
         ClientMessage::ClientNote { kind, detail } => {
             // Ya quedó grabada arriba. Del `state` además se aprovecha para
             // comparar el tablero del cliente con el del servidor.
@@ -1831,22 +1898,13 @@ async fn run_verification(
                         // no juega, así que seguir de mirón no significaría
                         // nada. Los que no quepan salen.
                         let sin_sitio = lobby.promote_spectators();
-                        let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-                            id: p.id.to_string(),
-                            nickname: p.nickname.clone(),
-                            is_ready: false,
-                            is_bot: p.is_bot,
-                        }).collect();
-                        let max_players = lobby.max_players;
+                        // Después de `settle`: el Elo que se enseña ya es el nuevo.
+                        let update = lobby_update_msg(&state, &lobby);
                         lobby.commit().await;
                         // Limpiar intents de swap del lobby terminado
                         state.take_intents.write().await.remove(&lobby_id);
-                        state.broadcast_to_lobby(&lobby_id, ServerMessage::LobbyUpdate {
-                            players: player_infos,
-                            ready_count: 0,
-                            max_players,
-                            spectators: 0,
-                        }).await;
+                        state.broadcast_to_lobby(&lobby_id, update).await;
+                        broadcast_chat_history(&state, &lobby_id).await;
                         for s in &sin_sitio {
                             state.send_to_player(&s.id, ServerMessage::Error {
                                 message: "La sala se llenó al acabar la partida".to_string(),
@@ -2017,6 +2075,7 @@ async fn enter_new_lobby(
             }).await;
             send_seat_token(state, &lobby, player_id).await;
             send_lobby_update(state, lobby_id).await;
+            send_chat_history(state, &lobby, player_id).await;
         }
         Err(e) => {
             state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
@@ -2186,25 +2245,15 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     }
     // La sala vuelve a estar en espera, así que los mirones se sientan.
     let sin_sitio = lobby.promote_spectators();
-    let player_infos: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
-        id: p.id.to_string(),
-        nickname: p.nickname.clone(),
-        is_ready: false,
-        is_bot: p.is_bot,
-    }).collect();
-    let max_players = lobby.max_players;
+    let update = lobby_update_msg(state, &lobby);
     lobby.commit().await;
     state.take_intents.write().await.remove(lobby_id);
 
     state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
         reason: format!("{because_of} se desconectó"),
     }).await;
-    state.broadcast_to_lobby(lobby_id, ServerMessage::LobbyUpdate {
-        players: player_infos,
-        ready_count: 0,
-        max_players,
-        spectators: 0,
-    }).await;
+    state.broadcast_to_lobby(lobby_id, update).await;
+    broadcast_chat_history(state, lobby_id).await;
     for s in &sin_sitio {
         state.send_to_player(&s.id, ServerMessage::Error {
             message: "La sala se llenó al acabar la partida".to_string(),
@@ -2622,22 +2671,67 @@ fn calculate_points(position: u8) -> u32 {
 /// Helper: Envía actualización del lobby a todos los jugadores
 async fn send_lobby_update(state: &AppState, lobby_id: &str) {
     if let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await {
-        let players: Vec<PlayerInfo> = lobby.players.iter().map(|p| PlayerInfo {
+        state.broadcast_to_lobby(lobby_id, lobby_update_msg(state, &lobby)).await;
+    }
+}
+
+/// El `LobbyUpdate` de una sala, con el Elo de cada uno en la clasificación que
+/// tocaría jugar ahora (`Lobby::pool`). Es el único sitio que lo construye:
+/// había cuatro a mano y cualquier campo nuevo se habría olvidado en alguno.
+///
+/// Los bots llevan el Elo fijo de su dificultad (el que cuenta en el cálculo);
+/// las personas, el suyo en esa clasificación, o `START` si aún no han jugado.
+/// Una persona sin clave de Elo (pestaña antigua) va sin Elo: sin chip.
+fn lobby_update_msg(state: &AppState, lobby: &crate::game::Lobby) -> ServerMessage {
+    let pool = lobby.pool();
+    let claves: Vec<Option<String>> = lobby.players.iter()
+        .map(|p| if p.is_bot { None } else { p.rating_key.clone() })
+        .collect();
+    let vista = state.ratings.lobby_view(&claves, pool);
+    let players = lobby.players.iter().zip(vista).map(|(p, v)| {
+        let (elo, top3) = if p.is_bot {
+            (p.bot_level.map(crate::elo::bot_rating), false)
+        } else {
+            match v { Some((r, t)) => (Some(r), t), None => (None, false) }
+        };
+        PlayerInfo {
             id: p.id.to_string(),
             nickname: p.nickname.clone(),
             is_ready: p.is_ready,
             is_bot: p.is_bot,
-        }).collect();
-
-        let update_msg = ServerMessage::LobbyUpdate {
-            players,
-            ready_count: lobby.ready_count(),
-            max_players: lobby.max_players,
-            spectators: lobby.spectators.len(),
-        };
-
-        state.broadcast_to_lobby(lobby_id, update_msg).await;
+            elo,
+            top3,
+        }
+    }).collect();
+    ServerMessage::LobbyUpdate {
+        players,
+        ready_count: lobby.ready_count(),
+        max_players: lobby.max_players,
+        spectators: lobby.spectators.len(),
+        pool,
     }
+}
+
+/// Al volver todos a la sala (fin de partida o partida cancelada) se les manda
+/// el chat de nuevo: quien recargó durante la partida no lo recibió (en partida
+/// no se manda) y volvería a una sala con el historial vacío.
+async fn broadcast_chat_history(state: &AppState, lobby_id: &str) {
+    let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
+    state.broadcast_to_lobby(lobby_id, ServerMessage::ChatHistory {
+        messages: lobby.chat.iter().cloned().collect(),
+    }).await;
+}
+
+/// Le manda a quien entra o vuelve el chat de la sala. No en partida: el chat
+/// es de la sala de espera, y lo que se manda en partida acabaría en una
+/// grabación pública (`rec_private` también lo salta, por si acaso).
+async fn send_chat_history(state: &AppState, lobby: &crate::game::Lobby, player_id: Uuid) {
+    if lobby.status == LobbyStatus::Playing {
+        return;
+    }
+    state.send_to_player(&player_id, ServerMessage::ChatHistory {
+        messages: lobby.chat.iter().cloned().collect(),
+    }).await;
 }
 
 #[cfg(test)]

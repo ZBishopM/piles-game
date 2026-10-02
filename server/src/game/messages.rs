@@ -60,6 +60,11 @@ pub enum ClientMessage {
         #[serde(default)]
         detail: serde_json::Value,
     },
+    /// Un mensaje al chat de la sala de espera. Solo con la sala en espera: en
+    /// partida se rechaza, y no se graba nunca (las grabaciones son públicas).
+    Chat {
+        text: String,
+    },
     /// Listar lobbies disponibles
     ListLobbies,
     /// Marcar como listo/no listo
@@ -149,6 +154,23 @@ pub enum ServerMessage {
         /// Cuánta gente está mirando. Se enseña a todos: saber que te ven es
         /// parte de que haya espectadores.
         spectators: usize,
+        /// De qué clasificación es el `elo` de cada jugador: la que se jugaría
+        /// ahora (con algún bot, `fun`; solo personas, `glory`). Cambia al
+        /// añadir o echar un bot.
+        pool: crate::elo::Pool,
+    },
+    /// Un mensaje del chat de la sala de espera. **No se graba**: ver
+    /// `rec_private` y `rec_broadcast`.
+    Chat {
+        from: String,
+        text: String,
+        /// Milisegundos desde 1970.
+        at: u64,
+    },
+    /// Todo el chat de la sala, para quien entra o vuelve. Sustituye lo que el
+    /// cliente tuviera. **No se graba.**
+    ChatHistory {
+        messages: Vec<ChatLine>,
     },
     /// El juego ha comenzado
     GameStart {
@@ -386,6 +408,48 @@ mod tests {
         assert_eq!(sent.len(), 4);
         assert!(sent.iter().all(|s| s.is_some()));
     }
+
+    // Lo que lee el cliente de la sala de espera: los nombres de los campos son
+    // el contrato con `lobby.html` (`p.elo`, `p.top3`, `msg.pool`).
+    #[test]
+    fn the_lobby_update_carries_each_rating_and_the_pool() {
+        let msg = ServerMessage::LobbyUpdate {
+            players: vec![
+                PlayerInfo { id: "1".into(), nickname: "Ana".into(), is_ready: false, is_bot: false, elo: Some(1250), top3: false },
+                PlayerInfo { id: "2".into(), nickname: "🤖 Bot 1".into(), is_ready: true, is_bot: true, elo: Some(1200), top3: false },
+                PlayerInfo { id: "3".into(), nickname: "Vieja".into(), is_ready: false, is_bot: false, elo: None, top3: false },
+            ],
+            ready_count: 1,
+            max_players: 4,
+            spectators: 0,
+            pool: crate::elo::Pool::Fun,
+        };
+        let j = serde_json::to_value(&msg).unwrap();
+        assert_eq!(j["type"], "lobby_update");
+        assert_eq!(j["pool"], "fun");
+        assert_eq!(j["players"][0]["elo"], 1250);
+        assert_eq!(j["players"][0]["top3"], false);
+        assert_eq!(j["players"][1]["elo"], 1200);
+        assert!(j["players"][2]["elo"].is_null(), "sin clave de Elo no hay chip");
+        let glory = serde_json::to_value(&ServerMessage::LobbyUpdate {
+            players: vec![], ready_count: 0, max_players: 4, spectators: 0, pool: crate::elo::Pool::Glory,
+        }).unwrap();
+        assert_eq!(glory["pool"], "glory");
+    }
+
+    #[test]
+    fn chat_messages_have_the_shape_the_client_reads() {
+        let uno = serde_json::to_value(&ServerMessage::Chat { from: "Ana".into(), text: "hola".into(), at: 7 }).unwrap();
+        assert_eq!(uno, serde_json::json!({ "type": "chat", "from": "Ana", "text": "hola", "at": 7 }));
+        let todos = serde_json::to_value(&ServerMessage::ChatHistory {
+            messages: vec![ChatLine { from: "Ana".into(), text: "hola".into(), at: 7 }],
+        }).unwrap();
+        assert_eq!(todos["type"], "chat_history");
+        assert_eq!(todos["messages"][0]["from"], "Ana");
+        // Y lo que manda el cliente.
+        let c: ClientMessage = serde_json::from_str(r#"{"type":"chat","text":"hola"}"#).unwrap();
+        assert!(matches!(c, ClientMessage::Chat { text } if text == "hola"));
+    }
 }
 
 impl From<Card> for CardInfo {
@@ -407,6 +471,23 @@ pub struct PlayerInfo {
     /// Para marcarlo en la sala y para poder ofrecer echarlo.
     #[serde(default)]
     pub is_bot: bool,
+    /// Su Elo en la clasificación de `LobbyUpdate.pool` (1000 si aún no ha
+    /// jugado; el fijo de su dificultad si es un bot). `None` si no tiene clave
+    /// de Elo (una pestaña antigua): se juega igual, sin chip.
+    #[serde(default)]
+    pub elo: Option<i32>,
+    /// ¿Está entre los 3 mejores de esa clasificación? Decide el rango más alto.
+    #[serde(default)]
+    pub top3: bool,
+}
+
+/// Una línea del chat de la sala.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatLine {
+    pub from: String,
+    pub text: String,
+    /// Milisegundos desde 1970.
+    pub at: u64,
 }
 
 /// Información de un lobby

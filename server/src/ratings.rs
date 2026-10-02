@@ -130,6 +130,24 @@ impl Ratings {
         )
     }
 
+    /// Lo que enseña la sala de espera junto a cada nombre: `(Elo, ¿Top 3?)` en
+    /// la clasificación `pool`, para cada clave en el mismo orden. `None` = sin
+    /// clave de Elo (una pestaña antigua): sin chip. Quien aún no ha jugado en
+    /// esa clasificación va con `START`, que es con lo que entraría al cálculo.
+    ///
+    /// Con **un solo** candado y un solo `top3_of` para toda la sala: se llama
+    /// en cada `lobby_update`, y `top3_flags` ordena el mapa entero por clave.
+    pub fn lobby_view(&self, keys: &[Option<String>], pool: Pool) -> Vec<Option<(i32, bool)>> {
+        let map = self.map.lock().unwrap();
+        let top = top3_of(&map, pool);
+        keys.iter()
+            .map(|k| k.as_ref().map(|k| {
+                let r = map.get(k).and_then(|rec| rec.pool(pool)).map_or(START, |p| p.r);
+                (r, top.contains(k))
+            }))
+            .collect()
+    }
+
     /// Aplica el resultado de una partida y devuelve cómo le fue a cada
     /// persona con clave. Los bots y los clientes sin clave cuentan en el
     /// cálculo pero no se guardan.
@@ -289,6 +307,25 @@ mod tests {
         assert_eq!(s.top3_flags("anon:b"), (false, true));
         assert_eq!(s.top3_flags("anon:z"), (true, false));
         assert_eq!(s.top3_flags("anon:nadie"), (false, false));
+    }
+
+    #[test]
+    fn the_waiting_room_shows_each_persons_rating_in_the_rooms_pool() {
+        let s = store();
+        poner(&s, "anon:a", Pool::Glory, 1300, 12);   // Top 3 de glory
+        poner(&s, "anon:a", Pool::Fun, 950, 3);       // y en fun, uno cualquiera
+        poner(&s, "anon:b", Pool::Fun, 1250, 4);
+        let claves = [
+            Some("anon:a".to_string()),
+            Some("anon:b".to_string()),
+            Some("anon:nuevo".to_string()),   // clave válida que nunca ha jugado
+            None,                             // sin clave de Elo
+        ];
+        let glory = s.lobby_view(&claves, Pool::Glory);
+        assert_eq!(glory, vec![Some((1300, true)), Some((START, false)), Some((START, false)), None]);
+        let fun = s.lobby_view(&claves, Pool::Fun);
+        // b no llega a las 10 partidas, a no pasa de 1000: nadie en el Top 3 de fun.
+        assert_eq!(fun, vec![Some((950, false)), Some((1250, false)), Some((START, false)), None]);
     }
 
     #[test]

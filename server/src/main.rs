@@ -12,6 +12,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tracing_subscriber;
 
 mod bot;
+mod chat;
 mod debug;
 mod elo;
 mod game;

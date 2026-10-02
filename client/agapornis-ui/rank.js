@@ -64,6 +64,30 @@
   agRank.MINS = MINS;
   agRank.TOP3 = TOP3;
 
+  // El chip: el Elo y el nombre del rango, con el color del rango (rank.css),
+  // para ponerlo junto a un nombre. Es lo único de este fichero que toca el DOM,
+  // y solo cuando se llama.
+  //
+  //   agRankChip(el, valor, { pool, top3 }) → el rango (lo mismo que agRank)
+  //
+  // Todo con textContent: el contenido nunca se interpreta como HTML.
+  function agRankChip(el, valor, opts = {}) {
+    const r = agRank(valor, opts);
+    el.classList.add('ag-rank-chip');
+    el.dataset.rank = r.id;
+    el.textContent = '';
+    const elo = document.createElement('span');
+    elo.className = 'ag-rank-elo';
+    elo.textContent = String(Math.round(valor));
+    const nombre = document.createElement('span');
+    nombre.className = 'ag-rank-name';
+    nombre.textContent = r.name;
+    el.append(elo, nombre);
+    el.title = `${r.pool === 'glory' ? 'For glory' : 'For fun'} · ${r.name}`;
+    return r;
+  }
+
   root.agRank = agRank;
-  if (typeof module !== 'undefined' && module.exports) module.exports = { agRank };
+  root.agRankChip = agRankChip;
+  if (typeof module !== 'undefined' && module.exports) module.exports = { agRank, agRankChip };
 })(typeof window !== 'undefined' ? window : globalThis);

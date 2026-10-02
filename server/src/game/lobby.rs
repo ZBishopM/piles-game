@@ -126,6 +126,9 @@ pub struct Lobby {
     /// `players` porque quien se va a mitad desaparece de ahí, y tiene que
     /// contar igual (último).
     pub seats: Vec<crate::elo::Seat>,
+    /// El chat de la sala de espera: dura lo que dure la sala (los reinicios
+    /// del servidor la borran, igual que a ella). Con tope, ver `push_chat`.
+    pub chat: std::collections::VecDeque<super::messages::ChatLine>,
 }
 
 impl Lobby {
@@ -141,6 +144,26 @@ impl Lobby {
             spectators: Vec::new(),
             empty_since: None,
             seats: Vec::new(),
+            chat: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Añade una línea al chat y tira las más viejas si pasa de `chat::KEEP`.
+    pub fn push_chat(&mut self, line: super::messages::ChatLine) {
+        self.chat.push_back(line);
+        while self.chat.len() > crate::chat::KEEP {
+            self.chat.pop_front();
+        }
+    }
+
+    /// De qué clasificación sería la partida de esta sala tal como está: con
+    /// algún bot, `fun` (aunque jueguen varias personas); solo personas,
+    /// `glory`. Es la regla de `elo::pool`, aplicada antes de empezar.
+    pub fn pool(&self) -> crate::elo::Pool {
+        if self.players.iter().any(|p| p.is_bot) {
+            crate::elo::Pool::Fun
+        } else {
+            crate::elo::Pool::Glory
         }
     }
 
@@ -1240,6 +1263,48 @@ mod tests {
         let game_state = lobby.game_state.unwrap();
         assert_eq!(game_state.players.len(), 2);
         assert_eq!(game_state.center_cards.len(), 4);
+    }
+
+    // ── Chat y clasificación de la sala ───────────────────────────────────
+
+    #[test]
+    fn the_room_pool_follows_whether_a_bot_is_seated() {
+        use crate::elo::Pool;
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        assert_eq!(lobby.pool(), Pool::Glory, "una sala vacía, y una de solo personas, es glory");
+        lobby.add_player(Uuid::new_v4(), "Ana".to_string()).unwrap();
+        lobby.add_player(Uuid::new_v4(), "Beto".to_string()).unwrap();
+        assert_eq!(lobby.pool(), Pool::Glory);
+        lobby.add_player(Uuid::new_v4(), "🤖 Bot 1".to_string()).unwrap();
+        lobby.players.last_mut().unwrap().is_bot = true;
+        assert_eq!(lobby.pool(), Pool::Fun, "con un bot, aunque jueguen dos personas, es fun");
+        let bot = lobby.players.last().unwrap().id;
+        lobby.remove_player(&bot);
+        assert_eq!(lobby.pool(), Pool::Glory, "al echarlo vuelve a glory");
+    }
+
+    #[test]
+    fn the_chat_keeps_only_the_latest_lines() {
+        use super::super::messages::ChatLine;
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        for i in 0..(crate::chat::KEEP + 25) {
+            lobby.push_chat(ChatLine { from: "Ana".into(), text: format!("mensaje {i}"), at: i as u64 });
+        }
+        assert_eq!(lobby.chat.len(), crate::chat::KEEP);
+        assert_eq!(lobby.chat.front().unwrap().text, "mensaje 25", "se tiran las más viejas");
+        assert_eq!(lobby.chat.back().unwrap().text, format!("mensaje {}", crate::chat::KEEP + 24));
+    }
+
+    #[test]
+    fn the_chat_survives_everyone_leaving_while_the_room_stays_open() {
+        use super::super::messages::ChatLine;
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let ana = Uuid::new_v4();
+        lobby.add_player(ana, "Ana".to_string()).unwrap();
+        lobby.push_chat(ChatLine { from: "Ana".into(), text: "hola".into(), at: 1 });
+        lobby.remove_player(&ana);   // se cae: la sala se guarda un rato para que vuelva
+        assert!(lobby.empty_since.is_some());
+        assert_eq!(lobby.chat.len(), 1, "el historial dura lo que dure la sala");
     }
 
     // ── Transacciones: dos mensajes a la vez no se pisan ──────────────────

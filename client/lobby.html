@@ -242,6 +242,42 @@
         }
         .player-item.ready { border-left-color: var(--success); }
         .ready-status { font-size: 0.85rem; }
+        /* Nombre y, al lado, su Elo y rango con el color del rango (chip de agapornis-ui). */
+        .player-who { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+        .player-name { overflow-wrap: anywhere; }
+        .player-rank { flex-shrink: 0; }
+        .pool-note { margin: -2px 0 6px; color: var(--text-faint); font-size: 0.78rem; }
+
+        /* ── Chat de la sala de espera ── dura lo que dure la sala. */
+        #chatBox { margin: 18px 0 4px; }
+        #chatLog {
+            height: 190px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            background: var(--card);
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 0.9rem;
+        }
+        #chatLog:empty::before { content: "Aún no hay mensajes. Escribe el primero."; color: var(--text-faint); font-size: 0.82rem; }
+        .chat-line { line-height: 1.4; margin: 2px 0; overflow-wrap: anywhere; }
+        .chat-time { color: var(--text-faint); font: 0.68rem var(--font-mono); margin-right: 6px; }
+        .chat-name { font-weight: 700; margin-right: 6px; color: var(--text-muted); }
+        .chat-line.mine .chat-name { color: var(--accent); }
+        /* El nombre de quien escribe, con el color de su rango: es un chip sin chip. */
+        .chat-name.ag-rank-chip,
+        .chat-line.mine .chat-name.ag-rank-chip {
+            display: inline; padding: 0; border: 0; border-radius: 0; background: none;
+            font: inherit; font-weight: 700; letter-spacing: 0; color: var(--rk-label);
+        }
+        #chatForm { display: flex; gap: 8px; margin-top: 8px; }
+        #chatInput {
+            flex: 1; min-width: 0; padding: 10px 12px;
+            font-size: 16px;                    /* con menos, iOS hace zoom al enfocar */
+            color: var(--text); background: var(--control);
+            border: 1px solid var(--border-strong); border-radius: 8px;
+        }
+        #chatForm .btn { width: auto; margin: 0; padding: 10px 16px; font-size: 0.95rem; }
         #readyBtn {
             width: 100%; padding: 14px; margin-top: 16px;
             border: none; border-radius: 10px; font-size: 1.1rem; cursor: pointer;
@@ -1261,10 +1297,8 @@
         }
         .rank-pos { font-size: 1.4rem; width: 36px; }
         .rank-name { flex: 1; text-align: left; padding-left: 10px; }
-        .rank-points { color: var(--warning); font-weight: bold; }
-        /* Aporte del combo, a media voz: el puesto sigue siendo el titular. */
-        .rank-combo { font-size: 0.72rem; color: #ff8c42; margin-right: 10px; white-space: nowrap; }
-        /* ±Elo de cada uno en el ranking. */
+        /* ±Elo de cada uno en el ranking. Los puntos y el combo ya no se enseñan:
+           lo que cuenta es el Elo. */
         .rank-elo { font: 700 0.75rem/1 var(--font-mono); margin-left: 10px; white-space: nowrap; }
         .rank-elo.up { color: var(--accent); }
         .rank-elo.down { color: var(--danger); }
@@ -1531,7 +1565,21 @@
     </div>
 
     <h3 style="margin:0 0 8px;color:var(--text)">Jugadores (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
+    <!-- De qué clasificación es el Elo de al lado: con algún bot, For fun; solo personas, For glory. -->
+    <p class="pool-note" id="poolNote"></p>
     <ul class="player-list" id="playerList"></ul>
+
+    <!-- Chat de la sala. Solo en espera: en partida no se escribe. Lo que se
+         escribe vive en el servidor mientras la sala exista, así que quien entra
+         tarde o recarga lo recibe entero. -->
+    <section id="chatBox" aria-label="Chat de la sala">
+        <div id="chatLog" role="log" aria-live="polite"></div>
+        <form id="chatForm" onsubmit="sendChat(event)">
+            <input id="chatInput" type="text" maxlength="300" autocomplete="off"
+                   enterkeyhint="send" placeholder="Escribe a la sala…" aria-label="Mensaje">
+            <button type="submit" class="btn btn-secondary">Enviar</button>
+        </form>
+    </section>
 
     <!-- Oferta de bots tras una partida rápida en la que no aparece nadie.
          Se pregunta, no se rellena por su cuenta. -->
@@ -1992,6 +2040,7 @@ function forgetLobby() {
     seatToken = null;
     writeSeat(null);
     diag.clear();
+    clearChat();
 }
 
 /** Lo ha tomado otra pestaña: solo se limpia esta pestaña. Lo guardado en el
@@ -2002,6 +2051,7 @@ function dropSeatLocally() {
     seatToken = null;
     rejoinInFlight = false;
     diag.clear();
+    clearChat();
 }
 
 function attemptRejoin() {
@@ -2166,6 +2216,14 @@ function handleMsg(msg) {
 
         case 'lobby_update':
             onLobbyUpdate(msg);
+            break;
+
+        case 'chat':
+            onChat(msg);
+            break;
+
+        case 'chat_history':
+            onChatHistory(msg.messages);
             break;
 
         case 'game_start':
@@ -2718,6 +2776,79 @@ function onSeatReplaced() {
     showScreen('homeScreen');
 }
 
+// ─── Chat de la sala de espera ────────────────────────────────────────────
+// La verdad está en el servidor (dura lo que dure la sala): aquí solo se pinta.
+// `chat_history` sustituye todo lo que hubiera; `chat` añade una línea. Siempre
+// con textContent: lo que escribe cualquiera nunca se interpreta como HTML.
+const CHAT_MAX_LINES = 200;
+/** nickname → id de rango (`oro`, `top3`…) según el último `lobby_update`, para
+ *  colorear el nombre de quien escribe. Si ya se fue, sale sin color. */
+const rankPorNick = new Map();
+
+function chatLogEl() { return document.getElementById('chatLog'); }
+
+function renderChatLine(l) {
+    const div = document.createElement('div');
+    div.className = 'chat-line' + (l.from === currentNickname ? ' mine' : '');
+    const hora = document.createElement('span');
+    hora.className = 'chat-time';
+    hora.textContent = new Date(l.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const nombre = document.createElement('span');
+    nombre.className = 'chat-name';
+    nombre.dataset.from = l.from;
+    nombre.textContent = l.from;
+    pintarNombreChat(nombre);
+    const texto = document.createElement('span');
+    texto.className = 'chat-text';
+    texto.textContent = l.text;
+    div.append(hora, nombre, texto);
+    return div;
+}
+
+/** Pone o quita el color del rango de un nombre del chat. */
+function pintarNombreChat(el) {
+    const id = rankPorNick.get(el.dataset.from);
+    if (id) { el.classList.add('ag-rank-chip'); el.dataset.rank = id; }
+    else { el.classList.remove('ag-rank-chip'); delete el.dataset.rank; }
+}
+function retintarChat() {
+    chatLogEl()?.querySelectorAll('.chat-name').forEach(pintarNombreChat);
+}
+
+/** Pegado al final solo si ya estabas abajo: no te quita de leer lo de arriba. */
+function chatEstaAbajo(log) { return log.scrollHeight - log.scrollTop - log.clientHeight < 40; }
+
+function onChatHistory(messages) {
+    const log = chatLogEl();
+    if (!log) return;
+    log.replaceChildren(...(messages ?? []).slice(-CHAT_MAX_LINES).map(renderChatLine));
+    log.scrollTop = log.scrollHeight;
+}
+
+function onChat(l) {
+    const log = chatLogEl();
+    if (!log) return;
+    const abajo = chatEstaAbajo(log) || l.from === currentNickname;
+    log.append(renderChatLine(l));
+    while (log.children.length > CHAT_MAX_LINES) log.firstElementChild.remove();
+    if (abajo) log.scrollTop = log.scrollHeight;
+}
+
+function clearChat() {
+    chatLogEl()?.replaceChildren();
+    rankPorNick.clear();
+}
+
+function sendChat(ev) {
+    ev?.preventDefault();
+    const input = document.getElementById('chatInput');
+    const text = input.value.trim();
+    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    send({ type: 'chat', text });
+    input.value = '';
+    input.focus();
+}
+
 function onLobbyUpdate(msg) {
     mirones = msg.spectators ?? 0;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
@@ -2732,21 +2863,62 @@ function onLobbyUpdate(msg) {
     document.getElementById('readyCount').textContent =
         `${msg.ready_count} de ${msg.players.length} listos`;
 
+    // De qué clasificación es el Elo que se enseña: lo dice el servidor.
+    const note = document.getElementById('poolNote');
+    if (note) {
+        note.textContent = msg.pool === 'fun' ? 'Elo de For fun · hay bots en la sala'
+            : msg.pool === 'glory' ? 'Elo de For glory · solo personas' : '';
+    }
+
     const list = document.getElementById('playerList');
     list.innerHTML = '';
+    rankPorNick.clear();
     msg.players.forEach(p => {
         const li = document.createElement('li');
         li.className = 'player-item' + (p.is_ready ? ' ready' : '');
-        const you = p.id === currentPlayerId ? ' <em>(Tú)</em>' : '';
+
+        // Con DOM y textContent, no con innerHTML: el apodo lo escribe cualquiera.
+        const quien = document.createElement('span');
+        quien.className = 'player-who';
+        const nombre = document.createElement('span');
+        nombre.className = 'player-name';
+        nombre.textContent = p.nickname;
+        quien.append(nombre);
+        if (p.id === currentPlayerId) {
+            const tu = document.createElement('em');
+            tu.textContent = '(Tú)';
+            quien.append(tu);
+        }
+        // Su Elo y su rango, con el color del rango. Sin Elo (una pestaña
+        // antigua, sin clave) no hay chip.
+        if (p.elo != null && typeof agRankChip === 'function') {
+            const chip = document.createElement('span');
+            chip.classList.add('player-rank');
+            const r = agRankChip(chip, p.elo, { pool: msg.pool, top3: !!p.top3 });
+            rankPorNick.set(p.nickname, r.id);
+            quien.append(chip);
+        }
+        li.append(quien);
+
+        const estado = document.createElement('span');
+        estado.className = 'ready-status';
+        estado.textContent = p.is_ready ? '✅ Listo' : '⏳';
+        li.append(estado);
+
         // A los bots se les puede echar; a las personas no desde aquí.
-        const kick = p.is_bot
-            ? `<button type="button" class="kick-bot" title="Quitar este bot"
-                       onclick="removeBot('${p.id}')">✕</button>`
-            : '';
-        li.innerHTML = `<span>${p.nickname}${you}</span>`
-            + `<span class="ready-status">${p.is_ready ? '✅ Listo' : '⏳'}</span>${kick}`;
+        if (p.is_bot) {
+            const kick = document.createElement('button');
+            kick.type = 'button';
+            kick.className = 'kick-bot';
+            kick.title = 'Quitar este bot';
+            kick.textContent = '✕';
+            kick.onclick = () => removeBot(p.id);
+            li.append(kick);
+        }
         list.appendChild(li);
     });
+    // Los nombres del chat toman el color del rango que acaba de llegar.
+    retintarChat();
     // Solo tiene sentido ofrecer bots mientras quepa alguien más.
     const room = msg.players.length < msg.max_players;
     document.getElementById('botControls')?.toggleAttribute('hidden', !room);
@@ -4703,25 +4875,26 @@ function onGameOver(rankings, elo = []) {
     rankings.forEach(entry => {
         const div = document.createElement('div');
         div.className = 'ranking-entry';
-        // El desglose del combo importa: un total a secas no premia haber
-        // jugado deprisa, y es lo que hace querer encadenar la próxima vez.
-        // El multiplicador lo manda el servidor. Antes se calculaba aquí con
-        // `1 + best_combo/3` topado en 5, y se equivocaba: `best_combo` cuenta
-        // jugadas y el multiplicador suma ganancias distintas por jugada.
-        const combo = entry.combo_points > 0
-            ? `<span class="rank-combo">🔥 +${entry.combo_points} · mejor ×${formatMult(entry.best_mult_x100 ?? 100)}</span>`
-            : '';
+        // Puesto, nombre y lo que se mueve el Elo. Los puntos y el combo ya no
+        // se enseñan (el servidor los sigue calculando y mandando: se siguen
+        // sumando a Session Manager en `claimSessionManagerResult`).
         const e = elo.find(c => c.nickname === entry.nickname);
         const d = e ? e.after - e.before : null;
-        const eloTag = d === null ? ''
-            : `<span class="rank-elo ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}</span>`;
-        div.innerHTML = `
-            <span class="rank-pos">${medals[entry.position - 1] || entry.position}</span>
-            <span class="rank-name">${entry.nickname}</span>
-            ${combo}
-            <span class="rank-points">${entry.points} pts</span>
-            ${eloTag}
-        `;
+
+        const pos = document.createElement('span');
+        pos.className = 'rank-pos';
+        pos.textContent = medals[entry.position - 1] || String(entry.position);
+        // textContent, no innerHTML: el apodo lo escribe cualquiera.
+        const nombre = document.createElement('span');
+        nombre.className = 'rank-name';
+        nombre.textContent = entry.nickname;
+        div.append(pos, nombre);
+        if (d !== null) {
+            const eloTag = document.createElement('span');
+            eloTag.className = 'rank-elo ' + (d > 0 ? 'up' : d < 0 ? 'down' : '');
+            eloTag.textContent = `${d > 0 ? '+' : d < 0 ? '−' : '±'}${Math.abs(d)}`;
+            div.append(eloTag);
+        }
         list.appendChild(div);
     });
     document.getElementById('gameOverOverlay').classList.add('active');

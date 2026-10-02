@@ -124,7 +124,8 @@
 }
 
 /* 1 · Hierro oxidado: feo a propósito. Picado, descascarillado, sin brillo. */
-.ag-dial[data-rank="hierro"] {
+.ag-dial[data-rank="hierro"],
+.ag-rank-chip[data-rank="hierro"] {
   --rk-f1: #5a2e17; --rk-f2: #3a1d0e; --rk-f3: #241108;
   --rk-border: #7a4524;
   --rk-rivet-hi: #8a5a30; --rk-rivet-lo: #2a1408;
@@ -140,7 +141,8 @@
   --rk-label: #b06a38;
 }
 /* 2 · Bronce */
-.ag-dial[data-rank="bronce"] {
+.ag-dial[data-rank="bronce"],
+.ag-rank-chip[data-rank="bronce"] {
   --rk-f1: #7a4a24; --rk-f2: #553218; --rk-f3: #3b2210;
   --rk-border: #a3622e;
   --rk-rivet-hi: #d9a066; --rk-rivet-lo: #3a2110;
@@ -150,7 +152,8 @@
   --rk-label: #d9914d;
 }
 /* 3 · Plata */
-.ag-dial[data-rank="plata"] {
+.ag-dial[data-rank="plata"],
+.ag-rank-chip[data-rank="plata"] {
   --rk-f1: #b9c0c9; --rk-f2: #7c838d; --rk-f3: #4f555e;
   --rk-border: #cfd6de;
   --rk-rivet-hi: #f4f7fa; --rk-rivet-lo: #4a4f57;
@@ -161,7 +164,8 @@
   --rk-sheen-a: 0.3; --rk-sheen-anim: ag-sweep 4.2s linear infinite;
 }
 /* 4 · Oro */
-.ag-dial[data-rank="oro"] {
+.ag-dial[data-rank="oro"],
+.ag-rank-chip[data-rank="oro"] {
   --rk-f1: #e0b84a; --rk-f2: #a87a1c; --rk-f3: #6a4a10;
   --rk-border: #f0cf6a;
   --rk-rivet-hi: #fff0b0; --rk-rivet-lo: #5a3d08;
@@ -173,7 +177,8 @@
   --rk-sheen-a: 0.34; --rk-sheen-anim: ag-sweep 3.8s linear infinite;
 }
 /* 5 · Platino, azulado */
-.ag-dial[data-rank="platino"] {
+.ag-dial[data-rank="platino"],
+.ag-rank-chip[data-rank="platino"] {
   --rk-f1: #a9c8e0; --rk-f2: #5f86a8; --rk-f3: #34506b;
   --rk-border: #cfe7fa;
   --rk-rivet-hi: #f0faff; --rk-rivet-lo: #25384a;
@@ -184,7 +189,8 @@
   --rk-sheen-a: 0.36; --rk-sheen-anim: ag-sweep 3.4s linear infinite;
 }
 /* 6 · Diamante, azul fuerte, con facetas */
-.ag-dial[data-rank="diamante"] {
+.ag-dial[data-rank="diamante"],
+.ag-rank-chip[data-rank="diamante"] {
   --rk-f1: #2f7bff; --rk-f2: #1348c4; --rk-f3: #0a2670;
   --rk-border: #6fa6ff;
   --rk-rivet-hi: #d7e8ff; --rk-rivet-lo: #07184a;
@@ -197,7 +203,8 @@
   --rk-glow-anim: ag-breathe 2.6s ease-in-out infinite alternate;
 }
 /* 7 · Máster: dorado brillante, con un haz que gira */
-.ag-dial[data-rank="master"] {
+.ag-dial[data-rank="master"],
+.ag-rank-chip[data-rank="master"] {
   --rk-f1: #ffe27a; --rk-f2: #f0b400; --rk-f3: #b07800;
   --rk-border: #fff0a0;
   --rk-rivet-hi: #fffbe0; --rk-rivet-lo: #6b4800;
@@ -211,7 +218,8 @@
   --rk-glow-anim: ag-breathe 2.2s ease-in-out infinite alternate;
 }
 /* 8 · Gran máster: dorado con tonos rosa */
-.ag-dial[data-rank="gran-master"] {
+.ag-dial[data-rank="gran-master"],
+.ag-rank-chip[data-rank="gran-master"] {
   --rk-f1: #ffd978; --rk-f2: #f4a3a8; --rk-f3: #b94f7e;
   --rk-border: #ffc9d6;
   --rk-rivet-hi: #fff0f4; --rk-rivet-lo: #6a2243;
@@ -225,7 +233,8 @@
   --rk-glow-anim: ag-breathe 2.2s ease-in-out infinite alternate;
 }
 /* 9 · Top 3 global: dorado, rosa y verdes brillantes */
-.ag-dial[data-rank="top3"] {
+.ag-dial[data-rank="top3"],
+.ag-rank-chip[data-rank="top3"] {
   --rk-f1: #ffd34d; --rk-f2: #ff6fb5; --rk-f3: #2fe08a;
   --rk-border: #fff1b0;
   --rk-rivet-hi: #ffffff; --rk-rivet-lo: #7a2a55;
@@ -247,7 +256,8 @@
 }
 
 /* 1 · Cartón: mojado, con la cinta despegada */
-.ag-dial[data-rank="carton"] {
+.ag-dial[data-rank="carton"],
+.ag-rank-chip[data-rank="carton"] {
   --rk-frame-bg:
     radial-gradient(ellipse at 20% 82%, rgb(80 55 25 / 45%) 0 16%, transparent 40%),
     radial-gradient(ellipse at 86% 18%, rgb(80 55 25 / 35%) 0 14%, transparent 36%),
@@ -260,7 +270,8 @@
   --rk-label: #b89a6e;
 }
 /* 2 · Juguete: colores primarios, como un bloque */
-.ag-dial[data-rank="juguete"] {
+.ag-dial[data-rank="juguete"],
+.ag-rank-chip[data-rank="juguete"] {
   --rk-frame-bg: linear-gradient(180deg, #fff8e8, #f1e8d2);
   --rk-border: #e63946;
   --rk-shadow: 0 0 0 3px #ffd23f, 0 0 0 6px #1e88e5, 0 8px 18px rgb(0 0 0 / 45%);
@@ -270,7 +281,8 @@
   --rk-label: #ffd23f;
 }
 /* 3 · Latón */
-.ag-dial[data-rank="laton"] {
+.ag-dial[data-rank="laton"],
+.ag-rank-chip[data-rank="laton"] {
   --rk-frame-bg: linear-gradient(180deg, #d9c35a, #a8912c 55%, #7a6a1c);
   --rk-border: #e8d77a;
   --rk-win: #3a3208;
@@ -280,7 +292,8 @@
   --rk-sheen-a: 0.28; --rk-sheen-anim: ag-sweep 5s linear infinite;
 }
 /* 4 · Caucho: negro mate, con dibujo de neumático */
-.ag-dial[data-rank="caucho"] {
+.ag-dial[data-rank="caucho"],
+.ag-rank-chip[data-rank="caucho"] {
   --rk-frame-bg: repeating-linear-gradient(135deg, #1b1b1b 0 7px, #101010 7px 10px);
   --rk-border: #2e2e2e;
   --rk-win: #0a0a0a;
@@ -289,7 +302,8 @@
   --rk-label: #8a8a8a;
 }
 /* 5 · Plástico brillante */
-.ag-dial[data-rank="plastico"] {
+.ag-dial[data-rank="plastico"],
+.ag-rank-chip[data-rank="plastico"] {
   --rk-frame-bg: linear-gradient(180deg, rgb(255 255 255 / 45%) 0 38%, transparent 38%), linear-gradient(180deg, #38d9c6, #12a89a);
   --rk-border: #7ff0e3;
   --rk-shadow: 0 8px 20px rgb(18 168 154 / 35%);
@@ -300,7 +314,8 @@
   --rk-sheen-a: 0.4; --rk-sheen-anim: ag-sweep 4.4s linear infinite;
 }
 /* 6 · Gominola: translúcida */
-.ag-dial[data-rank="gominola"] {
+.ag-dial[data-rank="gominola"],
+.ag-rank-chip[data-rank="gominola"] {
   --rk-frame-bg: linear-gradient(135deg, rgb(255 105 160 / 78%), rgb(255 170 60 / 78%));
   --rk-border: rgb(255 255 255 / 55%);
   --rk-shadow: inset 0 0 18px rgb(255 255 255 / 55%), 0 8px 20px rgb(255 105 160 / 30%);
@@ -311,7 +326,8 @@
   --rk-sheen-a: 0.38; --rk-sheen-anim: ag-sweep 4.8s linear infinite;
 }
 /* 7 · Dulce: rayas de caramelo, con grageas fijas */
-.ag-dial[data-rank="dulce"] {
+.ag-dial[data-rank="dulce"],
+.ag-rank-chip[data-rank="dulce"] {
   --rk-frame-bg:
     radial-gradient(circle at 9px 9px, #ffd23f 0 4px, transparent 5px),
     radial-gradient(circle at calc(100% - 9px) 9px, #3ddc97 0 4px, transparent 5px),
@@ -325,7 +341,8 @@
   --rk-label: #ff6b7a;
 }
 /* 8 · Confeti: estampado fijo */
-.ag-dial[data-rank="confeti"] {
+.ag-dial[data-rank="confeti"],
+.ag-rank-chip[data-rank="confeti"] {
   --rk-frame-bg:
     radial-gradient(circle at 12% 22%, #ff4d6d 0 3px, transparent 4px),
     radial-gradient(circle at 30% 78%, #ffd23f 0 3px, transparent 4px),
@@ -342,7 +359,8 @@
   --rk-label: #b794ff;
 }
 /* 9 · Payaso: lunares de colores y nariz roja */
-.ag-dial[data-rank="payaso"] {
+.ag-dial[data-rank="payaso"],
+.ag-rank-chip[data-rank="payaso"] {
   --rk-frame-bg:
     radial-gradient(circle, #ff3b30 0 5px, transparent 6px) 0 0 / 22px 22px,
     radial-gradient(circle, #1e88e5 0 5px, transparent 6px) 11px 11px / 22px 22px,
@@ -367,3 +385,40 @@
   box-shadow: 0 2px 5px rgb(0 0 0 / 45%);
   pointer-events: none;
 }
+
+/* ═══ Chip de rango: «1250 · Oro» ═════════════════════════════════════════
+   Para escribirlo junto a un nombre (agRankChip, en rank.js). Usa el color de
+   su rango (--rk-label, de los mismos bloques de arriba) sin dial ni
+   partículas: un Elo en mono y el nombre del rango en su color. */
+.ag-rank-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--rk-label, var(--text-muted)) 45%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--rk-label, var(--text-muted)) 12%, transparent);
+  font: 600 11px/1.55 var(--font-sans);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.ag-rank-chip .ag-rank-elo {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.ag-rank-chip .ag-rank-name { color: var(--rk-label, var(--text-muted)); }
+
+/* Los rangos de varios colores, también en el texto. */
+.ag-rank-chip[data-rank="gran-master"] .ag-rank-name,
+.ag-rank-chip[data-rank="top3"] .ag-rank-name,
+.ag-rank-chip[data-rank="confeti"] .ag-rank-name,
+.ag-rank-chip[data-rank="payaso"] .ag-rank-name {
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.ag-rank-chip[data-rank="gran-master"] .ag-rank-name { background-image: linear-gradient(90deg, #ffd978, #ff9ec7); }
+.ag-rank-chip[data-rank="top3"] .ag-rank-name { background-image: linear-gradient(90deg, #ffd34d, #ff6fb5 55%, #4dff9d); }
+.ag-rank-chip[data-rank="confeti"] .ag-rank-name { background-image: linear-gradient(90deg, #ff4d6d, #ffd23f, #3ddc97, #4cc9f0, #f72585); }
+.ag-rank-chip[data-rank="payaso"] .ag-rank-name { background-image: linear-gradient(90deg, #ff3b30, #ffeb3b, #1e88e5); }
