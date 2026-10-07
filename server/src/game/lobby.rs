@@ -18,6 +18,36 @@ const EMPTY_LOBBY_TTL: Duration = Duration::from_secs(30 * 60);
 /// sus cartas sueltas, que era lo que dejaba la partida sin solución.
 pub const GRACE_PERIOD: Duration = Duration::from_secs(30);
 
+/// Cuánto dura la encuesta "¿seguimos esperando a X?" que se abre cuando a
+/// quien se le cayó la conexión se le acaba `GRACE_PERIOD`. Quien no contesta
+/// cuenta como Sí.
+pub const VOTE_PERIOD: Duration = Duration::from_secs(15);
+
+/// La encuesta por alguien que se cayó y no volvió a tiempo.
+///
+/// Antes, al agotarse la espera, la partida se redimensionaba sin él y sus
+/// cartas no retiradas iban al centro: al principio de la partida casi ninguna
+/// prenda se puede retirar sin hacer daño, y el centro pasaba de 4 a 20 cartas
+/// (2026-10-06, sala CUX5KZ). Ahora deciden los demás: votan las personas
+/// conectadas (los bots no); basta un No para cancelar la partida, y si todos
+/// dicen Sí —o no contestan— se le espera otro `GRACE_PERIOD`.
+#[derive(Debug, Clone)]
+pub struct Encuesta {
+    pub nickname: String,
+    pub votantes: Vec<Uuid>,
+    pub si: Vec<Uuid>,
+    pub desde: Instant,
+}
+
+/// Lo que hace un voto.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Voto {
+    /// Contó como Sí; la encuesta sigue abierta.
+    Si,
+    /// Fue un No: la encuesta se cierra y la partida se cancela.
+    Cancelar,
+}
+
 /// Estado de un lobby
 #[derive(Debug, Clone, PartialEq)]
 pub enum LobbyStatus {
@@ -129,6 +159,8 @@ pub struct Lobby {
     /// El chat de la sala de espera: dura lo que dure la sala (los reinicios
     /// del servidor la borran, igual que a ella). Con tope, ver `push_chat`.
     pub chat: std::collections::VecDeque<super::messages::ChatLine>,
+    /// Encuestas abiertas, por el id de quien se cayó (ver `Encuesta`).
+    pub encuestas: HashMap<Uuid, Encuesta>,
 }
 
 impl Lobby {
@@ -145,7 +177,48 @@ impl Lobby {
             empty_since: None,
             seats: Vec::new(),
             chat: std::collections::VecDeque::new(),
+            encuestas: HashMap::new(),
         }
+    }
+
+    /// Abre la encuesta por `caido`: votan las personas conectadas que no son
+    /// él. Devuelve su nickname y cuántos votan.
+    pub fn abrir_encuesta(&mut self, caido: Uuid) -> Option<(String, usize)> {
+        let nickname = self.players.iter().find(|p| p.id == caido)?.nickname.clone();
+        let votantes: Vec<Uuid> = self.players.iter()
+            .filter(|p| !p.is_bot && p.disconnected_at.is_none() && p.id != caido)
+            .map(|p| p.id)
+            .collect();
+        let n = votantes.len();
+        self.encuestas.insert(caido, Encuesta { nickname: nickname.clone(), votantes, si: Vec::new(), desde: Instant::now() });
+        Some((nickname, n))
+    }
+
+    /// El voto de `votante` en la encuesta por `nickname`. `None` si no hay
+    /// encuesta por esa persona o a él no le toca votar.
+    pub fn votar(&mut self, votante: &Uuid, nickname: &str, seguir: bool) -> Option<Voto> {
+        let caido = *self.encuestas.iter().find(|(_, e)| e.nickname == nickname)?.0;
+        let enc = self.encuestas.get_mut(&caido)?;
+        if !enc.votantes.contains(votante) {
+            return None;
+        }
+        if !seguir {
+            self.encuestas.remove(&caido);
+            return Some(Voto::Cancelar);
+        }
+        if !enc.si.contains(votante) {
+            enc.si.push(*votante);
+        }
+        Some(Voto::Si)
+    }
+
+    /// Ya dijo Sí cada votante que sigue conectado: no hace falta esperar al
+    /// final del plazo.
+    pub fn encuesta_completa(&self, caido: &Uuid) -> bool {
+        let Some(e) = self.encuestas.get(caido) else { return false };
+        e.votantes.iter()
+            .filter(|v| self.players.iter().any(|p| p.id == **v && p.disconnected_at.is_none()))
+            .all(|v| e.si.contains(v))
     }
 
     /// Añade una línea al chat y tira las más viejas si pasa de `chat::KEEP`.
@@ -429,6 +502,14 @@ impl Lobby {
         let old_id = p.id;
         p.id = new_id;
         p.disconnected_at = None;
+
+        // Si votaba en una encuesta, su voto (y su derecho a votar) siguen con
+        // él. Si la encuesta era por él, la cierra `run_vote`: ya volvió.
+        for enc in self.encuestas.values_mut() {
+            for v in enc.votantes.iter_mut().chain(enc.si.iter_mut()) {
+                if *v == old_id { *v = new_id; }
+            }
+        }
 
         if let Some(game) = &mut self.game_state {
             if let Some(ps) = game.players.iter_mut().find(|ps| ps.id == old_id) {
@@ -737,6 +818,56 @@ impl LobbyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Una sala con estas personas (y un bot), con `caido` desconectado.
+    fn sala_con_caido(nombres: &[&str], caido: &str) -> (Lobby, HashMap<String, Uuid>) {
+        let mut l = Lobby::new("ENCUES".to_string(), 8);
+        let mut ids = HashMap::new();
+        for n in nombres {
+            let id = Uuid::new_v4();
+            l.add_player(id, n.to_string()).unwrap();
+            ids.insert(n.to_string(), id);
+        }
+        let bot = Uuid::new_v4();
+        l.add_player(bot, "🤖 Bot 1".to_string()).unwrap();
+        l.players.last_mut().unwrap().is_bot = true;
+        l.mark_disconnected(&ids[caido]);
+        (l, ids)
+    }
+
+    #[test]
+    fn la_encuesta_la_votan_las_personas_conectadas_y_un_no_cancela() {
+        let (mut l, ids) = sala_con_caido(&["Ana", "Beto", "Daixi"], "Daixi");
+        let (nick, votan) = l.abrir_encuesta(ids["Daixi"]).unwrap();
+        assert_eq!((nick.as_str(), votan), ("Daixi", 2), "ni el bot ni ella votan");
+        assert_eq!(l.votar(&ids["Daixi"], "Daixi", true), None, "la caída no vota");
+        assert_eq!(l.votar(&ids["Ana"], "Daixi", true), Some(Voto::Si));
+        assert!(!l.encuesta_completa(&ids["Daixi"]), "falta Beto");
+        assert_eq!(l.votar(&ids["Beto"], "Daixi", false), Some(Voto::Cancelar));
+        assert!(l.encuestas.is_empty(), "un No la cierra");
+    }
+
+    #[test]
+    fn todos_si_la_completa_y_quien_se_cae_ya_no_cuenta() {
+        let (mut l, ids) = sala_con_caido(&["Ana", "Beto", "Daixi"], "Daixi");
+        l.abrir_encuesta(ids["Daixi"]).unwrap();
+        l.votar(&ids["Ana"], "Daixi", true);
+        l.mark_disconnected(&ids["Beto"]);
+        assert!(l.encuesta_completa(&ids["Daixi"]), "Beto se cayó: basta con Ana");
+    }
+
+    #[test]
+    fn quien_vuelve_conserva_su_voto() {
+        let (mut l, ids) = sala_con_caido(&["Ana", "Beto", "Daixi"], "Daixi");
+        l.abrir_encuesta(ids["Daixi"]).unwrap();
+        l.votar(&ids["Ana"], "Daixi", true);
+        let token = l.players.iter().find(|p| p.id == ids["Ana"]).unwrap().seat_token.clone().unwrap();
+        let nueva = Uuid::new_v4();
+        l.rebind_seat(&token, nueva);
+        let e = &l.encuestas[&ids["Daixi"]];
+        assert!(e.votantes.contains(&nueva) && e.si.contains(&nueva));
+        assert_eq!(l.votar(&nueva, "Daixi", false), Some(Voto::Cancelar), "puede seguir votando con su conexión nueva");
+    }
 
     #[test]
     fn test_create_lobby() {

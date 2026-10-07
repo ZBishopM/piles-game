@@ -17,7 +17,8 @@ Playwright se bajan aparte: `pnpm exec playwright install chromium`).
 |---|---|
 | "Se me cayó y no pude volver" / "dice que ya hay alguien con mi nombre" | `grab.nu humanos` (huecos y `conn`), `grab.nu notas` (qué vio el cliente), `log.nu --desde 30min -g "cayó|cerró|rejoin"` |
 | "No me deja coger una carta" | `grab.nu jugadas` → **deudas forzadas con su causa**; `grab.nu notas` → `tap_ignored` / `tap_refused` / `state` del cliente |
-| "Se canceló la partida" | `grab.nu resumen` (línea `end` y su motivo) y `grab.nu notas` (eventos `conn`: gracia, relevo, cancelación) |
+| "Se canceló la partida" | `grab.nu resumen` (línea `end` y su motivo) y `grab.nu notas` (eventos `conn`: gracia, encuesta y quién votó No, relevo, cancelación) |
+| "Las cartas de alguien se fueron al centro" | `grab.nu notas` (`grace_end: retirado` = se fue con «Salir» y no volvió en 30 s; una caída ya no retira: abre encuesta). `humanos` no lista a quien no llegó a mandar nada |
 | "Los bots hacen cosas raras" | `grab.nu bots` (ciclos soltar→coger, ping-pong, cuánto dura lo que sueltan) |
 | "Se quedó pillado en una pelea" | `grab.nu peleas` (ganador, solapes, `SIN RESOLVER`) |
 | "El bot se quedó parado" / "pido cartas y no pasa nada" | `grab.nu bots`; `grab.nu notas` (líneas `RESYNC`: el servidor le corrigió la mano); en bruto, rechazos "Suelta una carta antes de coger otra" repetidos al mismo jugador = su mano no coincide con la del servidor |
@@ -40,7 +41,9 @@ empezó la partida:
 - `key`: foto del estado verdadero cada pocos segundos (manos, centro, conexiones).
 - `ping`: latencias.
 - `conn`: **conexión** — `close` (con motivo: cierre limpio, error, `silencio`),
-  `grace_start`, `grace_end` (`volvio` / `retirado`), `replaced`, `cancel`, y los
+  `grace_start`, `grace_end` (`volvio` / `retirado`), `encuesta` (se acabó la gracia
+  de una caída), `voto`, `encuesta_fin` (`seguir` / `volvio` / `cancelar` / `fin`),
+  `replaced`, `cancel`, y los
   reingresos que no salieron: `rejoin_sin_asiento` (volvió con secreto y no abrió
   ningún asiento, con el porqué) y `join_error` (el servidor le contestó un error).
 - `resync`: el servidor rechazó una jugada porque el cliente creía algo falso (coger
@@ -83,6 +86,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `estado.mjs` | `/api/estado` dice la verdad y no regala salas privadas |
 | `chat.mjs` | Chat de la sala de espera (llega a todos, historial al entrar o volver, limpieza y límites, rechazado en partida y fuera de la grabación pública) y el Elo junto a cada nombre (`pool` y `elo` del `lobby_update`, Elo fijo de los bots) |
 | `mirar.mjs [--largo]` | Mirar partidas: la lista pública con las que están en curso (`status`, jugadores, mirones), la mano de TODOS por ids (coincide con el `game_start` de cada jugador y se actualiza en <1 s), sin mensajes privados ni acciones; `--largo` (~35 s) añade la cola de espera: la mesa llena no echa a quien miraba, se sienta al liberarse un hueco y puede escribir en el chat |
+| `encuesta.mjs` | Caída sin vuelta (~2 min): a los 30 s encuesta de 15 s; todos Sí o nadie contesta = otros 30 s, un No cancela; volver en plena encuesta la cierra; «Salir» retira como antes, sin encuesta |
 | `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 
 ### `browser/` — Playwright (`--ver` abre la ventana)
@@ -96,6 +100,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `version.mjs` | Una pestaña abierta desde antes de un despliegue se recarga sola: la primera versión (`hello`) que ve es la suya, un cambio en una reconexión recarga (con aviso), y no más de una vez cada 30 s. En local la versión es «dev» y se ignora |
 | `sala.mjs` | La sala de espera: chat entre pestañas e historial, texto sin interpretar (apodos y mensajes con `<img onerror>`), chips de Elo con el color de su rango, For glory ↔ For fun al añadir un bot, móvil sin desborde, y pantalla final sin puntos ni combo (capturas en `$CAPTURAS` o en la carpeta temporal) |
 | `rangos.mjs` | Rangos en los diales de Elo (fin de partida y perfil): pastilla ▲/▼, un sonido por cruce, corona del Top 3, partículas solo en glory, movimiento reducido |
+| `encuesta.mjs` | La encuesta en pantalla (~70 s): aviso de caída, botones Esperar/Cancelar que se pueden pulsar, «Votaste esperar», nueva cuenta atrás, Cancelar vuelve a la sala; apodo `<i>` como texto |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |
 
 `toques.mjs` y `peleas.mjs` fallan contra un cliente **sin** el arreglo: sirven de prueba

@@ -1274,6 +1274,28 @@
             animation: slideIn 0.3s ease;
             pointer-events: none;
         }
+        /* La encuesta "¿seguimos esperando?" se puede pulsar (los demás avisos no). */
+        .qte-battle-notif.wait-poll {
+            pointer-events: auto;
+            border-color: #f39c12;
+        }
+        .wait-poll-btns {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+        .wait-poll-btns button {
+            flex: 1;
+            padding: 6px 0;
+            border-radius: 8px;
+            border: none;
+            font: inherit;
+            font-weight: bold;
+            cursor: pointer;
+            color: #fff;
+        }
+        .wait-poll-btns .wp-si { background: #27ae60; }
+        .wait-poll-btns .wp-no { background: #c0392b; }
         .qte-battle-notif .qbn-title {
             color: #e74c3c;
             font-weight: bold;
@@ -2367,6 +2389,14 @@ function handleMsg(msg) {
 
         case 'player_left':
             onPlayerLeft(msg.nickname, msg.retired);
+            break;
+
+        case 'wait_poll':
+            onWaitPoll(msg.nickname, msg.seconds);
+            break;
+
+        case 'wait_poll_closed':
+            onWaitPollClosed(msg.nickname, msg.result);
             break;
 
         case 'sets_resynced':
@@ -3793,36 +3823,102 @@ function clearGrace(nickname) {
     document.querySelector(`[data-grace="${CSS.escape(nickname)}"]`)?.remove();
 }
 
-function onPlayerDisconnected(nickname, seconds) {
+/** El aviso de `nickname` con un título y unas líneas de texto. Como texto, nunca
+ *  como HTML: el servidor no filtra los apodos. Devuelve el aviso. */
+function pintarAviso(nickname, titulo, lineas) {
     const el = graceNotif(nickname);
-    if (!el) return;
+    if (!el) return null;
+    el.classList.remove('wait-poll');
+    const t = document.createElement('div');
+    t.className = 'qbn-title';
+    t.textContent = titulo;
+    el.replaceChildren(t, ...lineas.map(([texto, estilo]) => {
+        const d = document.createElement('div');
+        d.style.cssText = estilo || 'text-align:center';
+        d.textContent = texto;
+        return d;
+    }));
+    return el;
+}
+
+function onPlayerDisconnected(nickname, seconds) {
+    if (!graceNotif(nickname)) return;
     clearInterval(graceTimers.get(nickname));
 
     let left = seconds;
-    const paint = () => {
-        el.innerHTML = `<div class="qbn-title">🔌 ${nickname}</div>`
-            + `<div style="text-align:center">se cayó · ${left}s</div>`;
-    };
+    const paint = () => pintarAviso(nickname, `🔌 ${nickname}`, [[`se cayó · ${left}s`]]);
     paint();
     graceTimers.set(nickname, setInterval(() => {
         left -= 1;
-        if (left <= 0) { clearGrace(nickname); return; }
+        // Al acabar la cuenta el aviso se queda: llega la encuesta (o se va solo
+        // si el servidor es de antes de ella).
+        if (left <= 0) { clearInterval(graceTimers.get(nickname)); return; }
         paint();
     }, 1000));
 }
 
 function onPlayerLeft(nickname, retired) {
     clearGrace(nickname);
-    const el = graceNotif(nickname);
-    if (!el) return;
     // Las prendas retiradas se nombran a propósito: explica por qué de pronto
     // hay cartas que ya no están, y lo convierte en mecánica y no en un fallo.
-    const what = retired && retired.length
-        ? `<div style="font-size:0.72rem;opacity:0.8;margin-top:4px">fuera: ${retired.join(', ')}</div>`
-        : '';
-    el.innerHTML = `<div class="qbn-title">🚪 ${nickname}</div>`
-        + `<div style="text-align:center">no volvió</div>${what}`;
+    const lineas = [['no volvió']];
+    if (retired && retired.length) {
+        lineas.push([`fuera: ${retired.join(', ')}`, 'font-size:0.72rem;opacity:0.8;margin-top:4px']);
+    }
+    pintarAviso(nickname, `🚪 ${nickname}`, lineas);
     setTimeout(() => clearGrace(nickname), 6000);
+}
+
+// ─── ¿Seguimos esperando? ─────────────────────────────────────────────────
+// Si quien se cayó no vuelve en 30 s, el servidor pregunta a las personas que
+// siguen: Sí = otros 30 s de espera, No = se cancela la partida (basta uno).
+// Quien no contesta en el plazo cuenta como Sí. Quien mira solo lo ve.
+
+function onWaitPoll(nickname, seconds) {
+    clearInterval(graceTimers.get(nickname));
+    let left = seconds;
+    let voto = null;
+    const paint = () => {
+        const lineas = [[`sigue sin volver · ¿seguimos esperando? ${left}s`]];
+        if (voto !== null) lineas.push([voto ? 'Votaste esperar' : 'Votaste cancelar', 'text-align:center;opacity:0.8;margin-top:4px']);
+        const el = pintarAviso(nickname, `🔌 ${nickname}`, lineas);
+        if (!el) return;
+        el.classList.add('wait-poll');
+        if (soyEspectador || voto !== null) return;
+        const botones = document.createElement('div');
+        botones.className = 'wait-poll-btns';
+        for (const [texto, seguir] of [['Esperar', true], ['Cancelar', false]]) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = texto;
+            b.className = seguir ? 'wp-si' : 'wp-no';
+            b.addEventListener('click', () => {
+                voto = seguir;
+                send({ type: 'wait_poll_vote', nickname, keep_waiting: seguir });
+                paint();
+            });
+            botones.appendChild(b);
+        }
+        el.appendChild(botones);
+    };
+    paint();
+    graceTimers.set(nickname, setInterval(() => {
+        left = Math.max(0, left - 1);
+        paint();
+    }, 1000));
+}
+
+function onWaitPollClosed(nickname, result) {
+    clearInterval(graceTimers.get(nickname));
+    graceTimers.delete(nickname);
+    if (result === 'volvio') {
+        pintarAviso(nickname, `✅ ${nickname}`, [['volvió']]);
+        setTimeout(() => clearGrace(nickname), 4000);
+    } else if (result !== 'seguir') {
+        // `seguir`: llega enseguida un `player_disconnected` con la nueva espera.
+        // `cancelar`: llega `game_cancelled`, que limpia los avisos.
+        clearGrace(nickname);
+    }
 }
 
 /** Una partida nueva no arrastra avisos de la anterior. */
@@ -4804,7 +4900,15 @@ function onSwapConflict(players, cardId, durationMs) {
             const div = document.createElement('div');
             div.className = 'qte-player-score' + (name === currentNickname ? ' is-me' : '');
             div.id = `qte-score-${name}`;
-            div.innerHTML = `<div class="qte-name">${name === currentNickname ? '⭐ ' + name + ' (Tú)' : name}</div><div class="qte-count" id="qte-n-${name}">0</div>`;
+            // El apodo como texto, nunca como HTML: el servidor no lo filtra.
+            const nombre = document.createElement('div');
+            nombre.className = 'qte-name';
+            nombre.textContent = name === currentNickname ? `⭐ ${name} (Tú)` : name;
+            const cuenta = document.createElement('div');
+            cuenta.className = 'qte-count';
+            cuenta.id = `qte-n-${name}`;
+            cuenta.textContent = '0';
+            div.append(nombre, cuenta);
             scoresDiv.appendChild(div);
         });
 

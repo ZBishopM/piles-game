@@ -17,7 +17,7 @@ use crate::game::{
     FRENZY_STUN,
     get_clothing_name,
 };
-use crate::game::lobby::{DEBT_DEADLINE, GRACE_PERIOD};
+use crate::game::lobby::{Voto, DEBT_DEADLINE, GRACE_PERIOD, VOTE_PERIOD};
 
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
@@ -757,7 +757,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
                 nickname,
                 seconds: GRACE_PERIOD.as_secs(),
             }).await;
-            tokio::spawn(run_grace_period(state.clone(), lobby_id.to_string(), player_id));
+            tokio::spawn(run_grace_period(state.clone(), lobby_id.to_string(), player_id, voluntary));
         }
         // Si no está en `players`, su asiento ya lo tomó otra conexión suya
         // (`rebind_seat`): este cierre ya no pinta nada.
@@ -1874,6 +1874,41 @@ pub(crate) async fn handle_client_message(
             }
         }
 
+        // ── Encuesta por alguien que se cayó ──
+        //
+        // Un No cancela la partida en el acto; un Sí solo se apunta (la cierra
+        // `run_vote`). Quien no vota, o vota en una encuesta que no es suya, no
+        // cambia nada.
+        ClientMessage::WaitPollVote { nickname, keep_waiting } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+            let votante = lobby.players.iter()
+                .find(|p| p.id == player_id)
+                .map(|p| p.nickname.clone())
+                .unwrap_or_default();
+            match lobby.votar(&player_id, &nickname, keep_waiting) {
+                Some(Voto::Si) => {
+                    lobby.commit().await;
+                    state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+                        "kind": "voto", "player": nickname, "votante": votante, "seguir": true,
+                    })).await;
+                }
+                Some(Voto::Cancelar) => {
+                    lobby.commit().await;
+                    tracing::info!("🗳️ {} no quiere seguir esperando a {} en {}: se cancela", votante, nickname, lobby_id);
+                    state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+                        "kind": "encuesta_fin", "player": nickname, "result": "cancelar", "votante": votante,
+                    })).await;
+                    state.broadcast_to_lobby(&lobby_id, ServerMessage::WaitPollClosed {
+                        nickname: nickname.clone(),
+                        result: "cancelar".to_string(),
+                    }).await;
+                    cancel_match(state, &lobby_id, &nickname).await;
+                }
+                None => {}
+            }
+        }
+
         // ── Chat de la sala de espera ──
         //
         // Solo con la sala en espera y para quien esté sentado (los bots no
@@ -2417,7 +2452,9 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
     retire_orphan_bots(state, lobby_id).await;
 }
 
-/// Espera a quien se cayó y, si no vuelve, redimensiona la partida.
+/// Espera a quien se cayó y, si no vuelve, pregunta a los demás si seguir
+/// esperándole (`run_vote`). Quien se fue a propósito (`voluntary`) no se
+/// espera más: la partida se redimensiona sin él.
 ///
 /// Si vuelve, `rebind_seat` le cambia el id, así que este id ya no existe en
 /// el lobby y la tarea se va sin hacer nada — no hace falta cancelarla desde
@@ -2426,7 +2463,7 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
 /// Es aquí, y no en el momento de la caída, donde se decide si la partida se
 /// cancela: antes se cancelaba al instante cuando se caía la única persona (o
 /// quedaba una sola), y quien volvía a los pocos segundos ya no tenía partida.
-async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
+async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, voluntary: bool) {
     sleep(GRACE_PERIOD).await;
 
     let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
@@ -2467,6 +2504,24 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
         // seguidas de la misma sala se esperarían la una a la otra.
         drop(lobby);
         cancel_match(&state, &lobby_id, &nickname).await;
+        return;
+    }
+
+    // Se le cayó la conexión: deciden los demás. Antes aquí se redimensionaba
+    // la partida, y al principio casi ninguna prenda se puede retirar sin hacer
+    // daño: sus cartas iban al centro y lo dejaban en 20 (ver `Encuesta`).
+    if !voluntary {
+        let Some((_, votantes)) = lobby.abrir_encuesta(player_id) else { return };
+        lobby.commit().await;
+        tracing::info!("🗳️ {} no volvió: encuesta en {} ({} votan)", nickname, lobby_id, votantes);
+        state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+            "kind": "encuesta", "player": nickname, "votantes": votantes, "secs": VOTE_PERIOD.as_secs(),
+        })).await;
+        state.broadcast_to_lobby(&lobby_id, ServerMessage::WaitPoll {
+            nickname,
+            seconds: VOTE_PERIOD.as_secs(),
+        }).await;
+        tokio::spawn(run_vote(state.clone(), lobby_id, player_id));
         return;
     }
 
@@ -2517,6 +2572,69 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid) {
         players_progress,
         spectators: mirones,
     }).await;
+}
+
+/// La encuesta por `caido` hasta que se cierra sola: volvió, todos los que
+/// votan dijeron Sí, se acabó `VOTE_PERIOD` (quien no contestó cuenta como Sí)
+/// o la partida terminó. Un No la cierra antes, en el manejador del voto, que
+/// cancela la partida. Si se sigue esperando, vuelve a correr `GRACE_PERIOD`.
+///
+/// Devuelve un futuro en caja porque ella y `run_grace_period` se lanzan la
+/// una a la otra: con dos `async fn` el compilador no puede cerrar el tipo.
+fn run_vote(state: AppState, lobby_id: String, caido: Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(vote_until_closed(state, lobby_id, caido))
+}
+
+async fn vote_until_closed(state: AppState, lobby_id: String, caido: Uuid) {
+    loop {
+        sleep(Duration::from_millis(250)).await;
+        let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+        // Cerrada por un No (y la partida, cancelada).
+        let Some(enc) = lobby.encuestas.get(&caido).cloned() else { return };
+        let volvio = !lobby.players.iter().any(|p| p.id == caido && p.disconnected_at.is_some());
+        let jugando = lobby.status == LobbyStatus::Playing && lobby.game_state.is_some();
+        let resultado = if volvio {
+            "volvio"
+        } else if !jugando {
+            "fin"
+        } else if lobby.encuesta_completa(&caido) || enc.desde.elapsed() >= VOTE_PERIOD {
+            "seguir"
+        } else {
+            continue;
+        };
+        lobby.encuestas.remove(&caido);
+        lobby.commit().await;
+        tracing::info!("🗳️ encuesta por {} en {}: {}", enc.nickname, lobby_id, resultado);
+        state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+            "kind": "encuesta_fin", "player": enc.nickname, "result": resultado, "si": enc.si.len(),
+        })).await;
+        state.broadcast_to_lobby(&lobby_id, ServerMessage::WaitPollClosed {
+            nickname: enc.nickname.clone(),
+            result: resultado.to_string(),
+        }).await;
+        match resultado {
+            "seguir" => {
+                // Otra espera, como la primera: el aviso con su cuenta atrás y,
+                // al acabar, otra encuesta si sigue sin volver.
+                state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+                    "kind": "grace_start", "player": enc.nickname, "secs": GRACE_PERIOD.as_secs(),
+                    "voluntaria": false, "otra_vez": true,
+                })).await;
+                state.broadcast_to_lobby(&lobby_id, ServerMessage::PlayerDisconnected {
+                    nickname: enc.nickname,
+                    seconds: GRACE_PERIOD.as_secs(),
+                }).await;
+                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false));
+            }
+            // La partida terminó con él fuera: `run_grace_period` lo saca de la
+            // sala (si se queda, bloquea la siguiente ronda).
+            "fin" => {
+                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false));
+            }
+            _ => {}
+        }
+        return;
+    }
 }
 
 /// ¿Le impide jugar a este jugador la pelea que haya en curso?

@@ -122,7 +122,7 @@ def "main humanos" [f: string, --base (-b): string = "local"] {
     print $"   huecos >8 s: ($huecos | str join ', ')(if $final > 8000 { $'  [calló los últimos ($final) ms de la grabación]' } else { '' })"
     let conn = ($g.ev | where {|e| $e.t == "conn" and $e.player? == $p })
     if ($conn | is-not-empty) {
-      print $"   conexión: ($conn | each {|c| $'($c.ms) ($c.kind)(if ($c.motivo? != null) { ':' + $c.motivo } else { '' })' } | str join ', ')"
+      print $"   conexión: ($conn | each {|c| $'($c.ms) ($c.kind)(if ($c.motivo? != null) { ':' + $c.motivo } else if ($c.result? != null) { ':' + $c.result } else { '' })' } | str join ', ')"
     }
   }
 }

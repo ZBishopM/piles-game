@@ -101,6 +101,13 @@ pub enum ClientMessage {
     /// esa carta, se la lleva el otro, y vuelves a jugar en el momento sin
     /// esperar a que acabe el reloj de la pelea.
     GiveUpCard,
+    /// Voto en la encuesta por alguien que se cayó y no volvió a tiempo
+    /// (`ServerMessage::WaitPoll`): `keep_waiting` Sí = seguir esperándole,
+    /// No = cancelar la partida.
+    WaitPollVote {
+        nickname: String,
+        keep_waiting: bool,
+    },
     /// Ping para mantener la conexión viva.
     ///
     /// Trae de vuelta la última ida y vuelta que midió el propio cliente: el
@@ -351,6 +358,20 @@ pub enum ServerMessage {
     PlayerDisconnected {
         nickname: String,
         seconds: u64,
+    },
+    /// Se agotó la espera y no volvió: ¿se le sigue esperando? Votan las
+    /// personas conectadas (`ClientMessage::WaitPollVote`) durante `seconds`;
+    /// un No cancela la partida, y quien no contesta cuenta como Sí.
+    WaitPoll {
+        nickname: String,
+        seconds: u64,
+    },
+    /// Se cerró la encuesta por `nickname`. `result`: `seguir` (se le espera
+    /// otra vez: llega un `PlayerDisconnected` nuevo), `volvio`, `cancelar`
+    /// (llega `GameCancelled`) o `fin` (la partida terminó entretanto).
+    WaitPollClosed {
+        nickname: String,
+        result: String,
     },
     /// Se agotó la espera y la partida se redimensiona a un jugador menos.
     /// `retired` son las prendas que salen del juego entero.
