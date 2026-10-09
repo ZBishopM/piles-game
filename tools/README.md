@@ -101,6 +101,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `sala.mjs` | La sala de espera: chat entre pestañas e historial, texto sin interpretar (apodos y mensajes con `<img onerror>`), chips de Elo con el color de su rango, For glory ↔ For fun al añadir un bot, móvil sin desborde, y pantalla final sin puntos ni combo (capturas en `$CAPTURAS` o en la carpeta temporal) |
 | `rangos.mjs` | Rangos en los diales de Elo (fin de partida y perfil): pastilla ▲/▼, un sonido por cruce, corona del Top 3, partículas solo en glory, movimiento reducido |
 | `encuesta.mjs` | La encuesta en pantalla (~70 s): aviso de caída, botones Esperar/Cancelar que se pueden pulsar, «Votaste esperar», nueva cuenta atrás, Cancelar vuelve a la sala; apodo `<i>` como texto |
+| `titulo.mjs` | El título animado del inicio, en el lobby real: sin errores, anima, hay un set visible (4 de la misma prenda en 4 colores) en dos manos seguidas, se pausa del todo al salir de la pantalla de inicio o con la pestaña oculta y reanuda, formulario sin scroll en 390x700, y con movimiento reducido queda «Piles!» quieta (~25 s; fotos en `$CAPTURAS`) |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |
 
 `toques.mjs` y `peleas.mjs` fallan contra un cliente **sin** el arreglo: sirven de prueba

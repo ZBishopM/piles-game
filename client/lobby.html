@@ -62,7 +62,90 @@
             background: var(--card);
             border-radius: 16px;
         }
-        .panel h1 { text-align: center; font-size: 2.5rem; color: var(--accent); margin-bottom: 4px; }
+        /* Título animado de la pantalla de inicio (ver el script "piles-titulo" al final).
+           Seis cartas, una por letra de «Piles!»; el ancho de carta sale del ancho del panel (cqw). */
+        .piles-titulo {
+            margin: 0 0 8px;
+            container-type: inline-size;
+            contain: layout paint style;
+            pointer-events: none;
+            font: inherit;
+        }
+        .pt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+        .pt-e {
+            display: block;
+            --w: clamp(36px, 14.5cqw, 72px);          /* ancho de una carta */
+            --gap: calc(var(--w) * 0.16);
+            --h: calc(var(--w) * 1.5441);             /* alto de la celda de cards.webp */
+            position: relative;
+            height: calc(var(--h) + var(--w) * 1.35); /* aire arriba (botes y caída) y abajo (sombra) */
+            perspective: 1000px;
+        }
+        .pt-slot, .pt-hop, .pt-bob, .pt-flip { transform-style: preserve-3d; }
+        .pt-slot {
+            position: absolute;
+            top: var(--w);
+            left: calc(50% - var(--w) * 3.4 + var(--p) * (var(--w) + var(--gap)));
+            width: var(--w); height: var(--h);
+        }
+        .pt-hop, .pt-bob, .pt-flip { position: absolute; inset: 0; }
+        .pt-bob { animation: pt-flotar 3.4s ease-in-out infinite; animation-delay: calc(var(--ph) * -1s); }
+        @keyframes pt-flotar {
+            0%, 100% { transform: translateY(0) rotateZ(-1.6deg); }
+            50%      { transform: translateY(calc(var(--w) * -0.12)) rotateZ(1.6deg); }
+        }
+        .pt-cara {
+            position: absolute; inset: 0;
+            backface-visibility: hidden;
+            border-radius: calc(var(--w) * 0.1);
+            box-shadow: 0 6px 14px rgb(0 0 0 / 45%);
+            background: #fff url("cards.webp") no-repeat;
+            background-size: 1600% 1300%;             /* 16 columnas x 13 filas, como .card */
+            display: grid; place-items: center;
+            overflow: hidden;
+        }
+        .pt-cara.pt-b { transform: rotateY(180deg); }
+        /* Letra: amarillo/magenta en diagonal como el reverso; blanco gordo con contorno. */
+        .pt-cara.pt-letra {
+            background-image: linear-gradient(135deg, #f7d51d 50%, #d6208f 50%);
+            background-size: 100% 100%;
+            box-shadow: 0 0 0 calc(var(--w) * 0.04) #2a1236, 0 6px 14px rgb(0 0 0 / 45%);
+        }
+        .pt-letra span {
+            display: block;
+            font-weight: 900;
+            font-size: calc(var(--w) * 1.3);
+            line-height: 1;
+            color: #fff;
+            /* Contorno con 24 sombras en círculo, NO -webkit-text-stroke: la Geist variable a peso 900
+               trae contornos solapados y el trazo los deja al descubierto (barras en i, l, ! y rendija en e). */
+            --o: calc(var(--w) * 0.045); --o2: calc(var(--w) * 0.039); --o3: calc(var(--w) * 0.0225);
+            text-shadow:
+                var(--o) 0 #2a1236, var(--o2) var(--o3) #2a1236, var(--o3) var(--o2) #2a1236, 0 var(--o) #2a1236,
+                calc(var(--o3) * -1) var(--o2) #2a1236, calc(var(--o2) * -1) var(--o3) #2a1236, calc(var(--o) * -1) 0 #2a1236,
+                calc(var(--o2) * -1) calc(var(--o3) * -1) #2a1236, calc(var(--o3) * -1) calc(var(--o2) * -1) #2a1236,
+                0 calc(var(--o) * -1) #2a1236, var(--o3) calc(var(--o2) * -1) #2a1236, var(--o2) calc(var(--o3) * -1) #2a1236,
+                calc(var(--o) * 0.966) calc(var(--o) * 0.259) #2a1236,
+                calc(var(--o) * 0.707) calc(var(--o) * 0.707) #2a1236,
+                calc(var(--o) * 0.259) calc(var(--o) * 0.966) #2a1236,
+                calc(var(--o) * -0.259) calc(var(--o) * 0.966) #2a1236,
+                calc(var(--o) * -0.707) calc(var(--o) * 0.707) #2a1236,
+                calc(var(--o) * -0.966) calc(var(--o) * 0.259) #2a1236,
+                calc(var(--o) * -0.966) calc(var(--o) * -0.259) #2a1236,
+                calc(var(--o) * -0.707) calc(var(--o) * -0.707) #2a1236,
+                calc(var(--o) * -0.259) calc(var(--o) * -0.966) #2a1236,
+                calc(var(--o) * 0.259) calc(var(--o) * -0.966) #2a1236,
+                calc(var(--o) * 0.707) calc(var(--o) * -0.707) #2a1236,
+                calc(var(--o) * 0.966) calc(var(--o) * -0.259) #2a1236,
+                calc(var(--w) * 0.05) calc(var(--w) * 0.08) #2a1236;
+            transform: rotate(var(--inc, -5deg));
+            padding-bottom: 0.08em;
+        }
+        .pt-brillo .pt-cara.pt-letra { animation: pt-brillo 1.1s ease-in-out infinite alternate; }
+        @keyframes pt-brillo { from { filter: brightness(1); } to { filter: brightness(1.18) saturate(1.1); } }
+        .pt-listo .pt-cara { box-shadow: 0 0 22px rgb(247 213 29 / 55%), 0 6px 14px rgb(0 0 0 / 45%); transition: box-shadow .4s; }
+        .pt-pausa, .pt-pausa * { animation-play-state: paused !important; }
+        @media (prefers-reduced-motion: reduce) { .pt-bob { animation: none; } }
         .panel .subtitle { text-align: center; color: var(--text-faint); margin-bottom: 28px; }
         .panel h2 { text-align: center; font-size: 1.4rem; color: var(--text); margin-bottom: 20px; }
 
@@ -188,7 +271,6 @@
                 border-radius: 12px;
                 padding: 16px;
             }
-            .panel h1 { font-size: 2rem; }
             .panel .subtitle { font-size: 0.95rem; margin-bottom: 20px; }
             .btn { padding: 14px; font-size: 1.05rem; }
             .seg-btn { min-width: 40px; padding: 14px 4px; }
@@ -1480,8 +1562,7 @@
 <div id="homeScreen" class="screen panel active">
     <button type="button" class="profile-btn" onclick="showScreen('profileScreen'); loadProfileElo()" title="Perfil">👤</button>
 
-    <h1>🎮 Piles!</h1>
-    <p class="subtitle">Juego de Cartas Multijugador</p>
+    <h1 class="piles-titulo"><span class="pt-sr">Piles!</span><span class="pt-e" aria-hidden="true"></span></h1>
 
     <div class="form-group">
         <label for="nickname">Tu nombre</label>
@@ -5582,6 +5663,264 @@ function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
 }
+</script>
+
+<!-- Título animado: ver .piles-titulo en el CSS. Sin JS queda el texto accesible. -->
+<script>
+// Seis cartas, una por letra de «Piles!». Caen, se voltean a prendas, cuatro forman un set (la misma
+// prenda en sus cuatro colores) y vuelven a las letras. Solo corre con #homeScreen activo, la pestaña
+// visible y el título en pantalla: fuera de eso se pausan TODAS las animaciones (y las esperas, que
+// también son animaciones), y al volver sigue donde estaba.
+(() => {
+try {
+    const h1 = document.querySelector('.piles-titulo'), home = document.getElementById('homeScreen');
+    const esc = h1.querySelector('.pt-e');
+    const LETRAS = ['P', 'i', 'l', 'e', 's', '!'];
+    // Prendas de cards.webp (clothing_type, ver applyCardSprite):
+    // 46 gorro, 12 pantalón largo, 40 gabardina, 7 shorts de rayas, 48 bikini, 44 bufanda
+    const PRENDAS = [46, 12, 40, 7, 48, 44];
+    // Posiciones del set (4 de 6) por mano; las otras dos son prendas sueltas que no se tocan.
+    const SETS = [[0, 2, 3, 5], [1, 2, 4, 5], [0, 1, 3, 4], [0, 2, 4, 5]];
+    let W = 0, CAIDA = 0;       // ancho de carta en px; lo que hay que subir una carta para dejarla fuera del cuadro
+
+    // ─── Puerta: activo = pantalla de inicio + pestaña visible + título en pantalla ───
+    let activo = false, visible = false, pausadas = [], esperando = [];
+    const vivo = () => activo ? Promise.resolve() : new Promise(r => esperando.push(r));
+    function ajustar() {
+        const ahora = visible && !document.hidden && home.classList.contains('active');
+        if (ahora === activo) return;
+        activo = ahora;
+        h1.classList.toggle('pt-pausa', !activo);                 // las de CSS (flotar, brillo)
+        if (activo) {
+            pausadas.forEach(a => a.play()); pausadas = [];
+            esperando.splice(0).forEach(r => r());
+        } else {                                                  // las de WAAPI, solo las que corren (play() reiniciaría las acabadas)
+            pausadas = esc.getAnimations({ subtree: true }).filter(a => a.constructor === Animation && a.playState === 'running');
+            pausadas.forEach(a => a.pause());
+        }
+    }
+
+    // ─── Utilidades ───
+    const $ = (cls, padre) => { const e = document.createElement('span'); e.className = cls; padre?.append(e); return e; };
+    const posSprite = (tipo, variante) =>
+        `${(((tipo % 4) * 4 + variante) / 15) * 100}% ${(Math.floor(tipo / 4) / 12) * 100}%`;
+    /** Animación nueva; si justo se ha cerrado la puerta, nace pausada. */
+    const nueva = (el, kf, dur, easing = 'linear') => {
+        const a = el.animate(kf, { duration: dur, easing });
+        if (!activo) { a.pause(); pausadas.push(a); }
+        return a;
+    };
+    /** Las esperas son animaciones vacías: se pausan con todo lo demás. */
+    const sleep = ms => nueva(esc, [], ms).finished.catch(() => {});
+    /** Anima y deja el estado final puesto (sin depender de fill). */
+    async function anim(el, keyframes, dur, easing = 'ease', fin = null) {
+        await nueva(el, keyframes, dur, easing).finished.catch(() => {});
+        if (fin !== null) el.style.transform = fin;
+    }
+
+    // ─── Una mano: seis cartas en fila ───
+    /** Plan de la mano k: prenda objetivo T; 4 posiciones forman el set (1 ya es T, 3 equivocadas) y 2 son sueltas. */
+    function plan(k) {
+        const T = PRENDAS[k % 6], set = SETS[k % 4];
+        const ot = Array.from({ length: 5 }, (_, i) => PRENDAS[(k % 6 + 1 + (i + k) % 5) % 6]);   // las otras 5 prendas, rotadas
+        const okPos = set[k % 4], c0 = k % 4;
+        const faltan = [0, 1, 2, 3].filter(c => c !== c0);           // los 3 colores de T que traen las externas
+        let s = 0, n = 0;
+        return Array.from({ length: 6 }, (_, p) => {
+            if (!set.includes(p)) return { set: false, tipo: ot[s++], color: (p + k) % 4 };
+            if (p === okPos) return { set: true, ok: true, tipo: T, color: c0 };
+            const i = n++;
+            return { set: true, ok: false, tipo: ot[2 + i], color: (p * 3 + k + 1) % 4, objetivo: faltan[i] };
+        });
+    }
+
+    /** Una carta: la letra delante, la prenda detrás (data-tipo / data-color para las pruebas). */
+    function crearCarta(m, p, tipo, color, esSet) {
+        const slot = $('pt-slot', esc);
+        slot.style.setProperty('--p', p);
+        slot.style.setProperty('--ph', (p * 0.57 + m.k * 0.9 + Math.random()).toFixed(2));
+        if (esSet) slot.dataset.set = '1';
+        const hop = $('pt-hop', slot);
+        const flip = $('pt-flip', $('pt-bob', hop));
+        const a = $('pt-cara pt-letra', flip);
+        const s = document.createElement('span');
+        s.textContent = LETRAS[p];
+        s.style.setProperty('--inc', (p % 2 ? 5 : -5) + 'deg');
+        a.append(s);
+        const b = $('pt-cara pt-b', flip);
+        b.style.backgroundPosition = posSprite(tipo, color);
+        b.dataset.tipo = tipo; b.dataset.color = color;
+        return { p, slot, hop, flip, b, esSet };
+    }
+
+    function crearMano(k) {
+        const m = { k, T: PRENDAS[k % 6], plan: plan(k), cartas: [] };
+        m.plan.forEach((q, p) => m.cartas.push(crearCarta(m, p, q.tipo, q.color, q.set)));
+        return m;
+    }
+
+    /** Reinicio en sitio: las mismas 6 cartas del DOM pasan a ser las de la mano k. */
+    function rearmar(m, k) {
+        m.k = k; m.T = PRENDAS[k % 6]; m.plan = plan(k); delete m.dx;
+        m.cartas.forEach((c, p) => {
+            const q = m.plan[p];
+            c.esSet = q.set;
+            if (q.set) c.slot.dataset.set = '1'; else delete c.slot.dataset.set;
+            c.slot.classList.remove('pt-listo');
+            c.slot.style.transform = ''; c.slot.style.opacity = '';
+            c.hop.style.transform = ''; c.flip.style.transform = 'rotateY(0deg)';
+            c.b.style.backgroundPosition = posSprite(q.tipo, q.color);
+            c.b.dataset.tipo = q.tipo; c.b.dataset.color = q.color;
+        });
+    }
+
+    // ─── Coreografía ───
+    /** La carta cae desde arriba (fuera del cuadro) y rebota hasta quedarse. */
+    function caer(c, dur = 800) {
+        return anim(c.hop, [
+            { transform: `translateY(${-CAIDA}px) scaleY(1.08)`, offset: 0, easing: 'cubic-bezier(.5,0,1,.6)' },
+            { transform: 'translateY(0) scale(1.1,0.86)', offset: 0.5, easing: 'ease-out' },
+            { transform: `translateY(${-0.85 * W}px) scale(0.97,1.04)`, offset: 0.66, easing: 'ease-in' },
+            { transform: 'translateY(0) scale(1.05,0.94)', offset: 0.8, easing: 'ease-out' },
+            { transform: `translateY(${-0.22 * W}px)`, offset: 0.9, easing: 'ease-in' },
+            { transform: 'translateY(0) scale(1)', offset: 1 },
+        ], dur, 'linear', 'none');
+    }
+
+    /** Voltea la carta (de 0 a 180 o de 180 a 360) con un salto y un golpe al asentarse. */
+    async function voltear(c, haciaPrenda, dur = 480) {
+        const [de, a] = haciaPrenda ? [0, 180] : [180, 360];
+        nueva(c.hop, [
+            { transform: 'translateY(0) scale(1)' },
+            { transform: `translateY(${-0.48 * W}px) scale(1.12)`, offset: 0.45 },
+            { transform: 'translateY(0) scale(1.08,0.9)', offset: 0.85 },
+            { transform: 'translateY(0) scale(1)' },
+        ], dur, 'ease-in-out');
+        await anim(c.flip, [{ transform: `rotateY(${de}deg)` }, { transform: `rotateY(${a}deg)` }],
+            dur, 'cubic-bezier(.3,1.35,.5,1)', `rotateY(${a % 360}deg)`);
+    }
+
+    /** Transform de un slot desplazado dx px; oculto = metido detrás de su vecina (más lejos, más chico). */
+    const pos = (dx, oculto = false) => `translate3d(${dx}px,0px,${oculto ? -0.7 * W : 0}px) scale(${oculto ? 0.9 : 1})`;
+
+    /** Compactar a 4: dx[p] = cuánto se mueve la carta de la posición p. Las del set van a los 4 huecos centrales
+     *  (hueco 1+j para SETS[k][j]); las otras 2 van al hueco de la carta del set más cercana (y se esconden detrás). */
+    function geometria(m) {
+        const paso = W * 1.16, set = SETS[m.k % 4];                  // paso = carta + hueco
+        const dx = Array(6).fill(0);
+        set.forEach((p, j) => { dx[p] = (1 + j - p) * paso; });
+        for (let p = 0; p < 6; p++) {
+            if (set.includes(p)) continue;
+            const [, , j] = set.map((s, i) => [Math.abs(s - p), Math.abs(1 + i - p), i]).sort((a, b) => a[0] - b[0] || a[1] - b[1])[0];
+            dx[p] = (1 + j - p) * paso;
+        }
+        return dx;
+    }
+
+    /** Mueve el slot de una carta de un transform a otro; con op0 != op1 se esconde o aparece (opacidad tardía/temprana). */
+    async function colocar(c, de, a, dur = 650, op0 = 1, op1 = 1) {
+        const kf = [{ transform: de, opacity: op0 }, { transform: a, opacity: op1 }];
+        if (op0 !== op1) kf.splice(1, 0, { opacity: 1, offset: op0 > op1 ? 0.45 : 0.55 });
+        await anim(c.slot, kf, dur, 'cubic-bezier(.45,0,.2,1)', a);
+        c.slot.style.opacity = op1;
+    }
+
+    /** Cambio con una carta externa: la equivocada sale hacia arriba en arco y la externa cae al hueco (ya desplazado). */
+    async function swapExterno(m, p) {
+        const mala = m.cartas[p];
+        const q = m.plan[p];
+        const d = m.dx[p];
+        const ext = crearCarta(m, p, m.T, q.objetivo, true);
+        ext.flip.style.transform = 'rotateY(180deg)';               // ya volteada, enseñando la prenda
+        ext.slot.style.transform = pos(d);
+        m.cartas[p] = ext;
+        const dir = p < 3 ? -1 : 1, dur = 450;
+        const salida = anim(mala.slot, [
+            { transform: `translate3d(${d}px,0px,0px) rotate(0deg) scale(1)`, opacity: 1 },
+            { transform: `translate3d(${d + dir * 0.35 * W}px,${-0.6 * W}px,0px) rotate(${dir * 8}deg) scale(1)`, opacity: 1, offset: 0.3 },
+            { transform: `translate3d(${d + dir * 0.7 * W}px,${-CAIDA * 0.95}px,0px) rotate(${dir * 20}deg) scale(.7)`, opacity: 0 },
+        ], dur, 'cubic-bezier(.4,0,.8,.6)').then(() => mala.slot.remove());
+        await Promise.all([caer(ext, dur), salida]);
+    }
+
+    /** Destello y pulso del set completo. */
+    function destello(m) {
+        m.cartas.filter(c => c.esSet).forEach(c => {
+            c.slot.classList.add('pt-listo');
+            nueva(c.hop, [{ transform: 'scale(1)' }, { transform: 'scale(1.1)', offset: 0.4 }, { transform: 'scale(1)' }], 400, 'ease-in-out');
+            nueva(c.b, [{ filter: 'brightness(1)' }, { filter: 'brightness(1.4)', offset: 0.4 }, { filter: 'brightness(1)' }], 400, 'ease');
+        });
+    }
+
+    /** Ola corta de saltitos. */
+    function ola(m) {
+        return Promise.all(m.cartas.filter(c => c.esSet).map(async (c, i) => {
+            await sleep(i * 70);
+            await anim(c.hop, [
+                { transform: 'translateY(0) scale(1)' },
+                { transform: `translateY(${-0.55 * W}px) scale(1.12,1.06)`, offset: 0.4 },
+                { transform: 'translateY(0) scale(1.1,0.88)', offset: 0.75 },
+                { transform: 'translateY(0) scale(1)' },
+            ], 380, 'ease-in-out');
+        }));
+    }
+
+    async function ciclo(m, primera) {
+        await vivo();
+        W = m.cartas[0].slot.offsetWidth;                            // una sola medida por ciclo (cambia con el ancho del panel)
+        CAIDA = W * 2.5441 + 14;                                     // aire de arriba (1 W) + alto de carta + margen
+        if (primera) {
+            m.cartas.forEach(c => { c.hop.style.transform = `translateY(${-CAIDA}px)`; });   // fuera del cuadro hasta que le toque
+            await Promise.all(m.cartas.map(async c => { await sleep(c.p * 70); await caer(c); }));
+            await sleep(800);                                        // el nombre se lee
+        } else await sleep(600);                                     // tras el reinicio, lectura
+        esc.classList.remove('pt-brillo');
+        m.dx = geometria(m);
+        const volteos = [];
+        for (const c of m.cartas) {
+            volteos.push(voltear(c, true));
+            volteos.push(c.esSet ? colocar(c, pos(0), pos(m.dx[c.p])) : colocar(c, pos(0), pos(m.dx[c.p], true), 700, 1, 0));
+            await sleep(70);
+        }
+        await Promise.all(volteos);
+        await sleep(120);
+        // Cambios solapados (solo en el set): uno nuevo cada ~230 ms, cada uno dura ~450 ms.
+        const swaps = [];
+        for (const [p, q] of m.plan.entries()) {
+            if (!q.set || q.ok) continue;
+            swaps.push(swapExterno(m, p));
+            await sleep(230);
+        }
+        await Promise.all(swaps);
+        destello(m);
+        await ola(m);
+        esc.querySelectorAll('.pt-listo').forEach(e => e.classList.remove('pt-listo'));
+        const fin = [];
+        for (const c of m.cartas) {
+            fin.push(voltear(c, false));
+            fin.push(c.esSet ? colocar(c, pos(m.dx[c.p]), pos(0)) : colocar(c, pos(m.dx[c.p], true), pos(0), 700, 0, 1));
+            await sleep(70);
+        }
+        await Promise.all(fin);
+        esc.classList.add('pt-brillo');
+        await sleep(1300);
+    }
+
+    async function main() {
+        if (matchMedia('(prefers-reduced-motion: reduce)').matches) { crearMano(0); return; }   // la palabra, quieta
+        new IntersectionObserver(([e]) => { visible = e.isIntersecting; ajustar(); }).observe(h1);
+        new MutationObserver(ajustar).observe(home, { attributes: true, attributeFilter: ['class'] });
+        document.addEventListener('visibilitychange', ajustar);
+        await vivo();
+        const m = crearMano(0);
+        for (let k = 0; ; k++) {
+            await ciclo(m, k === 0);
+            rearmar(m, k + 1);
+        }
+    }
+    main().catch(e => console.error('[titulo]', e));
+} catch (e) { console.error('[titulo]', e); }
+})();
 </script>
 </body>
 </html>
