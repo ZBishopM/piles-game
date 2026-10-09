@@ -360,14 +360,21 @@
             border: 1px solid var(--border-strong); border-radius: 8px;
         }
         #chatForm .btn { width: auto; margin: 0; padding: 10px 16px; font-size: 0.95rem; }
+        /* «Listo» vive en la fila propia, donde las demás llevan ⏳/✅. */
+        .player-item.mine { padding-top: 7px; padding-bottom: 7px; }
         #readyBtn {
-            width: 100%; padding: 14px; margin-top: 16px;
-            border: none; border-radius: 10px; font-size: 1.1rem; cursor: pointer;
+            flex-shrink: 0; min-height: 40px; padding: 8px 16px;
+            border: none; border-radius: 999px; font-size: 0.9rem; font-weight: 600;
+            white-space: nowrap; cursor: pointer;
             background: var(--accent-fill); color: var(--on-accent-fill);
             box-shadow: inset 0 0 0 1px var(--accent-line);
+            transition: background-color var(--dur-hover) var(--ease-std);
         }
-        #readyBtn.active { background: #e74c3c; box-shadow: none; }
-        #readyCount { text-align: center; color: var(--text-faint); margin-top: 10px; font-size: 0.9rem; }
+        #readyBtn:hover { background: var(--accent-fill-hover); }
+        /* Ya listo: el estado elegido del sistema (como .seg-btn.active), no un rojo ajeno a la identidad. */
+        #readyBtn.active { background: var(--accent-soft); color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
+        #readyBtn.active:hover { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+        #readyCount { text-align: center; color: var(--text-faint); margin: 6px 0 0; font-size: 0.9rem; }
         /* Esperando plaza: la mesa estaba llena al acabar la partida. Se ve la
            sala y el chat, y se sienta solo en cuanto haya un hueco. */
         #huecoBanda { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 0.82rem; text-align: center; }
@@ -1144,8 +1151,34 @@
         }
 
         /* ── BOTS ── */
-        #botControls { margin: 12px 0; }
+        #botControls { margin: 12px 0; background: var(--card); border-radius: 10px; }
         #botControls[hidden] { display: none; }
+        .bots-head {
+            width: 100%; display: flex; align-items: center; gap: 10px;
+            min-height: 48px; padding: 10px 14px;
+            background: none; border: 0; border-radius: 10px;
+            color: var(--text); font: inherit; font-size: 1rem; text-align: left; cursor: pointer;
+        }
+        .bots-head:hover { background: var(--hover); }
+        .bots-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        .bots-sum { margin-left: auto; color: var(--text-faint); font-size: 0.85rem; }
+        .bots-chev { color: var(--text-faint); transition: transform var(--dur-hover) var(--ease-std); }
+        .bots-head[aria-expanded="true"] .bots-chev { transform: rotate(180deg); }
+        /* Altura 0fr -> 1fr: anima sin medir. Cerrado, visibility lo saca del tabulador. */
+        .bots-body {
+            display: grid; grid-template-rows: 0fr; opacity: 0; visibility: hidden;
+            transition: grid-template-rows 0.25s var(--ease-std), opacity 0.2s var(--ease-std), visibility 0s 0.25s;
+        }
+        .bots-head[aria-expanded="true"] + .bots-body {
+            grid-template-rows: 1fr; opacity: 1; visibility: visible; transition-delay: 0s;
+        }
+        .bots-inner { overflow: hidden; min-height: 0; }
+        .bots-pad { padding: 2px 14px 14px; }
+        .bots-pad p { color: var(--text-muted); font-size: 0.88rem; margin: 0 0 10px; }
+        .bots-pad .btn { margin-top: 10px; }
+        @media (prefers-reduced-motion: reduce) {
+            .bots-body, .bots-chev { transition: none; }
+        }
         .kick-bot {
             margin-left: 8px;
             width: 28px;
@@ -1716,6 +1749,7 @@
     <!-- De qué clasificación es el Elo de al lado: con algún bot, For fun; solo personas, For glory. -->
     <p class="pool-note" id="poolNote"></p>
     <ul class="player-list" id="playerList"></ul>
+    <p id="readyCount"></p>
 
     <!-- Chat de la sala. Solo en espera: en partida no se escribe. Lo que se
          escribe vive en el servidor mientras la sala exista, así que quien entra
@@ -1737,21 +1771,29 @@
         <button class="btn btn-secondary" onclick="cancelQuickMatchOffer()">Seguir esperando</button>
     </div>
 
-    <!-- Bots: para jugar solo, o para rellenar mientras llega gente. -->
+    <!-- Bots, plegados: para jugar solo, o para rellenar mientras llega gente. -->
     <div id="botControls">
-        <div class="seg-group" id="botDiffGroup">
-            <button type="button" class="seg-btn" data-diff="easy"
-                    onclick="setBotDifficulty('easy')">Fácil</button>
-            <button type="button" class="seg-btn active" data-diff="normal"
-                    onclick="setBotDifficulty('normal')">Normal</button>
-            <button type="button" class="seg-btn" data-diff="hard"
-                    onclick="setBotDifficulty('hard')">Difícil</button>
+        <button type="button" class="bots-head" id="botsToggle" aria-expanded="false"
+                aria-controls="botsBody" onclick="toggleBots()">
+            <span>🤖 Jugar con bots</span>
+            <span class="bots-sum" id="botsSummary">Ninguno</span>
+            <span class="bots-chev" aria-hidden="true">▾</span>
+        </button>
+        <div class="bots-body" id="botsBody">
+            <div class="bots-inner"><div class="bots-pad">
+                <p>Para jugar solo o rellenar mientras llega gente.</p>
+                <div class="seg-group" id="botDiffGroup">
+                    <button type="button" class="seg-btn" data-diff="easy"
+                            onclick="setBotDifficulty('easy')">Fácil</button>
+                    <button type="button" class="seg-btn active" data-diff="normal"
+                            onclick="setBotDifficulty('normal')">Normal</button>
+                    <button type="button" class="seg-btn" data-diff="hard"
+                            onclick="setBotDifficulty('hard')">Difícil</button>
+                </div>
+                <button class="btn btn-secondary" onclick="addBot()">🤖 Añadir bot</button>
+            </div></div>
         </div>
-        <button class="btn btn-secondary" onclick="addBot()">🤖 Añadir bot</button>
     </div>
-
-    <button id="readyBtn" onclick="toggleReady()">Marcar como Listo ✓</button>
-    <p id="readyCount"></p>
 </div>
 
 <!-- ════ GAME ════ -->
@@ -2645,6 +2687,17 @@ function setBotDifficulty(d) {
     });
 }
 
+/** Desplegable de bots. `botsUser`: null = nadie lo ha tocado; true/false = lo que
+ *  eligió (o true si llegó a estar solo, que no se vuelve a cerrar). Dura la sala. */
+let botsUser = null, botsSala = null;
+function ponerBots(abierto) {
+    document.getElementById('botsToggle')?.setAttribute('aria-expanded', String(abierto));
+}
+function toggleBots() {
+    botsUser = document.getElementById('botsToggle').getAttribute('aria-expanded') !== 'true';
+    ponerBots(botsUser);
+}
+
 function addBot() {
     send({ type: 'add_bot', difficulty: botDifficulty });
 }
@@ -2970,9 +3023,28 @@ window.addEventListener('pagehide', stopScanner);
 function toggleReady() {
     isReady = !isReady;
     send({ type: 'set_ready', ready: isReady });
-    const btn = document.getElementById('readyBtn');
-    btn.textContent = isReady ? 'Cancelar ✗' : 'Marcar como Listo ✓';
-    btn.classList.toggle('active', isReady);
+    pintarListo();
+}
+
+/** El botón de «Listo» de la fila propia. Un solo nodo que se recoloca en cada
+ *  `onLobbyUpdate`: así no se duplican listeners ni se pierde un clic a medias. */
+let readyBtnEl = null;
+function pintarListo() {
+    const b = readyBtnEl;
+    if (!b) return;
+    b.textContent = isReady ? '✅ Listo' : 'Estoy listo';
+    b.classList.toggle('active', isReady);
+    b.setAttribute('aria-label', isReady ? 'Listo, toca para cancelar' : 'Marcar como Listo');
+}
+function botonListo() {
+    if (!readyBtnEl) {
+        readyBtnEl = document.createElement('button');
+        readyBtnEl.id = 'readyBtn';
+        readyBtnEl.type = 'button';
+        readyBtnEl.onclick = toggleReady;
+    }
+    pintarListo();
+    return readyBtnEl;
 }
 
 function leaveLobby() {
@@ -3147,6 +3219,7 @@ function onLobbyUpdate(msg) {
     }
 
     const list = document.getElementById('playerList');
+    const teniaFoco = document.activeElement === readyBtnEl;
     list.innerHTML = '';
     rankPorNick.clear();
     msg.players.forEach(p => {
@@ -3176,10 +3249,16 @@ function onLobbyUpdate(msg) {
         }
         li.append(quien);
 
-        const estado = document.createElement('span');
-        estado.className = 'ready-status';
-        estado.textContent = p.is_ready ? '✅ Listo' : '⏳';
-        li.append(estado);
+        // En la fila propia el estado es el botón; en las demás, ⏳/✅.
+        if (p.id === currentPlayerId) {
+            li.classList.add('mine');
+            li.append(botonListo());
+        } else {
+            const estado = document.createElement('span');
+            estado.className = 'ready-status';
+            estado.textContent = p.is_ready ? '✅ Listo' : '⏳';
+            li.append(estado);
+        }
 
         // A los bots se les puede echar; a las personas no desde aquí.
         if (p.is_bot) {
@@ -3193,11 +3272,18 @@ function onLobbyUpdate(msg) {
         }
         list.appendChild(li);
     });
+    if (teniaFoco) readyBtnEl.focus({ preventScroll: true });
     // Los nombres del chat toman el color del rango que acaba de llegar.
     retintarChat();
     // Solo tiene sentido ofrecer bots mientras quepa alguien más.
     const room = msg.players.length < msg.max_players;
     document.getElementById('botControls')?.toggleAttribute('hidden', !room);
+    // Bots: cerrado salvo que estés solo; lo que elijas a mano manda en esta sala.
+    const nBots = msg.players.filter(p => p.is_bot).length;
+    document.getElementById('botsSummary').textContent = nBots ? `${nBots} en la sala` : 'Ninguno';
+    if (botsSala !== currentLobbyId) { botsSala = currentLobbyId; botsUser = null; }
+    if (botsUser === null && msg.players.length === 1) botsUser = true;
+    ponerBots(botsUser === true);
 
     // Llegó alguien: ya no hace falta ofrecer bots.
     if (msg.players.length > 1) cancelQuickMatchOffer();
@@ -5648,9 +5734,7 @@ function returnToLobby() {
     // aparecer flotando encima de la siguiente.
     clearMatchNotifications();
     // Resetear botón de listo
-    const btn = document.getElementById('readyBtn');
-    btn.textContent = 'Marcar como Listo ✓';
-    btn.classList.remove('active');
+    pintarListo();
     // Quien miraba vuelve a la sala de espera (sentado, o esperando plaza), que
     // no pasó por `onEnteredLobby`: el código y el QR se preparan aquí.
     if (currentLobbyId) prepararSala(currentLobbyId);

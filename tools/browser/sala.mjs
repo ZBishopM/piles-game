@@ -46,6 +46,49 @@ const codigo = (await A.locator('#lobbyCodeDisplay').textContent()).trim();
 const B = await entrarPorEnlace('Beto', codigo);
 await wait(600);
 
+// ── Orden, botón de «listo» en la fila propia y desplegable de bots ────────
+{
+  const y = s => A.locator(s).evaluate(e => e.getBoundingClientRect().top);
+  const [yl, yc, yb] = [await y('#playerList'), await y('#chatBox'), await y('#botControls')];
+  ok(yl < (await y('#readyCount')) && (await y('#readyCount')) < yc && yc < yb, 'orden: lista, recuento, chat y, al final, bots');
+  ok((await A.locator('#playerList li.mine #readyBtn').count()) === 1 && (await A.locator('#readyBtn').count()) === 1,
+    'el botón de listo está dentro de la fila propia, y es el único');
+  ok((await A.locator('#playerList li:not(.mine) #readyBtn').count()) === 0 && (await A.locator('#playerList li:not(.mine) .ready-status').count()) === 1,
+    'la fila de Beto sigue con su ⏳');
+  ok((await A.locator('#botsToggle').getAttribute('aria-expanded')) === 'true', 'quien abrió la sala solo la ve con los bots abiertos');
+  await A.locator('#botsToggle').focus();
+  await A.keyboard.press('Enter');
+  ok((await A.locator('#botsToggle').getAttribute('aria-expanded')) === 'false', 'con el teclado se cierra');
+  await wait(400);
+  ok(!(await A.getByRole('button', { name: /Añadir bot/ }).count()), 'cerrado, «Añadir bot» no está al alcance');
+  await B.locator('#readyBtn').focus();
+  await B.locator('#readyBtn').click();                       // listo
+  await A.waitForFunction(() => document.getElementById('readyCount').textContent.startsWith('1 de'), null, { timeout: 4000 });
+  ok(await A.locator('#playerList li:not(.mine) .ready-status').first().textContent() === '✅ Listo', 'Ana ve a Beto listo en su fila');
+  ok((await B.locator('#readyBtn').textContent()) === '✅ Listo' && await B.locator('#readyBtn').evaluate(e => e === document.activeElement),
+    'Beto: el botón dice «✅ Listo» y conserva el foco tras redibujarse');
+  await B.locator('#readyBtn').click();                       // y cancelado
+  await B.waitForFunction(() => document.getElementById('readyBtn').textContent === 'Estoy listo');
+  await A.waitForFunction(() => document.getElementById('readyCount').textContent.startsWith('0 de'), null, { timeout: 4000 });
+  ok(true, 'vuelve a «Estoy listo»');
+  // Llega otro mientras Ana lo tiene cerrado a mano: no se reabre solo.
+  const Cx = await entrarPorEnlace('Caro', codigo);
+  await wait(500);
+  ok((await A.locator('#botsToggle').getAttribute('aria-expanded')) === 'false', 'lo cerrado a mano sigue cerrado cuando llega gente');
+  await A.locator('#botsToggle').click();
+  await A.getByRole('button', { name: /Añadir bot/ }).waitFor({ timeout: 2000 });
+  ok(true, 'y al abrirlo aparece «Añadir bot»');
+  await Cx.context().close();
+  await wait(400);
+  // Móvil: sin desborde y con el botón a mano.
+  const M = await entrarPorEnlace('Mov', codigo, { width: 390, height: 700 });
+  await wait(500);
+  ok(await M.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'móvil 390: sin desborde horizontal');
+  const caja = await M.locator('#readyBtn').boundingBox();
+  ok(caja.height >= 40 && caja.x >= 0 && caja.x + caja.width <= 390, `móvil: el botón de listo mide ${caja.height} px de alto y cabe`);
+  await M.context().close();
+}
+
 // ── Chat entre dos ──────────────────────────────────────────────────────────
 await escribir(A, 'hola a todos');
 await B.locator('#chatLog .chat-line').first().waitFor({ timeout: 4000 });
