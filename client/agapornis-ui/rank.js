@@ -2,11 +2,14 @@
 //
 //   agRank(valor, { pool, top3 }) → { index, id, name, pool, min, next, progreso, top3 }
 //     pool: 'fun' (por defecto) | 'glory'
-//     top3: true si es de los 3 mejores del mundo en esa clasificación
+//     top3: true si es de los 3 mejores del mundo en esa clasificación. Solo cuenta
+//           si el valor ya llegó a Gran máster (>= 1600): con menos, se ignora.
 //
 // La misma escalera de nueve en las dos clasificaciones: ocho por umbral, en
-// escalones de 100, y el noveno por posición (el Top 3 lo decide quien guarda
-// las puntuaciones, no el valor del dial).
+// escalones de 100, y el noveno por posición. El Top 3 exige haber llegado a
+// Gran máster (1600+) y, además, estar de verdad entre los 3 con más Elo: la
+// posición la decide quien guarda las puntuaciones, no el valor del dial. Quien
+// tiene 1600+ y no está entre los 3 sigue en Gran máster.
 //
 //   ≤ 1000 · 1001 · 1100 · 1200 · 1300 · 1400 · 1500 · 1600+ · Top 3
 //
@@ -50,7 +53,7 @@
     const v = Math.round(valor);
     let index = 0;
     for (let k = 1; k < MINS.length; k++) if (v >= MINS[k]) index = k;
-    if (top3) index = TOP3;
+    if (top3 && v >= MINS[TOP3 - 1]) index = TOP3;   // defensa: un flag de más con menos de 1600 se ignora
 
     const min = index === TOP3 ? null : MINS[index];
     const next = index >= TOP3 - 1 ? null : MINS[index + 1];

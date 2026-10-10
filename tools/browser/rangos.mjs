@@ -108,7 +108,7 @@ const cuenta = (l, n) => l.filter(x => x === n).length;
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const p = await pagina(ctx);
   await p.evaluate(() => {
-    window.fetch = async () => new Response(JSON.stringify({ glory: { r: 1520, n: 12 }, fun: { r: 980, n: 3 }, top3: { glory: true, fun: false } }), { status: 200 });
+    window.fetch = async () => new Response(JSON.stringify({ glory: { r: 1720, n: 12 }, fun: { r: 980, n: 3 }, top3: { glory: true, fun: false } }), { status: 200 });
     return loadProfileElo();
   });
   await wait(600);

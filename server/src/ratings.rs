@@ -65,19 +65,20 @@ pub fn valid_key(key: &str) -> bool {
 
 /// Para entrar en el Top 3 hacen falta tantas partidas…
 pub const TOP_MIN_GAMES: u32 = 10;
-/// …y más Elo que el de partida: con pocos jugadores, sin esto los tres
-/// primeros lo serían aunque estuvieran por debajo de 1000.
-pub const TOP_MIN_RATING: i32 = START;
+/// …y haber llegado a Gran máster: 1600 es su suelo y debe coincidir con
+/// MINS[7] de client/agapornis-ui/rank.js. Quien tiene 1600 o más pero no
+/// está entre los 3 primeros sigue siendo Gran máster.
+pub const TOP_MIN_RATING: i32 = 1600;
 pub const TOP_SIZE: usize = 3;
 
 /// Los mejores de una clasificación: los `TOP_SIZE` con más Elo entre quienes
-/// cumplen el mínimo de partidas y de Elo. A igualdad manda quien lleva más
+/// cumplen el mínimo de partidas y de Elo (Gran máster). A igualdad manda quien lleva más
 /// partidas, y por último la clave, para que el resultado sea estable.
 fn top3_of(map: &HashMap<String, Record>, pool: Pool) -> Vec<String> {
     let mut v: Vec<(&String, PoolRating)> = map.iter()
         .filter_map(|(k, rec)| {
             rec.pool(pool)
-                .filter(|p| p.n >= TOP_MIN_GAMES && p.r > TOP_MIN_RATING)
+                .filter(|p| p.n >= TOP_MIN_GAMES && p.r >= TOP_MIN_RATING)
                 .map(|p| (k, p))
         })
         .collect();
@@ -282,24 +283,53 @@ mod tests {
     }
 
     #[test]
-    fn the_top_three_need_enough_games_and_more_than_the_starting_rating() {
+    fn the_top_three_need_enough_games_and_grand_master_rating() {
         let s = store();
-        poner(&s, "anon:a", Pool::Glory, 1300, 12);   // entra
-        poner(&s, "anon:b", Pool::Glory, 1200, 10);   // entra (justo 10)
-        poner(&s, "anon:c", Pool::Glory, 1100, 30);   // entra
-        poner(&s, "anon:d", Pool::Glory, 1090, 50);   // cuarto: fuera
-        poner(&s, "anon:e", Pool::Glory, 1900, 9);    // 9 partidas: no cuenta
-        poner(&s, "anon:f", Pool::Glory, 1000, 99);   // no pasa de 1000: no cuenta
+        poner(&s, "anon:a", Pool::Glory, 1900, 12);   // entra
+        poner(&s, "anon:b", Pool::Glory, 1800, 10);   // entra (justo 10)
+        poner(&s, "anon:c", Pool::Glory, 1700, 30);   // entra
+        poner(&s, "anon:d", Pool::Glory, 1650, 50);   // cuarto: fuera
+        poner(&s, "anon:e", Pool::Glory, 2500, 9);    // 9 partidas: no cuenta
+        poner(&s, "anon:f", Pool::Glory, 1599, 99);   // sin llegar a Gran máster: no cuenta
         let map = s.map.lock().unwrap();
         assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:a", "anon:b", "anon:c"]);
     }
 
     #[test]
+    fn the_top_three_floor_is_exactly_grand_master() {
+        let s = store();
+        poner(&s, "anon:a", Pool::Glory, 1599, 50);   // un punto menos: no
+        poner(&s, "anon:b", Pool::Glory, 1600, 10);   // justo 1600 y 10 partidas: sí
+        poner(&s, "anon:z", Pool::Fun, 1300, 50);     // 1300 es el mejor de fun pero no basta
+        let map = s.map.lock().unwrap();
+        assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:b"], "menos de 3 es válido");
+        assert!(top3_of(&map, Pool::Fun).is_empty());
+        drop(map);
+        assert_eq!(s.top3_flags("anon:a"), (false, false));
+        assert_eq!(s.top3_flags("anon:z"), (false, false));
+    }
+
+    #[test]
+    fn only_three_of_four_grand_masters_and_two_make_a_top_of_two() {
+        let s = store();
+        for (k, r) in [("anon:a", 1600), ("anon:b", 1700), ("anon:c", 1800), ("anon:d", 1900)] {
+            poner(&s, k, Pool::Glory, r, 20);
+        }
+        poner(&s, "anon:x", Pool::Fun, 1650, 20);
+        poner(&s, "anon:y", Pool::Fun, 1610, 20);
+        let map = s.map.lock().unwrap();
+        assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:d", "anon:c", "anon:b"]);
+        assert_eq!(top3_of(&map, Pool::Fun), vec!["anon:x", "anon:y"]);
+        drop(map);
+        assert_eq!(s.top3_flags("anon:a"), (false, false), "1600 pero cuarto: sigue Gran máster");
+    }
+
+    #[test]
     fn ties_go_to_whoever_has_played_more_and_pools_are_separate() {
         let s = store();
-        poner(&s, "anon:a", Pool::Glory, 1100, 10);
-        poner(&s, "anon:b", Pool::Glory, 1100, 20);
-        poner(&s, "anon:z", Pool::Fun, 1500, 15);
+        poner(&s, "anon:a", Pool::Glory, 1600, 10);
+        poner(&s, "anon:b", Pool::Glory, 1600, 20);
+        poner(&s, "anon:z", Pool::Fun, 1700, 15);
         let map = s.map.lock().unwrap();
         assert_eq!(top3_of(&map, Pool::Glory), vec!["anon:b", "anon:a"], "a igualdad, más partidas");
         assert_eq!(top3_of(&map, Pool::Fun), vec!["anon:z"], "cada clasificación la suya");
@@ -312,7 +342,7 @@ mod tests {
     #[test]
     fn the_waiting_room_shows_each_persons_rating_in_the_rooms_pool() {
         let s = store();
-        poner(&s, "anon:a", Pool::Glory, 1300, 12);   // Top 3 de glory
+        poner(&s, "anon:a", Pool::Glory, 1650, 12);   // Top 3 de glory
         poner(&s, "anon:a", Pool::Fun, 950, 3);       // y en fun, uno cualquiera
         poner(&s, "anon:b", Pool::Fun, 1250, 4);
         let claves = [
@@ -322,7 +352,7 @@ mod tests {
             None,                             // sin clave de Elo
         ];
         let glory = s.lobby_view(&claves, Pool::Glory);
-        assert_eq!(glory, vec![Some((1300, true)), Some((START, false)), Some((START, false)), None]);
+        assert_eq!(glory, vec![Some((1650, true)), Some((START, false)), Some((START, false)), None]);
         let fun = s.lobby_view(&claves, Pool::Fun);
         // b no llega a las 10 partidas, a no pasa de 1000: nadie en el Top 3 de fun.
         assert_eq!(fun, vec![Some((950, false)), Some((1250, false)), Some((START, false)), None]);
@@ -331,11 +361,11 @@ mod tests {
     #[test]
     fn a_game_reports_who_enters_and_who_leaves_the_top_three() {
         let s = store();
-        poner(&s, "anon:a", Pool::Glory, 1100, 20);
-        poner(&s, "anon:b", Pool::Glory, 1090, 20);
-        poner(&s, "anon:c", Pool::Glory, 1080, 20);
+        poner(&s, "anon:a", Pool::Glory, 1700, 20);
+        poner(&s, "anon:b", Pool::Glory, 1690, 20);
+        poner(&s, "anon:c", Pool::Glory, 1680, 20);
         // d tiene un Elo más bajo pero gana a c, que va tercero.
-        poner(&s, "anon:d", Pool::Glory, 1075, 20);
+        poner(&s, "anon:d", Pool::Glory, 1675, 20);
         let cambios = s.settle(&[
             seat("D", Some("anon:d"), None, Finish::Placed(1)),
             seat("C", Some("anon:c"), None, Finish::Unfinished(0)),
