@@ -13,16 +13,30 @@ reales, pero **no** con varias personas jugando a la vez, que es donde salen
 los problemas de sincronización.
 
 ### Nuevas funcionalidades
- - [ ] cuando tomas una carta y alguien clickea en menos de medio segundo el lugar donde la carta no esta, reproducir un audio personalizado que puedes configurar en el perfil, una burla personalizada para cuando te "roban" alguna que querías, quizá tambien añadir cuando ganas o pierdes una pelea.
+- [x] **Burla al quitarte una carta por menos de 0,5 s** (`server/src/taunts.rs`,
+      «Mi burla» en el perfil). Diez sonidos sintetizados a elegir (honk de
+      payaso, trombón triste, boing…); el servidor solo manda el id y valida que
+      sea de la lista. Se guarda en `piles.taunt`.
+- [ ] **Burla personalizada**: que cada jugador suba un clip propio (≤ 2 s) en
+      vez de elegir de la lista. Hay que guardar y servir archivos de usuarios,
+      limitar tamaño y moderar.
+- [ ] Burlas también al ganar o perder una pelea (mismo mecanismo; decidir si
+      cansa).
 
 ### Peleas
-- [ ] a veces jugadores empatan pero uno gana, ver como solucionar esto para que no se vea injusto para el que perido, mostrar un segundo minijuego de muerte subita maybe.
+- [x] **Empates**: muerte súbita de hasta 3 rondas extra de 1 s (`SUDDEN_MS`,
+      `MAX_TIEBREAKS` en `websocket.rs`), y si aún empatan, azar del servidor
+      avisado en `qte_resolved.random`. El cliente enseña «¡EMPATE! Muerte
+      súbita» y los clicks finales.
 
 ### Flujo completo
-- [ ] las partidas cuando todos estan listos empieza muy rápido, agregar un  contador hacia atrás para empezar a jugar
-- [ ] `bot-e2e.mjs` vive en `D:/Temp/` y se perderá. Si los bots van a
-      seguir, merece la pena meterlo en el repo (`tests/`) para que la única
-      prueba multijugador automática no dependa de un fichero temporal.
+- [x] Cuenta atrás de 3 s antes de repartir (`COUNTDOWN` en `lobby.rs`); se
+      cancela si alguien se desmarca, sale o entra otro. Los bots también la
+      esperan. Mientras corre, la sala no sale en la lista pública.
+- [x] `bot-e2e.mjs` se había perdido de `D:/Temp/`: lo sustituye
+      `tools/repro/bots.mjs` (tres salas con bots fácil, normal y difícil durante
+      60 s; falla si la mesa se para más de 15 s). Hoy **ningún bot cierra un set
+      en 60 s**, en ninguna dificultad.
 
 ---
 
@@ -38,10 +52,17 @@ números, no lógica: tocarlos no puede romper nada.
 | Elige la carta buena | 80 % | 95 % | 100 % |
 | Se pelea una carta que te ve coger | 5 % | 15 % | 30 % |
 
-- [ ] El bot apunta al set con más cartas iguales y suelta lo que no encaja.
-      No mira lo que han revelado los demás ni lo que hay en el centro para
-      decidir qué set perseguir — en dificil, el bot no debería soltar una carta que un jugador tiene 3 de ellos.
-[to verify]
+- [ ] El bot apunta al set con más cartas iguales y suelta lo que no encaja. Sí
+      mira el centro (`best_set` y `chasing` en `bot.rs`), pero **no sabe lo que
+      han revelado los demás**, y en difícil no debería soltar una carta de la
+      que un rival tiene 3. Comprobado que **no se puede con lo que le llega
+      hoy**: `SetFlipped` se difunde a todos pero lleva solo la primera carta
+      del set, y `GameUpdate` no trae prendas ni conteos. Habría que cambiar el
+      protocolo, a elegir: (1) que `SetFlipped` lleve las 4 cartas, o un conteo
+      por prenda (decidir si revela demasiado a los jugadores); (2) añadir a
+      `PlayerProgress` algo como `leading: Option<(clothing_type, count)>`. Con
+      cualquiera, el filtro sería solo en `Difficulty::Hard` y sobre qué soltar
+      (`drop_from`, `force_drop`), sin tocar `SwitchSet`.
 - [ ] **Los bots cierran sets, pero demasiado pocos** (2026-09-11). Cerraron uno
       en 2 de 5 partidas medidas; antes, ninguno en 3. Para ganar hacen falta 6,
       así que siguen sin terminar una partida. La mesa ya no se para.
@@ -95,8 +116,10 @@ pediste una carta y llegaste tarde (`swap_failed` con `kind: gone`), la jugada
 rompía una regla, o el plazo de 3 s te asignó una carta. En el móvil las tres se
 ven igual, como un parpadeo raro. [ tiene que ver con la nueva funcionalidad arriba]  
 
-Se guardan **las 10 últimas**; las viejas se borran solas. La máquina no tiene
-swap y también lleva producción y el correo: un disco lleno se los lleva. [to verify, que yo sepa se guardan todas pero se muestran 10 ]
+Se guardan **hasta 100 grabaciones** (tope de 150 MB en total y 32 MB por
+fichero; las más viejas se borran solas) y `/api/recordings` **lista 10** por
+defecto, hasta 100 con `?n=`. La máquina no tiene swap y también lleva
+producción y el correo: un disco lleno se los lleva.
 
 ⚠️ **Ahora graba también producción.** Una grabación contiene la mano de todos
 los jugadores y la puede abrir cualquiera que tenga el enlace. Es aceptable
@@ -110,17 +133,21 @@ en ninguna partida encontraron nada.
 
 ---
 
-Pendientes, encontrados en la revisión del 2026-09-16 y **sin arreglar**:
+Pendientes encontrados en la revisión del 2026-09-16:
 
-- [ ] `id="qbnFill"` duplicado (`lobby.html`, aviso de pelea ajena): con dos
-      peleas de espectador a la vez hay dos elementos con el mismo id. Hoy
-      funciona porque la búsqueda va acotada al aviso, pero es HTML inválido.
-      Debería ser una clase.
-- [ ] `cameFromQuickMatch` nunca vuelve a `false` (`lobby.html`): tras una
-      partida rápida, cualquier `lobby_update` con un jugador o menos vuelve a
-      ofrecer bots.
+- [x] `id="qbnFill"` duplicado (aviso de pelea ajena): ahora es la clase
+      `.qbn-bar-fill`, los marcadores llevan `data-nick` y los avisos se
+      construyen con `textContent` (antes interpolaban apodos en `innerHTML`).
+- [x] `cameFromQuickMatch` ahora vuelve a `false` al salir de la sala, al
+      crear o unirse a otra, y al aceptar o descartar la oferta de bots.
 - [ ] `replay.html` no está enlazado desde ningún sitio: solo se llega
-      escribiendo la URL. El "historial en el perfil" se quedó a medias.
+      escribiendo la URL. El "historial en el perfil" se quedó a medias. Antes de
+      enlazarlo hay que decidir la privacidad (ver el aviso de arriba: la lista
+      es pública y enseña apodos y códigos de sala).
+- [ ] Más apodos sin escapar en `lobby.html`: el aviso `verify-notif`
+      (`${playerName} verificando…`, con `id="vnotif-${playerName}-${i}"`) y
+      quizá algún llamador de `updateSwapHint(html)`. El servidor tampoco limita
+      la longitud ni los caracteres de control de un apodo.
 
 ---
 
@@ -334,9 +361,27 @@ Los resultados que se guardan van a Session Manager, no aquí.
       táctil (`pointerdown`/`pointermove`/`pointerup`, no sólo los eventos
       de arrastre de escritorio) y dejar el click-click funcionando como
       alternativa accesible.
-- [ ] Confeti para el 1º puesto
+- [x] Confeti para el 1º puesto (`lanzarConfeti()` en `lobby.html`; 48 piezas
+      en una capa propia sobre el overlay final; sin confeti con movimiento
+      reducido).
 - [ ] Avatar guardado en `localStorage`
 - [ ] personalizar tema o tener currency virtual para comprar esteticos
 - [ ] incitar a jugadores mediante mensajes al final de la partida para que se registren en sessionmanager, y guardar sus puntos asociados a un nombre, un ping y acceder a esteticos desde cualquier dispositivo
+
+---
+
+## 🧭 Próximo (ideas del autor, sin diseñar)
+
+- [ ] **Tutorial dentro del juego** (hoy hay un «Cómo jugar» estático).
+- [ ] **Idiomas**: inglés y chino, además del español.
+- [ ] **Perks iniciales**: modificadores que cambian el juego al empezar,
+      elegidos con una ruleta. El autor describirá cómo funciona; mientras
+      tanto, dejar el diseño de la partida lo bastante flexible para aceptarlos.
+- [ ] **Más estética de los diales** en el juego: mecánica y animaciones, como
+      el contador de Elo y los rangos (`client/agapornis-ui`).
+- [ ] **Gestos en vez de botones**: voltear un set con un gesto en vez de pulsar
+      el botón, y una rendición más fácil que mantener pulsado (por ejemplo,
+      deslizar hacia abajo). Ojo con `touch-action` y la captura del puntero (ver
+      «Toques»).
 
 ---
