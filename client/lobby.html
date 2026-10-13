@@ -891,6 +891,17 @@
         }
         #qteOverlay.hit .qte-box { transform: scale(0.98); }
         .qte-box { transition: transform 0.05s; }
+        /* Muerte súbita: el rótulo usa el acento y --warning, no el rojo de la pelea. */
+        .qte-box h2.tie { color: var(--warning); animation: qteTiePulse 0.5s ease-out 2; }
+        .qte-box.tie { border-color: var(--accent); }
+        @keyframes qteTiePulse {
+            0% { transform: scale(0.8); text-shadow: 0 0 0 var(--accent); }
+            50% { transform: scale(1.12); text-shadow: 0 0 18px var(--accent); }
+            100% { transform: scale(1); text-shadow: 0 0 0 var(--accent); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .qte-box h2.tie { animation: none; }
+        }
         #qteClickBtn {
             width: 100%;
             padding: 20px;
@@ -1910,8 +1921,8 @@
 <!-- ════ OVERLAY PELEA ════ -->
 <div id="qteOverlay">
     <div class="qte-box" id="qteBox">
-        <h2 id="qteTitle">⚡ ¡CLICK!</h2>
-        <p class="qte-desc" id="qteDesc"></p>
+        <h2 id="qteTitle" role="status" aria-live="polite">⚡ ¡CLICK!</h2>
+        <p class="qte-desc" id="qteDesc" aria-live="polite"></p>
         <!-- La carta en disputa: se ve por qué se está peleando, sin leer nada -->
         <div class="qte-card-slot" id="qteCard"></div>
         <div class="qte-scores" id="qteScores"></div>
@@ -2502,7 +2513,12 @@ function handleMsg(msg) {
             qteBlockedCards.delete(msg.card_id);
             cerrarAvisoPelea(msg.card_id);
             renderCenterCards();
-            if (esMiPelea(msg.card_id)) onQteResolved(msg.winner);
+            if (esMiPelea(msg.card_id)) onQteResolved(msg.winner, msg);
+            break;
+
+        // Empate al acabar el tiempo: ronda extra de muerte súbita.
+        case 'qte_tiebreak':
+            onQteTiebreak(msg.card_id, msg.round, msg.duration);
             break;
 
         case 'stunned':
@@ -4434,6 +4450,7 @@ const SFX = {
     fight: () => tone({ freq: 220, dur: 0.18, type: 'sawtooth', gain: 0.14, slideTo: 440 }),
     fightWon: () => { tone({ freq: 590, dur: 0.12 }); setTimeout(() => tone({ freq: 880, dur: 0.2 }), 80); },
     fightLost: () => tone({ freq: 300, dur: 0.3, type: 'sawtooth', gain: 0.13, slideTo: 110 }),
+    tiebreak: () => { tone({ freq: 440, dur: 0.08, type: 'square', gain: 0.1 }); setTimeout(() => tone({ freq: 440, dur: 0.08, type: 'square', gain: 0.1 }), 110); },
     refused: () => tone({ freq: 180, dur: 0.09, type: 'square', gain: 0.09 }),
     // Cargado: arpegio corto hacia arriba. Soltado: barrido grande.
     frenzyReady: () => [0, 4, 7, 12].forEach((s, i) =>
@@ -5231,8 +5248,58 @@ function onQteUpdate(clicks, cardId) {
 /** La pelea terminó. En vez de cerrar de golpe, el overlay se queda un
  *  momento con la carta y los dos marcadores: el del ganador se ilumina y el
  *  del perdedor se apaga. Sin una sola frase — quién ganó se ve, no se lee. */
-function onQteResolved(winnerName) {
+function onQteTiebreak(cardId, round, ms) {
+    ms = ms || 1000;
+    const bar = (fill) => {
+        const start = Date.now();
+        return setInterval(() => {
+            fill.style.width = Math.max(0, 100 - ((Date.now() - start) / ms) * 100) + '%';
+        }, 50);
+    };
+    // Espectador: el mismo aviso, reducido.
+    const notif = qteNotifs.get(cardId);
+    if (notif) {
+        clearInterval(notif._timer);
+        clearTimeout(notif._failsafe);
+        notif.querySelector('.qbn-title').textContent = round > 1
+            ? `🤝 ¡EMPATE! Muerte súbita ${round}` : '🤝 ¡EMPATE! Muerte súbita';
+        notif.querySelectorAll('.qbn-scores span').forEach(s => { s.textContent = '0 clicks'; });
+        const fill = notif.querySelector('#qbnFill');
+        fill.style.width = '100%';
+        notif._timer = bar(fill);
+        notif._failsafe = setTimeout(() => cerrarAvisoPelea(cardId), ms + 4000);
+        return;
+    }
+    // Participante.
+    if (!qteActive || qteMyCardId !== cardId) return;
+    const marcador = qtePlayers
+        .map(n => document.getElementById(`qte-n-${n}`)?.textContent ?? '0').join(' – ');
+    const titulo = document.getElementById('qteTitle');
+    titulo.textContent = '¡EMPATE! Muerte súbita';
+    titulo.classList.add('tie');
+    document.getElementById('qteBox').classList.add('tie');
+    document.getElementById('qteDesc').textContent =
+        `${marcador} · ronda extra${round > 1 ? ' ' + round : ''}: ¡a por ella!`;
+    qtePlayers.forEach(n => {
+        const el = document.getElementById(`qte-n-${n}`);
+        if (el) el.textContent = '0';
+    });
+    playSfx('tiebreak');
+    const fill = document.getElementById('qteTimerFill');
+    fill.style.width = '100%';
+    if (qteTimerInterval) clearInterval(qteTimerInterval);
+    qteTimerInterval = bar(fill);
+    clearTimeout(qteTieLabelTimer);
+    qteTieLabelTimer = setTimeout(() => {
+        titulo.classList.remove('tie');
+        titulo.textContent = '⚡ ¡CLICK!';
+    }, ms);
+}
+let qteTieLabelTimer = null;
+
+function onQteResolved(winnerName, info) {
     const wasParticipant = qtePlayers.includes(currentNickname);
+    clearTimeout(qteTieLabelTimer);
 
     if (!wasParticipant) {
         // Espectador: su avisito ya muestra los clicks finales, se cierra sin más.
@@ -5259,14 +5326,26 @@ function onQteResolved(winnerName) {
     qtePlayers.forEach(name => {
         const box = document.getElementById(`qte-score-${name}`);
         if (box) box.classList.add(name === winnerName ? 'won' : 'lost');
+        // Clicks finales de cada uno (los manda el servidor; viejo = se queda el último marcador).
+        const n = info?.clicks?.[name];
+        const el = document.getElementById(`qte-n-${name}`);
+        if (el && n !== undefined) el.textContent = n;
     });
+    const titulo = document.getElementById('qteTitle');
+    titulo.classList.remove('tie');
+    titulo.textContent = '⚡ ¡CLICK!';
+    if (info?.random) {
+        document.getElementById('qteDesc').textContent = 'Desempate al azar';
+    } else if (info?.tiebreaks) {
+        document.getElementById('qteDesc').textContent = 'Desempate en muerte súbita';
+    }
 
     qteActive = false;   // no se admiten más clicks mientras se ve el resultado
     if (qteResultTimer) clearTimeout(qteResultTimer);
     qteResultTimer = setTimeout(() => {
         qteResultTimer = null;
         closeQteOverlay();
-    }, FIGHT_RESULT_MS);
+    }, info?.random ? FIGHT_RESULT_MS + 900 : FIGHT_RESULT_MS);
 }
 
 function closeQteOverlay() {
@@ -5287,6 +5366,8 @@ function closeQteOverlay() {
     document.getElementById('qteClickBtn').disabled = false;
     document.getElementById('qteCard').innerHTML = '';
     document.querySelectorAll('.qte-player-score').forEach(el => el.classList.remove('won', 'lost'));
+    document.getElementById('qteBox').classList.remove('tie');
+    document.getElementById('qteTitle').classList.remove('tie');
 
     // El aviso de espectador se cierra por carta desde `qte_resolved`, que
     // llega siempre. Aquí solo se limpia el de la tuya por si acaso.
