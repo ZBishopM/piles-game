@@ -5264,7 +5264,7 @@ function onQteTiebreak(cardId, round, ms) {
         notif.querySelector('.qbn-title').textContent = round > 1
             ? `🤝 ¡EMPATE! Muerte súbita ${round}` : '🤝 ¡EMPATE! Muerte súbita';
         notif.querySelectorAll('.qbn-scores span').forEach(s => { s.textContent = '0 clicks'; });
-        const fill = notif.querySelector('#qbnFill');
+        const fill = notif.querySelector('.qbn-bar-fill');
         fill.style.width = '100%';
         notif._timer = bar(fill);
         notif._failsafe = setTimeout(() => cerrarAvisoPelea(cardId), ms + 4000);
