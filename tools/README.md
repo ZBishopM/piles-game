@@ -66,6 +66,9 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 - `jugadas` clasifica cada **deuda forzada** (se agotaron los 3 s): pelea perdida o
   cedida · intento rechazado · intento sin respuesta (carrera del plazo) · **sin ningún
   intento** (aquí mira `notas`: si el cliente descartó el toque, saldrá `tap_ignored`).
+- `peleas` lista cada pelea con su ganador y, si hubo empate, las rondas de muerte
+  súbita (`qte_tiebreak`), si se decidió al azar y los clicks finales (de
+  `qte_resolved`); las grabaciones anteriores salen sin esos datos.
 - `linea <f> <quien> <desde_ms> <hasta_ms>`: todo lo de una persona alrededor de un
   instante, sin el ruido de `qte_click`/`pong`/`combo_update`.
 
@@ -87,6 +90,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `chat.mjs` | Chat de la sala de espera (llega a todos, historial al entrar o volver, limpieza y límites, rechazado en partida y fuera de la grabación pública) y el Elo junto a cada nombre (`pool` y `elo` del `lobby_update`, Elo fijo de los bots) |
 | `mirar.mjs [--largo]` | Mirar partidas: la lista pública con las que están en curso (`status`, jugadores, mirones), la mano de TODOS por ids (coincide con el `game_start` de cada jugador y se actualiza en <1 s), sin mensajes privados ni acciones; `--largo` (~35 s) añade la cola de espera: la mesa llena no echa a quien miraba, se sienta al liberarse un hueco y puede escribir en el chat |
 | `encuesta.mjs` | Caída sin vuelta (~2 min): a los 30 s encuesta de 15 s; todos Sí o nadie contesta = otros 30 s, un No cancela; volver en plena encuesta la cierra; «Salir» retira como antes, sin encuesta |
+| `desempate.mjs` | Empate de clicks en una pelea → muerte súbita (~25 s): 0-0 = 3 rondas extra de 1 s y al azar (`random`), 5-5 y luego gana quien pulsa = 1 ronda, ceder en la ronda extra pierde sin bloqueo; `qte_tiebreak` llega a los dos, `qte_resolved` trae `clicks`/`tiebreaks`, ganador `swap_success`, perdedor `swap_failed` + `stunned` |
 | `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 
 ### `browser/` — Playwright (`--ver` abre la ventana)
@@ -94,7 +98,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | Script | Comprueba |
 |---|---|
 | `toques.mjs` | Con ratón, el clic cuenta al bajar (movido, mantenido, saliendo del centro); 3 toques = 1 envío |
-| `peleas.mjs` | Una pelea ajena no pisa la propia |
+| `peleas.mjs` | Una pelea ajena no pisa la propia; y el empate (mensajes inyectados `qte_tiebreak` / `qte_resolved` ampliado): rótulo «¡EMPATE! Muerte súbita» con el marcador anterior, contadores a 0, clicks finales y «Desempate al azar», aviso de espectador, `aria-live`, movimiento reducido, 390 y 1280 sin desborde (capturas `empate-*.png` en `$CAPTURAS` o la carpeta temporal) |
 | `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |
 | `mirar.mjs` | Mirar desde «Unirse» (~45 s): la lista se refresca sola y pasa la sala a «En partida · Mirar»; «Mirando desde» cada jugador y «Todos» enseñan las cartas de verdad (comparadas con el `allSets` de su pestaña); ver la deuda al soltar; móvil sin desborde; «Salir de la sala»; y al acabar la partida, de vuelta en la sala de espera con chat |
 | `version.mjs` | Una pestaña abierta desde antes de un despliegue se recarga sola: la primera versión (`hello`) que ve es la suya, un cambio en una reconexión recarga (con aviso), y no más de una vez cada 30 s. En local la versión es «dev» y se ignora |

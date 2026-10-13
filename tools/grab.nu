@@ -165,10 +165,15 @@ def "main peleas" [f: string, --base (-b): string = "local"] {
   let ini = ($ev | where {|e| $e.t == "out" and $e.m.type == "swap_conflict" })
   let peleas = ($ini | each {|c|
     let res = ($ev | where {|e| $e.t == "out" and $e.m.type == "qte_resolved" and $e.m.card_id == $c.m.card_id and $e.ms >= $c.ms } | first 1)
-    {desde: $c.ms, hasta: (if ($res | is-empty) { null } else { $res.0.ms }), carta: $c.m.card_id, jugadores: ($c.m.players | str join " vs "), ganador: (if ($res | is-empty) { "SIN RESOLVER" } else { $res.0.m.winner })}
+    {desde: $c.ms, hasta: (if ($res | is-empty) { null } else { $res.0.ms }), carta: $c.m.card_id, jugadores: ($c.m.players | str join " vs "), ganador: (if ($res | is-empty) { "SIN RESOLVER" } else { $res.0.m.winner }), rondas: (if ($res | is-empty) { 0 } else { $res.0.m.tiebreaks? | default 0 }), azar: (if ($res | is-empty) { false } else { $res.0.m.random? | default false }), clicks: (if ($res | is-empty) { "" } else { $res.0.m.clicks? | default {} | items {|k, v| $"($k) ($v)" } | str join " · " })}
   })
-  print $"peleas: ($peleas | length)"
-  $peleas | each {|p| $"(hora $g $p.desde)  ($p.desde)→($p.hasta) ms  carta ($p.carta)  ($p.jugadores)  ganó ($p.ganador)" } | str join (char nl) | print
+  print $"peleas: ($peleas | length) · con muerte súbita: ($peleas | where rondas > 0 | length) · al azar: ($peleas | where azar | length)"
+  $peleas | each {|p|
+    let sub = if $p.rondas > 0 { $" · muerte súbita x($p.rondas)" } else { "" }
+    let azar = if $p.azar { " · AL AZAR" } else { "" }
+    let cl = if $p.clicks != "" { $" · clicks ($p.clicks)" } else { "" }
+    $"(hora $g $p.desde)  ($p.desde)→($p.hasta) ms  carta ($p.carta)  ($p.jugadores)  ganó ($p.ganador)($sub)($azar)($cl)"
+  } | str join (char nl) | print $in
   let solapes = ($peleas | enumerate | where {|x| $peleas | skip ($x.index + 1) | any {|o| $o.desde < ($x.item.hasta | default 999999999) } } | length)
   print $"solapadas con otra: ($solapes)"
   print "── bloqueos"

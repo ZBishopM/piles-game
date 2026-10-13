@@ -1083,7 +1083,10 @@ async fn bot_has_nickname(state: &AppState, lobby_id: &str, bot_id: Uuid, name: 
 /// Pulsa durante la pelea. El jitter evita que el ritmo sea exacto.
 async fn spam_clicks(state: AppState, bot_id: Uuid, lobby_id: String, base: Duration) {
     let mut current = Some(lobby_id.clone());
-    for _ in 0..60 {
+    // 120 y no 60: la pelea puede alargarse con hasta 3 rondas de muerte súbita
+    // (QteTiebreak) y este mismo bucle sigue pulsando mientras la pelea exista;
+    // relanzarlo en cada ronda duplicaría el ritmo del bot.
+    for _ in 0..120 {
         let jitter = {
             let mut rng = rand::thread_rng();
             rng.gen_range(0.75..1.25)

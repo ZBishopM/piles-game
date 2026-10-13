@@ -297,6 +297,25 @@ pub enum ServerMessage {
         /// medias a los pocos clicks.
         card_id: u32,
         winner: String,
+        /// Clicks finales de cada uno (de la última ronda si hubo muerte súbita).
+        /// `Option` + `skip_serializing_if`: una pestaña vieja ignora el campo.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clicks: Option<std::collections::HashMap<String, u32>>,
+        /// Rondas de muerte súbita que hicieron falta (ausente = ninguna).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tiebreaks: Option<u32>,
+        /// `true` si tras todas las rondas extra siguieron empatados y se echó a suertes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        random: Option<bool>,
+    },
+    /// Empate al acabar el tiempo: empieza una ronda extra de muerte súbita
+    /// (marcadores a cero). Un cliente que no la conozca la ignora.
+    QteTiebreak {
+        card_id: u32,
+        /// 1, 2, 3…
+        round: u32,
+        /// Duración de esta ronda, en ms.
+        duration: u64,
     },
     /// Al que pierde una pelea se le bloquea el intercambio unos segundos.
     /// La duración la manda el servidor —que es quien la aplica— para que
@@ -418,6 +437,35 @@ pub fn set_to_info(set: &[Option<Card>; 4]) -> Vec<Option<CardInfo>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qte_resolved_stays_compatible_and_carries_the_tiebreak_data() {
+        let viejo = ServerMessage::QteResolved {
+            card_id: 7, winner: "Ana".into(), clicks: None, tiebreaks: None, random: None,
+        };
+        let j = serde_json::to_value(&viejo).unwrap();
+        assert_eq!(j["type"], "qte_resolved");
+        assert!(j.get("clicks").is_none() && j.get("tiebreaks").is_none() && j.get("random").is_none(),
+            "sin muerte súbita el mensaje es el de siempre");
+
+        let nuevo = ServerMessage::QteResolved {
+            card_id: 7, winner: "Ana".into(),
+            clicks: Some([("Ana".to_string(), 5), ("Beto".to_string(), 3)].into()),
+            tiebreaks: Some(2), random: Some(true),
+        };
+        let j = serde_json::to_value(&nuevo).unwrap();
+        assert_eq!(j["clicks"]["Ana"], 5);
+        assert_eq!(j["tiebreaks"], 2);
+        assert_eq!(j["random"], true);
+    }
+
+    #[test]
+    fn qte_tiebreak_serializes_with_its_round_and_duration() {
+        let j = serde_json::to_value(&ServerMessage::QteTiebreak { card_id: 7, round: 2, duration: 1000 }).unwrap();
+        assert_eq!(j["type"], "qte_tiebreak");
+        assert_eq!((j["card_id"].as_u64(), j["round"].as_u64(), j["duration"].as_u64()),
+                   (Some(7), Some(2), Some(1000)));
+    }
 
     // El bug que bloqueaba la partida: al cambiar de set con una carta soltada,
     // la respuesta se construía con `filter_map` y el hueco desaparecía. El set

@@ -112,6 +112,12 @@ const KEYFRAME_EVERY: Duration = Duration::from_millis(2000);
 const QTE_MS: u64 = 3000;
 /// Cada cuánto se manda el marcador durante la pelea.
 const QTE_TICK_MS: u64 = 500;
+/// Ronda extra de muerte súbita cuando una pelea acaba en empate de clicks.
+const SUDDEN_MS: u64 = 1000;
+/// Marcador durante la muerte súbita (más corto: la ronda dura 1 s).
+const SUDDEN_TICK_MS: u64 = 250;
+/// Rondas extra como máximo; si siguen empatados, al azar.
+const MAX_TIEBREAKS: u32 = 3;
 
 impl AppState {
     pub fn new() -> Self {
@@ -2751,17 +2757,59 @@ fn decide_fight(
     qte: &crate::game::QteState,
     a: Uuid,
     b: Uuid,
-) -> (bool, bool) {
+) -> FightOutcome {
     // Ceder pierde, se hubiera pulsado lo que se hubiera pulsado.
     if qte.conceded_by == Some(a) {
-        return (false, true);
+        return FightOutcome::Conceded(false);
     }
     if qte.conceded_by == Some(b) {
-        return (true, true);
+        return FightOutcome::Conceded(true);
     }
     let clicks_a = *qte.clicks.get(&a).unwrap_or(&0);
     let clicks_b = *qte.clicks.get(&b).unwrap_or(&0);
-    (clicks_a >= clicks_b, false)
+    match clicks_a.cmp(&clicks_b) {
+        std::cmp::Ordering::Greater => FightOutcome::Won(true),
+        std::cmp::Ordering::Less => FightOutcome::Won(false),
+        std::cmp::Ordering::Equal => FightOutcome::Tie,
+    }
+}
+
+/// Resultado de mirar una pelea cuando se acaba el tiempo. El `bool` es
+/// "gana `a`" (el primero de los dos).
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum FightOutcome {
+    Won(bool),
+    /// Perdió quien cedió; el `bool` sigue siendo "gana `a`".
+    Conceded(bool),
+    /// Mismos clicks (incluido 0-0) y nadie cedió.
+    Tie,
+}
+
+/// ¿Toca otra ronda de muerte súbita? Solo con empate y por debajo del tope.
+fn needs_tiebreak(outcome: FightOutcome, rounds_done: u32) -> bool {
+    outcome == FightOutcome::Tie && rounds_done < MAX_TIEBREAKS
+}
+
+/// Manda el marcador `n` veces, una cada `tick_ms`, y para antes si alguien cede.
+async fn qte_ticks(state: &AppState, lobby_id: &str, card_id: u32, n: u64, tick_ms: u64) {
+    for _ in 0..n {
+        sleep(Duration::from_millis(tick_ms)).await;
+        let mut cedida = false;
+        if let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await {
+            if let Some(gs) = &lobby.game_state {
+                if let Some(qte) = gs.qte_for_card(card_id) {
+                    cedida = qte.conceded_by.is_some();
+                    let clicks: std::collections::HashMap<String, u32> = qte.participants.iter()
+                        .map(|(id, name)| (name.clone(), *qte.clicks.get(id).unwrap_or(&0)))
+                        .collect();
+                    state.broadcast_to_lobby(lobby_id, ServerMessage::QteUpdate { card_id, clicks }).await;
+                }
+            }
+        }
+        if cedida {
+            break;
+        }
+    }
 }
 
 /// Ejecuta el QTE: envía updates cada 500ms y resuelve al finalizar
@@ -2772,28 +2820,33 @@ async fn run_qte(
     p_a: QtePlayerData,
     p_b: QtePlayerData,
 ) {
-    // Marcador cada tick hasta agotar la pelea, o menos si alguien cede.
-    for _ in 0..(QTE_MS / QTE_TICK_MS) {
-        sleep(Duration::from_millis(QTE_TICK_MS)).await;
-        let mut cedida = false;
-        if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-            if let Some(gs) = &lobby.game_state {
-                // Solo la pelea de ESTA carta: si no, dos peleas a la vez se
-                // pisaban los marcadores en pantalla.
-                if let Some(qte) = gs.qte_for_card(card_id) {
-                    cedida = qte.conceded_by.is_some();
-                    let clicks: std::collections::HashMap<String, u32> = qte.participants.iter()
-                        .map(|(id, name)| (name.clone(), *qte.clicks.get(id).unwrap_or(&0)))
-                        .collect();
-                    state.broadcast_to_lobby(&lobby_id, ServerMessage::QteUpdate { card_id, clicks }).await;
-                }
+    // Marcador cada tick hasta agotar la pelea, o menos si alguien cede (solo
+    // la pelea de ESTA carta: si no, dos peleas a la vez se pisaban).
+    qte_ticks(&state, &lobby_id, card_id, QTE_MS / QTE_TICK_MS, QTE_TICK_MS).await;
+
+    // Empate (incluido 0-0) sin cesión: rondas extra de muerte súbita con los
+    // contadores a cero, hasta romperlo o llegar al tope (entonces, al azar).
+    // `mutate` y no `txn`: solo reinicia los clicks y no hay nada que anidar.
+    let mut tiebreaks: u32 = 0;
+    loop {
+        let (a, b) = (p_a.player_id, p_b.player_id);
+        let hay_ronda = state.lobby_manager.mutate(&lobby_id, |lobby| {
+            let qte = lobby.game_state.as_mut()?.active_qtes.iter_mut()
+                .find(|q| q.card_id == card_id)?;
+            if !needs_tiebreak(decide_fight(qte, a, b), tiebreaks) {
+                return None;
             }
-        }
-        // Alguien se rindió: la pelea se acaba aquí. Se mira en el mismo bucle
-        // que ya relee la sala, así que no hace falta ni un temporizador más.
-        if cedida {
+            qte.clicks.clear();
+            Some(())
+        }).await.flatten().is_some();
+        if !hay_ronda {
             break;
         }
+        tiebreaks += 1;
+        state.broadcast_to_lobby(&lobby_id, ServerMessage::QteTiebreak {
+            card_id, round: tiebreaks, duration: SUDDEN_MS,
+        }).await;
+        qte_ticks(&state, &lobby_id, card_id, SUDDEN_MS / SUDDEN_TICK_MS, SUDDEN_TICK_MS).await;
     }
 
     // Resolver QTE: determinar ganador
@@ -2811,8 +2864,16 @@ async fn run_qte(
                 None => return,
             };
 
-            let (gana_a, cedio_el_perdedor) =
-                decide_fight(&qte, p_a.player_id, p_b.player_id);
+            let (gana_a, cedio_el_perdedor, al_azar) =
+                match decide_fight(&qte, p_a.player_id, p_b.player_id) {
+                    FightOutcome::Won(a) => (a, false, false),
+                    FightOutcome::Conceded(a) => (a, true, false),
+                    // Tras el tope de rondas extra: moneda al aire.
+                    FightOutcome::Tie => (rand::random::<bool>(), false, true),
+                };
+            let final_clicks: std::collections::HashMap<String, u32> = qte.participants.iter()
+                .map(|(id, name)| (name.clone(), *qte.clicks.get(id).unwrap_or(&0)))
+                .collect();
             let (winner, loser) = if gana_a {
                 (p_a.clone(), p_b.clone())
             } else {
@@ -2867,11 +2928,11 @@ async fn run_qte(
                     on_fire: p.is_on_fire(),
                 }).collect();
             (winner, loser, awarded, new_center, players_progress,
-             winner_combo, loser_combo, cedio_el_perdedor)
+             winner_combo, loser_combo, cedio_el_perdedor, final_clicks, al_azar)
         };
 
         let (winner, loser, awarded, new_center, players_progress,
-             winner_combo, loser_combo, cedio_el_perdedor) = outcome;
+             winner_combo, loser_combo, cedio_el_perdedor, final_clicks, al_azar) = outcome;
         if awarded.is_some() && !cedio_el_perdedor {
             // Perder cuesta unos segundos sin poder intercambiar. No hay ningún
             // mensaje de "has perdido": el tablero apagándose es el aviso.
@@ -2892,6 +2953,9 @@ async fn run_qte(
         state.broadcast_to_lobby(&lobby_id, ServerMessage::QteResolved {
             card_id,
             winner: winner.nickname.clone(),
+            clicks: Some(final_clicks),
+            tiebreaks: (tiebreaks > 0).then_some(tiebreaks),
+            random: al_azar.then_some(true),
         }).await;
 
         // El reparto solo va si hubo premio. El QteResolved de arriba ya salió
@@ -3065,9 +3129,8 @@ mod qte_scope_tests {
         qte.clicks.insert(b, 2);
         qte.conceded_by = Some(a);
 
-        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
-        assert!(!gana_a, "quien cede pierde aunque llevara 30 a 2");
-        assert!(cedio, "y consta que fue por rendirse");
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Conceded(false),
+            "quien cede pierde aunque llevara 30 a 2, y consta que fue por rendirse");
     }
 
     #[test]
@@ -3078,21 +3141,48 @@ mod qte_scope_tests {
         gs.active_qtes[0].clicks.insert(a, 4);
         gs.active_qtes[0].clicks.insert(b, 9);
 
-        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
-        assert!(!gana_a, "gana quien más pulsó");
-        assert!(!cedio, "nadie cedió: el perdedor sí se lleva bloqueo y corte de racha");
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Won(false),
+            "gana quien más pulsó; nadie cedió: el perdedor sí se lleva bloqueo y corte de racha");
+        gs.active_qtes[0].clicks.insert(a, 10);
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Won(true));
     }
 
     #[test]
-    fn a_tie_goes_to_the_first_and_is_not_a_concession() {
-        // El desempate por orden ya existía; lo que no puede pasar es que un
-        // empate se confunda con una rendición y deje al perdedor sin castigo.
+    fn a_tie_is_a_tie_not_a_win_for_the_last_to_click() {
         let a = Uuid::new_v4();
         let b = Uuid::new_v4();
-        let gs = state_with_fight([a, b], 7);
-        let (gana_a, cedio) = decide_fight(&gs.active_qtes[0], a, b);
-        assert!(gana_a);
-        assert!(!cedio);
+        let mut gs = state_with_fight([a, b], 7);
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Tie, "0-0");
+        gs.active_qtes[0].clicks.insert(a, 5);
+        gs.active_qtes[0].clicks.insert(b, 5);
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Tie, "5-5");
+    }
+
+    #[test]
+    fn conceding_beats_a_tie() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        let mut gs = state_with_fight([a, b], 7);
+        gs.active_qtes[0].clicks.insert(a, 5);
+        gs.active_qtes[0].clicks.insert(b, 5);
+        gs.active_qtes[0].conceded_by = Some(b);
+        assert_eq!(decide_fight(&gs.active_qtes[0], a, b), FightOutcome::Conceded(true));
+        assert!(!needs_tiebreak(FightOutcome::Conceded(true), 0), "ceder en empate no abre ronda");
+    }
+
+    #[test]
+    fn tiebreak_rounds_run_until_broken_then_fall_to_chance() {
+        // Simula el bucle de run_qte: empate, empate, gana alguien = 2 rondas extra.
+        let mut rondas = 0;
+        for r in [FightOutcome::Tie, FightOutcome::Tie, FightOutcome::Won(true)] {
+            if needs_tiebreak(r, rondas) { rondas += 1; } else { break; }
+        }
+        assert_eq!(rondas, 2);
+        // Siempre empatados: tras MAX_TIEBREAKS no hay más y decide el azar.
+        let mut rondas = 0;
+        while needs_tiebreak(FightOutcome::Tie, rondas) { rondas += 1; }
+        assert_eq!(rondas, MAX_TIEBREAKS);
+        assert!(!needs_tiebreak(FightOutcome::Won(false), 0));
     }
 
     #[test]
