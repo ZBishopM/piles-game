@@ -89,6 +89,8 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `encuesta.mjs` | Caída sin vuelta (~2 min): a los 30 s encuesta de 15 s; todos Sí o nadie contesta = otros 30 s, un No cancela; volver en plena encuesta la cierra; «Salir» retira como antes, sin encuesta |
 | `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 
+| `bots.mjs [--seg=60]` | La mesa no se para con bots (~65 s): 3 salas a la vez (fácil, normal, difícil), cada una con 1 humano que solo manda pings + 3 bots. Falla si no arranca (`game_start` en 12 s), si el servidor manda un `error` o si el centro (`game_update`) se queda quieto >15 s; imprime una tabla por dificultad (cambios del centro, peleas, sets cerrados, silencio máximo) sin fallar por los sets |
+
 ### `browser/` — Playwright (`--ver` abre la ventana)
 
 | Script | Comprueba |
