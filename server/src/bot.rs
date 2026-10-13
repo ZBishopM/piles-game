@@ -58,22 +58,22 @@ impl Difficulty {
             // sea ~4 veces por oportunidad: el 0.35 de normal acababa siendo un
             // 82 % real y los bots se peleaban por todo.
             Difficulty::Easy => Knobs {
-                think: Duration::from_millis(2500),
+                think: Duration::from_millis(2000),
                 click: Duration::from_millis(320),
-                good_choice: 0.50,
+                good_choice: 0.80,
                 contest: 0.05,
             },
             Difficulty::Normal => Knobs {
-                think: Duration::from_millis(1200),
+                think: Duration::from_millis(1500),
                 click: Duration::from_millis(180),
-                good_choice: 0.80,
-                contest: 0.20,
+                good_choice: 0.95,
+                contest: 0.15,
             },
             Difficulty::Hard => Knobs {
-                think: Duration::from_millis(500),
+                think: Duration::from_millis(1000),
                 click: Duration::from_millis(110),
-                good_choice: 0.95,
-                contest: 0.50,
+                good_choice: 1.00,
+                contest: 0.30,
             },
         }
     }
@@ -152,7 +152,9 @@ impl Bot {
     /// Pone el centro nuevo y apunta si ha cambiado algo.
     fn set_center(&mut self, center: Vec<CardInfo>) {
         let mismo = center.len() == self.center.len()
-            && center.iter().all(|c| self.center.iter().any(|o| o.id == c.id));
+            && center
+                .iter()
+                .all(|c| self.center.iter().any(|o| o.id == c.id));
         if !mismo {
             self.center_changed_at = Instant::now();
         }
@@ -183,7 +185,9 @@ impl Bot {
         let set = self.sets.get(set_index)?;
         let mut best: Option<(u8, usize)> = None;
         for slot in set.iter().flatten() {
-            let n = set.iter().flatten()
+            let n = set
+                .iter()
+                .flatten()
                 .filter(|c| c.clothing_type == slot.clothing_type)
                 .count();
             if best.map_or(true, |(_, bn)| n > bn) {
@@ -195,8 +199,7 @@ impl Bot {
 
     fn set_is_done(&self, set_index: usize) -> bool {
         self.sets.get(set_index).map_or(false, |s| {
-            s.iter().all(|c| c.is_some())
-                && self.modal(set_index).map_or(false, |(_, n)| n == 4)
+            s.iter().all(|c| c.is_some()) && self.modal(set_index).map_or(false, |(_, n)| n == 4)
         })
     }
 
@@ -211,9 +214,8 @@ impl Bot {
             .filter(|&i| i != target && !self.set_is_done(i))
             .find_map(|i| {
                 let set = self.sets.get(i)?;
-                let j = (0..set.len()).find(|&j| {
-                    set[j].as_ref().is_some_and(|c| c.clothing_type == t)
-                })?;
+                let j = (0..set.len())
+                    .find(|&j| set[j].as_ref().is_some_and(|c| c.clothing_type == t))?;
                 Some((i, j))
             })
     }
@@ -225,7 +227,10 @@ impl Bot {
 
     /// Cuántas cartas de esa prenda lleva en toda la mano.
     fn count_in_hand(&self, clothing_type: u8) -> usize {
-        self.sets.iter().flatten().flatten()
+        self.sets
+            .iter()
+            .flatten()
+            .flatten()
             .filter(|c| c.clothing_type == clothing_type)
             .count()
     }
@@ -279,7 +284,9 @@ impl Bot {
                         self.freeing = None;
                         self.freed = Some(t);
                         self.chasing = Some((t, target));
-                        return Some(ClientMessage::DropCard { my_card_index: card });
+                        return Some(ClientMessage::DropCard {
+                            my_card_index: card,
+                        });
                     }
                     Some((set, _)) => {
                         return Some(ClientMessage::SwitchSet { set_index: set });
@@ -302,11 +309,14 @@ impl Bot {
             let center: Vec<CardInfo> = match freed {
                 Some(t) => {
                     let sin = |c: &&CardInfo| c.clothing_type != t;
-                    let filtrado: Vec<CardInfo> =
-                        self.center.iter().filter(sin).cloned().collect();
+                    let filtrado: Vec<CardInfo> = self.center.iter().filter(sin).cloned().collect();
                     // Si en el centro solo estaba eso, mejor coger que quedarse
                     // debiendo: a los 3 s el servidor asigna una cualquiera.
-                    if filtrado.is_empty() { self.center.clone() } else { filtrado }
+                    if filtrado.is_empty() {
+                        self.center.clone()
+                    } else {
+                        filtrado
+                    }
                 }
                 None => self.center.clone(),
             };
@@ -317,16 +327,23 @@ impl Bot {
                 want.and_then(|t| center.iter().find(|c| c.clothing_type == t))
                     // 2) si no está, algo que ya tenga en ESE set, que es donde
                     //    va a caer la carta;
-                    .or_else(|| center.iter().find(|c| {
-                        self.sets.get(hole_set).is_some_and(|s| {
-                            s.iter().flatten().any(|h| h.clothing_type == c.clothing_type)
+                    .or_else(|| {
+                        center.iter().find(|c| {
+                            self.sets.get(hole_set).is_some_and(|s| {
+                                s.iter()
+                                    .flatten()
+                                    .any(|h| h.clothing_type == c.clothing_type)
+                            })
                         })
-                    }))
+                    })
                     // 3) y si tampoco, lo que más tenga en la mano: al menos no
                     //    empeora. Coger la primera del centro era lo que le
                     //    hacía dar vueltas cambiando basura por basura.
-                    .or_else(|| center.iter()
-                        .max_by_key(|c| self.count_in_hand(c.clothing_type)))
+                    .or_else(|| {
+                        center
+                            .iter()
+                            .max_by_key(|c| self.count_in_hand(c.clothing_type))
+                    })
             } else {
                 center.get(rng.gen_range(0..center.len()))
             };
@@ -366,7 +383,9 @@ impl Bot {
                         return Some(ClientMessage::SwitchSet { set_index: set });
                     }
                     self.freed = Some(t);
-                    return Some(ClientMessage::DropCard { my_card_index: card });
+                    return Some(ClientMessage::DropCard {
+                        my_card_index: card,
+                    });
                 }
             }
             return None;
@@ -395,7 +414,9 @@ impl Bot {
             // elegía siempre la misma que este `find`. Lo que sí mejora al bot
             // es a qué set va y qué coge, no cuál de las sobrantes suelta.
             (0..set.len()).find(|&i| {
-                set[i].as_ref().is_some_and(|c| Some(c.clothing_type) != keep)
+                set[i]
+                    .as_ref()
+                    .is_some_and(|c| Some(c.clothing_type) != keep)
             })
         } else {
             (0..set.len()).find(|&i| set[i].is_some())
@@ -407,7 +428,9 @@ impl Bot {
     /// Se llama con toda jugada, venga de `decide` o de `force_drop`.
     fn note_own_drop(&mut self, action: &ClientMessage) {
         if let ClientMessage::DropCard { my_card_index } = action {
-            let card = self.sets.get(self.current_set)
+            let card = self
+                .sets
+                .get(self.current_set)
                 .and_then(|s| s.get(*my_card_index))
                 .and_then(|c| c.as_ref());
             if let Some(c) = card {
@@ -442,7 +465,11 @@ mod tests {
     use super::*;
 
     fn card(id: u32, t: u8) -> CardInfo {
-        CardInfo { id, clothing_type: t, name: format!("prenda {t}") }
+        CardInfo {
+            id,
+            clothing_type: t,
+            name: format!("prenda {t}"),
+        }
     }
 
     /// Bot con una mano y un centro concretos. `good_choice` a 1.0 para probar
@@ -491,9 +518,22 @@ mod tests {
         // Ir al 0 es quedarse dando vueltas sin poder cerrarlo nunca, que es lo
         // que hacía antes.
         let sets = vec![
-            vec![Some(card(0, 1)), Some(card(1, 1)), Some(card(2, 1)), Some(card(3, 9))],
-            vec![Some(card(4, 2)), Some(card(5, 2)), Some(card(6, 8)), Some(card(7, 7))],
-            full(3, 10), full(4, 20), full(5, 30), full(6, 40),
+            vec![
+                Some(card(0, 1)),
+                Some(card(1, 1)),
+                Some(card(2, 1)),
+                Some(card(3, 9)),
+            ],
+            vec![
+                Some(card(4, 2)),
+                Some(card(5, 2)),
+                Some(card(6, 8)),
+                Some(card(7, 7)),
+            ],
+            full(3, 10),
+            full(4, 20),
+            full(5, 30),
+            full(6, 40),
         ];
         let bot = bot_with(sets, vec![card(99, 2)]);
         assert_eq!(bot.best_set(), Some(1));
@@ -505,15 +545,26 @@ mod tests {
         // las dos suelte da igual —en un set de 4 las sobrantes son siempre
         // igual de raras—, pero tocar el 6 sería deshacer el propio set.
         let sets = vec![
-            vec![Some(card(0, 6)), Some(card(1, 6)), Some(card(2, 5)), Some(card(3, 7))],
-            mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(0, 6)),
+                Some(card(1, 6)),
+                Some(card(2, 5)),
+                Some(card(3, 7)),
+            ],
+            mixed(10),
+            mixed(20),
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let mut bot = bot_with(sets, vec![card(99, 6)]);
         let mut rng = rand::thread_rng();
         match bot.decide(&mut rng) {
             Some(ClientMessage::DropCard { my_card_index }) => {
-                assert!(my_card_index == 2 || my_card_index == 3,
-                        "soltó la mayoritaria y se deshizo el set");
+                assert!(
+                    my_card_index == 2 || my_card_index == 3,
+                    "soltó la mayoritaria y se deshizo el set"
+                );
             }
             other => panic!("esperaba soltar una carta, fue {other:?}"),
         }
@@ -523,7 +574,11 @@ mod tests {
     fn owing_it_takes_what_closes_the_set() {
         let mut sets = vec![
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), None],
-            full(3, 10), full(4, 20), full(5, 30), full(6, 40), full(8, 50),
+            full(3, 10),
+            full(4, 20),
+            full(5, 30),
+            full(6, 40),
+            full(8, 50),
         ];
         sets[0][3] = None;
         let mut bot = bot_with(sets, vec![card(90, 9), card(91, 5), card(92, 4)]);
@@ -541,7 +596,11 @@ mod tests {
         // cambiar basura por basura sin avanzar.
         let sets = vec![
             vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), None],
-            full(7, 10), full(7, 20), full(4, 30), full(6, 40), full(8, 50),
+            full(7, 10),
+            full(7, 20),
+            full(4, 30),
+            full(6, 40),
+            full(8, 50),
         ];
         let mut bot = bot_with(sets, vec![card(90, 9), card(91, 7)]);
         let mut rng = rand::thread_rng();
@@ -561,10 +620,22 @@ mod tests {
         // Tres 5 en el set 0 y el cuarto tirado en el set 2: tiene la prenda
         // entera y aun así no puede cerrar.
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
             mixed(10),
-            vec![Some(card(20, 5)), Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
-            mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(20, 5)),
+                Some(card(21, 21)),
+                Some(card(22, 22)),
+                Some(card(23, 23)),
+            ],
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         // Ni un 5 en el centro, y no va a salir: los tiene todos él.
         let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
@@ -592,10 +663,22 @@ mod tests {
     #[test]
     fn the_trip_for_its_own_copy_always_ends_in_a_drop() {
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
             mixed(10),
-            vec![Some(card(20, 5)), Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
-            mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(20, 5)),
+                Some(card(21, 21)),
+                Some(card(22, 22)),
+                Some(card(23, 23)),
+            ],
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
@@ -606,7 +689,10 @@ mod tests {
         for _ in 0..6 {
             match bot.decide(&mut rng) {
                 Some(ClientMessage::SwitchSet { set_index }) => bot.current_set = set_index,
-                Some(ClientMessage::DropCard { .. }) => { dropped = true; break }
+                Some(ClientMessage::DropCard { .. }) => {
+                    dropped = true;
+                    break;
+                }
                 other => panic!("ni suelta ni se cambia: {other:?}"),
             }
         }
@@ -618,10 +704,22 @@ mod tests {
         // El hueco recién abierto está en el set del que la sacó, así que
         // recogerla ahí sería deshacer el viaje entero.
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
             mixed(10),
-            vec![None, Some(card(21, 21)), Some(card(22, 22)), Some(card(23, 23))],
-            mixed(30), mixed(40), mixed(50),
+            vec![
+                None,
+                Some(card(21, 21)),
+                Some(card(22, 22)),
+                Some(card(23, 23)),
+            ],
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let mut bot = bot_with(sets, vec![card(90, 5), card(91, 21)]);
         bot.freed = Some(5);
@@ -640,15 +738,31 @@ mod tests {
     #[test]
     fn it_never_takes_back_what_it_just_dropped() {
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
             // Otro 9 en la mano: el 9 es "lo que más tiene" de lo del centro.
-            vec![Some(card(10, 9)), Some(card(11, 21)), Some(card(12, 22)), Some(card(13, 23))],
-            mixed(20), mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(10, 9)),
+                Some(card(11, 21)),
+                Some(card(12, 22)),
+                Some(card(13, 23)),
+            ],
+            mixed(20),
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
         let drop = bot.force_drop(&mut rng).expect("tenía que soltar");
-        assert!(matches!(drop, ClientMessage::DropCard { my_card_index: 3 }), "fue {drop:?}");
+        assert!(
+            matches!(drop, ClientMessage::DropCard { my_card_index: 3 }),
+            "fue {drop:?}"
+        );
         bot.note_own_drop(&drop);
 
         // Lo que llega del servidor: hueco en el set 0 y el 9 en el centro.
@@ -668,13 +782,25 @@ mod tests {
     #[test]
     fn it_waits_instead_of_trading_junk_for_junk() {
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
-            mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
+            mixed(10),
+            mixed(20),
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         // Ni un 5 en el centro: soltar ahora no puede mejorar nada.
         let mut bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
-        assert!(bot.decide(&mut rng).is_none(), "no debería soltar sin ganar nada");
+        assert!(
+            bot.decide(&mut rng).is_none(),
+            "no debería soltar sin ganar nada"
+        );
     }
 
     #[test]
@@ -682,12 +808,24 @@ mod tests {
         // Si todos esperan, nadie suelta y el centro no cambia nunca. Pasados
         // unos turnos el bucle llama a force_drop, que sí suelta.
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
-            mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
+            mixed(10),
+            mixed(20),
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let bot = bot_with(sets, vec![card(90, 2), card(91, 3)]);
         let mut rng = rand::thread_rng();
-        assert!(bot.force_drop(&mut rng).is_some(), "la mesa se quedaría parada");
+        assert!(
+            bot.force_drop(&mut rng).is_some(),
+            "la mesa se quedaría parada"
+        );
     }
 
     // Soltar sin ganar nada solo sirve para descongelar una mesa parada. Con la
@@ -713,8 +851,17 @@ mod tests {
     #[test]
     fn it_does_drop_when_the_garment_it_needs_is_on_the_table() {
         let sets = vec![
-            vec![Some(card(0, 5)), Some(card(1, 5)), Some(card(2, 5)), Some(card(3, 9))],
-            mixed(10), mixed(20), mixed(30), mixed(40), mixed(50),
+            vec![
+                Some(card(0, 5)),
+                Some(card(1, 5)),
+                Some(card(2, 5)),
+                Some(card(3, 9)),
+            ],
+            mixed(10),
+            mixed(20),
+            mixed(30),
+            mixed(40),
+            mixed(50),
         ];
         let mut bot = bot_with(sets, vec![card(90, 5)]);
         let mut rng = rand::thread_rng();
@@ -730,8 +877,12 @@ mod tests {
     fn it_shows_a_finished_set() {
         let mut sets = vec![full(5, 0)];
         sets.extend((1..6).map(|i| {
-            vec![Some(card(100 + i * 4, 1)), Some(card(101 + i * 4, 2)),
-                 Some(card(102 + i * 4, 3)), Some(card(103 + i * 4, 4))]
+            vec![
+                Some(card(100 + i * 4, 1)),
+                Some(card(101 + i * 4, 2)),
+                Some(card(102 + i * 4, 3)),
+                Some(card(103 + i * 4, 4)),
+            ]
         }));
         let mut bot = bot_with(sets, vec![card(90, 9)]);
         let mut rng = rand::thread_rng();
@@ -746,24 +897,39 @@ mod tests {
         // Con deuda lo único que se puede hacer es coger del centro; el
         // servidor rechaza voltear.
         let mut sets = vec![full(5, 0)];
-        sets.extend((1..6).map(|_| vec![Some(card(200, 1)), Some(card(201, 1)), None, Some(card(203, 1))]));
+        sets.extend((1..6).map(|_| {
+            vec![
+                Some(card(200, 1)),
+                Some(card(201, 1)),
+                None,
+                Some(card(203, 1)),
+            ]
+        }));
         let mut bot = bot_with(sets, vec![card(90, 1)]);
         let mut rng = rand::thread_rng();
-        assert!(matches!(bot.decide(&mut rng), Some(ClientMessage::TakeCard { .. })));
+        assert!(matches!(
+            bot.decide(&mut rng),
+            Some(ClientMessage::TakeCard { .. })
+        ));
     }
 
     #[test]
     fn with_all_six_shown_it_asks_to_be_verified() {
-        let bot_sets: Vec<Vec<Option<CardInfo>>> =
-            (0..6).map(|i| full(i as u8, i * 4)).collect();
+        let bot_sets: Vec<Vec<Option<CardInfo>>> = (0..6).map(|i| full(i as u8, i * 4)).collect();
         let mut bot = bot_with(bot_sets, vec![card(90, 9)]);
         bot.flipped = [true; 6];
         let mut rng = rand::thread_rng();
-        assert!(matches!(bot.decide(&mut rng), Some(ClientMessage::RequestVerification)));
+        assert!(matches!(
+            bot.decide(&mut rng),
+            Some(ClientMessage::RequestVerification)
+        ));
 
         // Y solo una vez.
         bot.verification_sent = true;
-        assert!(!matches!(bot.decide(&mut rng), Some(ClientMessage::RequestVerification)));
+        assert!(!matches!(
+            bot.decide(&mut rng),
+            Some(ClientMessage::RequestVerification)
+        ));
     }
 
     #[test]
@@ -805,11 +971,7 @@ pub fn spawn_bot<'a>(
     Box::pin(spawn_bot_inner(state, lobby_id, difficulty))
 }
 
-async fn spawn_bot_inner(
-    state: &AppState,
-    lobby_id: &str,
-    difficulty: Difficulty,
-) -> Option<Uuid> {
+async fn spawn_bot_inner(state: &AppState, lobby_id: &str, difficulty: Difficulty) -> Option<Uuid> {
     let id = Uuid::new_v4();
     let (tx, rx) = mpsc::unbounded_channel::<ServerMessage>();
     // Antes de entrar: si no, el broadcast del propio join no le llegaría.
@@ -851,7 +1013,13 @@ async fn spawn_bot_inner(
     // Antes se marcaba listo 400 ms después de cada LobbyUpdate, así que en la
     // sala aparecía "no listo" y de pronto empezaba la partida, y un segundo
     // LobbyUpdate encolado disparaba otro SetReady ya en plena partida.
-    handle_client_message(ClientMessage::SetReady { ready: true }, id, &mut current_lobby, state).await;
+    handle_client_message(
+        ClientMessage::SetReady { ready: true },
+        id,
+        &mut current_lobby,
+        state,
+    )
+    .await;
 
     tokio::spawn(run(state.clone(), id, current_lobby, difficulty, rx));
     Some(id)
@@ -988,11 +1156,21 @@ async fn apply(
                 };
                 if needs_ready {
                     handle_client_message(
-                        ClientMessage::SetReady { ready: true }, bot.id, current_lobby, state).await;
+                        ClientMessage::SetReady { ready: true },
+                        bot.id,
+                        current_lobby,
+                        state,
+                    )
+                    .await;
                 }
             }
         }
-        ServerMessage::GameStart { your_sets, center_cards, current_set, .. } => {
+        ServerMessage::GameStart {
+            your_sets,
+            center_cards,
+            current_set,
+            ..
+        } => {
             bot.sets = your_sets;
             bot.set_center(center_cards);
             bot.center_changed_at = Instant::now();
@@ -1009,22 +1187,38 @@ async fn apply(
             bot.chasing = None;
         }
         // Solo interesan los propios: es lo que dice si ya enseñó ese set.
-        ServerMessage::SetFlipped { player, set_index, .. } => {
-            let mine = current_lobby.as_deref().map(|lid| (lid.to_string(), player));
+        ServerMessage::SetFlipped {
+            player, set_index, ..
+        } => {
+            let mine = current_lobby
+                .as_deref()
+                .map(|lid| (lid.to_string(), player));
             if let Some((lid, who)) = mine {
                 if bot_has_nickname(state, &lid, bot.id, &who).await {
-                    if let Some(f) = bot.flipped.get_mut(set_index) { *f = true; }
+                    if let Some(f) = bot.flipped.get_mut(set_index) {
+                        *f = true;
+                    }
                 }
             }
         }
         ServerMessage::VerificationStarted { .. } => bot.verification_sent = true,
-        ServerMessage::SetsResynced { your_sets, center_cards } => {
+        ServerMessage::SetsResynced {
+            your_sets,
+            center_cards,
+        } => {
             bot.sets = your_sets;
             bot.set_center(center_cards);
         }
-        ServerMessage::SwapSuccess { set_index, your_new_set, center_cards, .. } => {
+        ServerMessage::SwapSuccess {
+            set_index,
+            your_new_set,
+            center_cards,
+            ..
+        } => {
             if let Some(set) = your_new_set {
-                if let Some(slot) = bot.sets.get_mut(set_index) { *slot = set; }
+                if let Some(slot) = bot.sets.get_mut(set_index) {
+                    *slot = set;
+                }
             }
             bot.set_center(center_cards);
         }
@@ -1036,13 +1230,13 @@ async fn apply(
         ServerMessage::SwapConflict { players, .. } => {
             // Solo pelea si es suya. El nickname es lo único que identifica a
             // los participantes en este mensaje.
-            let mine = current_lobby.as_deref()
+            let mine = current_lobby
+                .as_deref()
                 .map(|lid| (lid.to_string(), players.clone()));
             if let Some((lid, names)) = mine {
                 if bot_is_in(state, &lid, bot.id, &names).await {
                     bot.fighting = true;
-                    tokio::spawn(spam_clicks(
-                        state.clone(), bot.id, lid, bot.knobs.click));
+                    tokio::spawn(spam_clicks(state.clone(), bot.id, lid, bot.knobs.click));
                 }
             }
         }
@@ -1065,7 +1259,9 @@ async fn apply(
 /// ¿Está este bot entre los nombres que pelean?
 async fn bot_is_in(state: &AppState, lobby_id: &str, bot_id: Uuid, names: &[String]) -> bool {
     match state.lobby_manager.get_lobby(lobby_id).await {
-        Some(l) => l.players.iter()
+        Some(l) => l
+            .players
+            .iter()
             .any(|p| p.id == bot_id && names.contains(&p.nickname)),
         None => false,
     }
@@ -1075,7 +1271,10 @@ async fn bot_is_in(state: &AppState, lobby_id: &str, bot_id: Uuid, names: &[Stri
 /// nombre y no por id.
 async fn bot_has_nickname(state: &AppState, lobby_id: &str, bot_id: Uuid, name: &str) -> bool {
     match state.lobby_manager.get_lobby(lobby_id).await {
-        Some(l) => l.players.iter().any(|p| p.id == bot_id && p.nickname == name),
+        Some(l) => l
+            .players
+            .iter()
+            .any(|p| p.id == bot_id && p.nickname == name),
         None => false,
     }
 }
@@ -1092,7 +1291,10 @@ async fn spam_clicks(state: AppState, bot_id: Uuid, lobby_id: String, base: Dura
 
         // Su pelea, no una cualquiera: con dos a la vez, seguir pulsando por la
         // de otros es tirar clicks a la basura.
-        let still = state.lobby_manager.get_lobby(&lobby_id).await
+        let still = state
+            .lobby_manager
+            .get_lobby(&lobby_id)
+            .await
             .and_then(|l| l.game_state.map(|g| g.qte_of_player(&bot_id).is_some()))
             .unwrap_or(false);
         if !still {
@@ -1116,14 +1318,17 @@ async fn try_contest(state: &AppState, bot: &mut Bot, current_lobby: &mut Option
     if bot.calm_until.is_some_and(|t| Instant::now() < t) {
         return false;
     }
-    let Some(lobby_id) = current_lobby.clone() else { return false };
+    let Some(lobby_id) = current_lobby.clone() else {
+        return false;
+    };
 
     let rival_card = {
         let intents = state.take_intents.read().await;
-        intents.get(&lobby_id)
-            .and_then(|m| m.iter()
+        intents.get(&lobby_id).and_then(|m| {
+            m.iter()
                 .find(|(_, i)| i.player_id != bot.id)
-                .map(|(card_id, _)| *card_id))
+                .map(|(card_id, _)| *card_id)
+        })
     };
     let Some(card_id) = rival_card else {
         bot.last_intent = None;
@@ -1152,7 +1357,12 @@ async fn try_contest(state: &AppState, bot: &mut Bot, current_lobby: &mut Option
     // el ciclo normal del bot es soltar y coger.
     if bot.owes() {
         handle_client_message(
-            ClientMessage::TakeCard { card_id }, bot.id, current_lobby, state).await;
+            ClientMessage::TakeCard { card_id },
+            bot.id,
+            current_lobby,
+            state,
+        )
+        .await;
         return true;
     }
 
@@ -1164,9 +1374,19 @@ async fn try_contest(state: &AppState, bot: &mut Bot, current_lobby: &mut Option
     match drop {
         Some(ClientMessage::DropCard { my_card_index }) => {
             handle_client_message(
-                ClientMessage::DropCard { my_card_index }, bot.id, current_lobby, state).await;
+                ClientMessage::DropCard { my_card_index },
+                bot.id,
+                current_lobby,
+                state,
+            )
+            .await;
             handle_client_message(
-                ClientMessage::TakeCard { card_id }, bot.id, current_lobby, state).await;
+                ClientMessage::TakeCard { card_id },
+                bot.id,
+                current_lobby,
+                state,
+            )
+            .await;
             true
         }
         // Tocaba cambiar de set: se hace y se intentará pelear en el siguiente
