@@ -218,6 +218,23 @@
         .seg-btn:hover { border-color: var(--accent); color: var(--text); }
         .seg-btn.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: bold; }
 
+        /* ── PERFIL: Mi burla ── */
+        .taunt-row { display: flex; gap: 6px; margin-top: 6px; }
+        .taunt-row label {
+            flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 8px;
+            padding: 0 12px; border: 2px solid var(--border-strong); border-radius: 8px;
+            background: var(--control); color: var(--text-muted); font-size: 1rem; cursor: pointer;
+        }
+        .taunt-row label:hover { border-color: var(--accent); color: var(--text); }
+        .taunt-row label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: bold; }
+        .taunt-row label:has(input:focus-visible) { box-shadow: 0 0 0 3px var(--accent-soft); }
+        .taunt-row input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
+        .taunt-play {
+            flex: 0 0 44px; height: 44px; padding: 0; border: 2px solid var(--border-strong); border-radius: 8px;
+            background: var(--control); color: var(--text); font-size: 1rem; cursor: pointer;
+        }
+        .taunt-play:hover, .taunt-play:focus-visible { border-color: var(--accent); outline: none; }
+        #tauntStatus { display: block; min-height: 1.2em; margin-top: 6px; }
         /* ── CÓMO JUGAR ── */
         .tut-art {
             background: var(--control);
@@ -1675,6 +1692,12 @@
         <small id="smCodeHint">Genera un código en tu perfil de Session Manager y pégalo aquí.</small>
     </div>
 
+    <div class="form-group" role="radiogroup" aria-labelledby="tauntLabel">
+        <label id="tauntLabel">Mi burla</label>
+        <small>Le suena a quien pida una carta justo después de que tú la cojas.</small>
+        <div id="tauntList"></div>
+        <small id="tauntStatus" role="status" aria-live="polite"></small>
+    </div>
     <p style="color:var(--text-faint);font-size:0.85rem;line-height:1.5">
         Sin código se juega igual, con un Elo guardado en este navegador. Al
         vincular puedes pasarlo a tu cuenta.
@@ -2299,7 +2322,7 @@ function attemptRejoin() {
     currentNickname = nickname;
     rejoinInFlight = true;
     send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname,
-           rating_key: ratingKey(), seat_token: seatToken });
+           rating_key: ratingKey(), seat_token: seatToken, taunt: getTaunt() || undefined });
 }
 
 function connectWs() {
@@ -2699,7 +2722,7 @@ function createLobby() {
     if (!nickname) return;
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
     cancelQuickMatchOffer();
-    send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic, rating_key: ratingKey() });
+    send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic, rating_key: ratingKey(), taunt: getTaunt() || undefined });
 }
 
 /** Partida rápida: el servidor mete en la sala pública más llena, o abre una.
@@ -2709,7 +2732,7 @@ function quickMatch() {
     const nickname = requireNickname();
     if (!nickname) return;
     cameFromQuickMatch = true;
-    send({ type: 'quick_match', nickname, rating_key: ratingKey() });
+    send({ type: 'quick_match', nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined });
 }
 
 let cameFromQuickMatch = false;
@@ -2855,7 +2878,7 @@ function joinLobby() {
         return;
     }
     cancelQuickMatchOffer();
-    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey() });
+    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined });
 }
 
 /** Host y jugador que se une llegan al lobby por mensajes distintos
@@ -4482,6 +4505,151 @@ function playSfx(name, arg) {
     try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
 }
 
+// ─── Burlas ───────────────────────────────────────────────────────────────
+//
+// Lo que oye quien llega tarde a una carta que acabas de coger: el servidor
+// manda `taunt` (el id de TU burla) en el `swap_failed` de quien la pidió menos
+// de 500 ms después. Sintetizadas como todo lo demás. Los ids tienen que ser los
+// de `server/src/taunts.rs`: el servidor descarta cualquier otro.
+//
+// Una a la vez (la nueva corta la anterior) y como mucho una cada 2 s en juego.
+let tauntBus = null;
+let tauntLastAt = -Infinity;
+
+/** Una nota de burla. `at` en segundos desde ahora; `vib` es la profundidad (Hz). */
+function tt(at, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 0, vibHz = 12 }) {
+    const c = audioCtx, t = c.currentTime + at;
+    const osc = c.createOscillator(), amp = c.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+    if (vib) {
+        const lfo = c.createOscillator(), depth = c.createGain();
+        lfo.frequency.value = vibHz;
+        depth.gain.value = vib;
+        lfo.connect(depth).connect(osc.frequency);
+        lfo.start(t); lfo.stop(t + dur + 0.02);
+    }
+    amp.gain.setValueAtTime(0.0001, t);
+    amp.gain.exponentialRampToValueAtTime(gain, t + 0.015);
+    amp.gain.setValueAtTime(gain, t + Math.max(0.02, dur - 0.05));
+    amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(amp).connect(tauntBus);
+    osc.start(t); osc.stop(t + dur + 0.02);
+}
+
+const TAUNTS = [
+    { id: 'honk', name: 'Honk de payaso', play: () => {
+        tt(0,    { freq: 420, slideTo: 350, dur: 0.15, type: 'sawtooth', gain: 0.09 });
+        tt(0,    { freq: 421, slideTo: 351, dur: 0.15, type: 'square', gain: 0.04 });
+        tt(0.2,  { freq: 340, slideTo: 270, dur: 0.32, type: 'sawtooth', gain: 0.09 });
+        tt(0.2,  { freq: 341, slideTo: 271, dur: 0.32, type: 'square', gain: 0.04 });
+    } },
+    { id: 'trombon', name: 'Trombón triste', play: () => {
+        [[233, 0], [220, 0.2], [208, 0.4]].forEach(([f, at]) => tt(at, { freq: f, dur: 0.17, type: 'sawtooth', gain: 0.08 }));
+        tt(0.62, { freq: 196, slideTo: 140, dur: 0.55, type: 'sawtooth', gain: 0.08, vib: 6, vibHz: 6 });
+    } },
+    { id: 'boing', name: 'Boing', play: () => {
+        tt(0,    { freq: 180, slideTo: 720, dur: 0.12, type: 'triangle', gain: 0.16 });
+        tt(0.12, { freq: 720, slideTo: 200, dur: 0.55, type: 'triangle', gain: 0.16, vib: 70, vibHz: 20 });
+    } },
+    { id: 'risa', name: 'Risa cartoon', play: () => {
+        [600, 560, 520, 480].forEach((f, i) => tt(i * 0.17, { freq: f, slideTo: f * 0.75, dur: 0.12, type: 'square', gain: 0.07 }));
+        tt(0.7, { freq: 440, slideTo: 330, dur: 0.18, type: 'square', gain: 0.06, vib: 15, vibHz: 14 });
+    } },
+    { id: 'pedorreta', name: 'Pedorreta', play: () => {
+        tt(0, { freq: 95, slideTo: 48, dur: 0.7, type: 'sawtooth', gain: 0.22, vib: 28, vibHz: 28 });
+        tt(0, { freq: 190, slideTo: 96, dur: 0.7, type: 'square', gain: 0.05, vib: 40, vibHz: 31 });
+    } },
+    { id: 'sirena', name: 'Sirena cómica', play: () => {
+        tt(0,    { freq: 500, slideTo: 900, dur: 0.35, type: 'triangle', gain: 0.13 });
+        tt(0.35, { freq: 900, slideTo: 500, dur: 0.35, type: 'triangle', gain: 0.13 });
+        tt(0.7,  { freq: 500, slideTo: 800, dur: 0.25, type: 'triangle', gain: 0.13 });
+    } },
+    { id: 'silbido', name: 'Silbido que cae', play: () => {
+        tt(0, { freq: 1900, slideTo: 280, dur: 0.85, type: 'sine', gain: 0.12, vib: 40, vibHz: 7 });
+    } },
+    { id: 'campanita', name: 'Campanita burlona', play: () => {
+        [0, 0.24].forEach(at => {
+            tt(at, { freq: 1568, dur: 0.45, type: 'sine', gain: 0.1 });
+            tt(at, { freq: 1568 * 2.76, dur: 0.2, type: 'sine', gain: 0.035 });
+        });
+    } },
+    { id: 'gallo', name: 'Gallo', play: () => {
+        tt(0,    { freq: 500, slideTo: 900, dur: 0.1, type: 'sawtooth', gain: 0.08 });
+        tt(0.13, { freq: 700, slideTo: 1100, dur: 0.1, type: 'sawtooth', gain: 0.08 });
+        tt(0.26, { freq: 900, slideTo: 1250, dur: 0.14, type: 'sawtooth', gain: 0.08 });
+        tt(0.44, { freq: 1250, slideTo: 520, dur: 0.5, type: 'sawtooth', gain: 0.08, vib: 50, vibHz: 16 });
+    } },
+    { id: 'pato', name: 'Pato', play: () => {
+        tt(0,    { freq: 460, slideTo: 250, dur: 0.13, type: 'sawtooth', gain: 0.09, vib: 40, vibHz: 55 });
+        tt(0.2,  { freq: 430, slideTo: 230, dur: 0.17, type: 'sawtooth', gain: 0.09, vib: 40, vibHz: 55 });
+    } },
+];
+
+function getTaunt() {
+    try {
+        const id = localStorage.getItem('piles.taunt') || '';
+        return TAUNTS.some(t => t.id === id) ? id : '';
+    } catch { return ''; }
+}
+
+/** Suena una burla. Devuelve si sonó. `preview` (el ▶ del perfil) se salta el
+ *  límite de una cada 2 s; en juego no hay prisa por oírla dos veces seguidas. */
+function playTaunt(id, preview = false) {
+    const t = TAUNTS.find(x => x.id === id);
+    if (!t || sfxMuted) return false;
+    unlockAudio();
+    if (!audioCtx) return false;
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    const now = performance.now();
+    if (!preview && now - tauntLastAt < 2000) return false;
+    tauntLastAt = now;
+    try { tauntBus?.disconnect(); } catch { /* ya estaba suelto */ }
+    tauntBus = audioCtx.createGain();
+    tauntBus.connect(audioCtx.destination);
+    try { t.play(); } catch { return false; }
+    return true;
+}
+
+/** Lista de la sección «Mi burla» del perfil: radios de verdad (flechas y
+ *  teclado gratis) y un ▶ por burla para oírla. */
+function buildTauntList() {
+    const list = document.getElementById('tauntList');
+    const status = document.getElementById('tauntStatus');
+    if (!list) return;
+    const opts = [{ id: '', name: 'Ninguna' }, ...TAUNTS];
+    const actual = getTaunt();
+    for (const o of opts) {
+        const row = document.createElement('div');
+        row.className = 'taunt-row';
+        const label = document.createElement('label');
+        const radio = document.createElement('input');
+        radio.type = 'radio'; radio.name = 'taunt'; radio.value = o.id;
+        radio.checked = o.id === actual;
+        radio.addEventListener('change', () => {
+            try { localStorage.setItem('piles.taunt', o.id); } catch { /* modo privado */ }
+            status.textContent = o.id ? `Tu burla: ${o.name}` : 'Sin burla';
+        });
+        label.append(radio, ' ', o.name);
+        row.append(label);
+        if (o.id) {
+            const play = document.createElement('button');
+            play.type = 'button';
+            play.className = 'taunt-play';
+            play.textContent = '▶';
+            play.setAttribute('aria-label', `Oír ${o.name}`);
+            play.addEventListener('click', () => {
+                status.textContent = sfxMuted ? 'Silencio activado' : '';
+                playTaunt(o.id, true);
+            });
+            row.append(play);
+        }
+        list.append(row);
+    }
+}
+buildTauntList();
+
 // ─── Música de fondo ──────────────────────────────────────────────────────
 //
 // Sintetizada, como todo lo demás: ni un fichero que descargar antes de la
@@ -4878,6 +5046,12 @@ function onSwapFailed(msg) {
     if (kind === 'gone') {
         renderYourCards();
         renderCenterCards();
+        // Burla del que se la llevó (solo si estás jugando; en pelea o aturdido ya
+        // se salió arriba).
+        if (msg.taunt && !soyEspectador && playTaunt(msg.taunt)) {
+            // Sin sonido (silencio, enfriamiento, id desconocido) no hay burla visible.
+            agToast({ kind: 'info', message: `🤡 ${msg.by || 'Alguien'} te la quitó`, duration: 1800 });
+        }
         return;
     }
     if (!msg.reason) return;

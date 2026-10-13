@@ -19,12 +19,17 @@ pub enum ClientMessage {
         /// `ratings::valid_key`. Sin él se juega igual, sin Elo.
         #[serde(default)]
         rating_key: Option<String>,
+        /// Burla elegida (id del catálogo fijo, ver `taunts`). Opcional.
+        #[serde(default)]
+        taunt: Option<String>,
     },
     /// Entrar en la sala pública más llena, o abrir una si no hay ninguna.
     QuickMatch {
         nickname: String,
         #[serde(default)]
         rating_key: Option<String>,
+        #[serde(default)]
+        taunt: Option<String>,
     },
     /// Añadir un bot a la sala. Solo antes de empezar.
     AddBot {
@@ -46,6 +51,8 @@ pub enum ClientMessage {
         /// coincide, se entra como nuevo.
         #[serde(default)]
         seat_token: Option<String>,
+        #[serde(default)]
+        taunt: Option<String>,
     },
     /// Irse de la sala de verdad. Quien solo cambia de pantalla se queda
     /// sentado: la sala sigue listada y su apodo, ocupado.
@@ -255,6 +262,13 @@ pub enum ServerMessage {
         /// Va aparte del texto a propósito: decidir comparando `reason` ya
         /// rompió esto una vez.
         kind: String,
+        /// Burla del que acaba de llevarse la carta (id del catálogo). Solo en
+        /// `gone` y si la cogieron hace menos de 500 ms.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        taunt: Option<String>,
+        /// Apodo de ese jugador.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<String>,
     },
     /// Un jugador volteó un set
     SetFlipped {
@@ -556,6 +570,24 @@ mod tests {
         // Y lo que manda el cliente.
         let c: ClientMessage = serde_json::from_str(r#"{"type":"chat","text":"hola"}"#).unwrap();
         assert!(matches!(c, ClientMessage::Chat { text } if text == "hola"));
+    }
+
+    #[test]
+    fn swap_failed_carries_the_taunt_only_when_there_is_one() {
+        let sin = serde_json::to_value(&ServerMessage::SwapFailed {
+            reason: "x".into(), kind: "gone".into(), taunt: None, by: None,
+        }).unwrap();
+        assert_eq!(sin, serde_json::json!({ "type": "swap_failed", "reason": "x", "kind": "gone" }));
+        let con = serde_json::to_value(&ServerMessage::SwapFailed {
+            reason: "x".into(), kind: "gone".into(), taunt: Some("honk".into()), by: Some("Ana".into()),
+        }).unwrap();
+        assert_eq!(con["taunt"], "honk");
+        assert_eq!(con["by"], "Ana");
+        // Un cliente viejo no manda `taunt`; uno nuevo sí.
+        let v: ClientMessage = serde_json::from_str(r#"{"type":"quick_match","nickname":"A"}"#).unwrap();
+        assert!(matches!(v, ClientMessage::QuickMatch { taunt: None, .. }));
+        let n: ClientMessage = serde_json::from_str(r#"{"type":"join_lobby","lobby_id":"L","nickname":"A","taunt":"honk"}"#).unwrap();
+        assert!(matches!(n, ClientMessage::JoinLobby { taunt: Some(t), .. } if t == "honk"));
     }
 }
 

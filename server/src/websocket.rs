@@ -80,6 +80,8 @@ pub struct AppState {
     pub feeds: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     /// Desde cuándo corre el servidor. Para `/api/estado`.
     pub started: Instant,
+    /// Quién cogió qué carta hace un momento, para la burla de quien llega tarde.
+    pub recent_takes: Arc<std::sync::Mutex<crate::taunts::Recent>>,
 }
 
 /// Un desajuste visto una vez, a la espera de volver a verse.
@@ -137,6 +139,7 @@ impl AppState {
             chat_last: Arc::new(std::sync::Mutex::new(HashMap::new())),
             feeds: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             started: Instant::now(),
+            recent_takes: Arc::new(std::sync::Mutex::new(Default::default())),
         }
     }
 
@@ -997,12 +1000,12 @@ pub(crate) async fn handle_client_message(
     }
 
     match msg {
-        ClientMessage::CreateLobby { nickname, max_players, is_public, rating_key } => {
+        ClientMessage::CreateLobby { nickname, max_players, is_public, rating_key, taunt } => {
             let lobby_id = state.lobby_manager.create_lobby(max_players, is_public).await;
-            enter_new_lobby(state, player_id, current_lobby, &lobby_id, nickname, rating_key).await;
+            enter_new_lobby(state, player_id, current_lobby, &lobby_id, nickname, rating_key, taunt).await;
         }
 
-        ClientMessage::QuickMatch { nickname, rating_key } => {
+        ClientMessage::QuickMatch { nickname, rating_key, taunt } => {
             // Entrar en la sala pública más llena. Si no hay ninguna, se abre
             // una pública y se espera ahí. Los bots NO se añaden solos: el
             // cliente pregunta primero, porque alguien que pide partida rápida
@@ -1019,6 +1022,7 @@ pub(crate) async fn handle_client_message(
                         Ok((lobby, mirando)) => {
                             *current_lobby = Some(lobby_id.clone());
                             remember_rating_key(state, &lobby_id, player_id, rating_key).await;
+                            remember_taunt(state, &lobby_id, player_id, taunt).await;
                             state.send_to_player(&player_id, ServerMessage::JoinedLobby {
                                 lobby_id: lobby_id.clone(),
                                 player_id: player_id.to_string(),
@@ -1032,13 +1036,13 @@ pub(crate) async fn handle_client_message(
                             // Se llenó o arrancó entre la consulta y la
                             // entrada: abrir una nueva en vez de dar error.
                             let fresh = state.lobby_manager.create_lobby(8, true).await;
-                            enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key).await;
+                            enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key, taunt).await;
                         }
                     }
                 }
                 None => {
                     let fresh = state.lobby_manager.create_lobby(8, true).await;
-                    enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key).await;
+                    enter_new_lobby(state, player_id, current_lobby, &fresh, nickname, rating_key, taunt).await;
                 }
             }
         }
@@ -1049,7 +1053,7 @@ pub(crate) async fn handle_client_message(
             }
         }
 
-        ClientMessage::JoinLobby { lobby_id, nickname, rating_key, seat_token } => {
+        ClientMessage::JoinLobby { lobby_id, nickname, rating_key, seat_token, taunt } => {
             // Ya está sentado en esa sala con esta misma conexión (doble toque
             // en "Unirse", o un cliente que "salió" solo en pantalla): no hay
             // nada que hacer, solo confirmar. Antes chocaba con su propio apodo.
@@ -1132,6 +1136,7 @@ pub(crate) async fn handle_client_message(
                         // Su asiento ya la tenía; esto cubre a quien entró con
                         // una pestaña de antes del Elo y vuelve con la nueva.
                         remember_rating_key(state, &lobby_id, player_id, rating_key).await;
+                        remember_taunt(state, &lobby_id, player_id, taunt).await;
                         send_lobby_update(&state, &lobby_id).await;
                         send_chat_history(state, &asiento, player_id).await;
                         return;
@@ -1173,6 +1178,7 @@ pub(crate) async fn handle_client_message(
                 Ok((lobby, mirando)) => {
                     *current_lobby = Some(lobby_id.clone());
                     remember_rating_key(state, &lobby_id, player_id, rating_key).await;
+                    remember_taunt(state, &lobby_id, player_id, taunt).await;
 
                     // Enviar confirmación al jugador que se unió
                     state.send_to_player(&player_id, ServerMessage::JoinedLobby {
@@ -1524,7 +1530,7 @@ pub(crate) async fn handle_client_message(
                 Ok(v) => v,
                 Err((reason, kind)) => {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: reason.to_string(), kind: kind.to_string(),
+                        reason: reason.to_string(), kind: kind.to_string(), taunt: None, by: None,
                     }).await;
                     // Soltar con deuda: el cliente cree que ya la saldó y el
                     // servidor no. Lo mismo que al coger sin deuda.
@@ -1585,15 +1591,11 @@ pub(crate) async fn handle_client_message(
             let nickname = {
                 let Some(game_state) = lobby.game_state.as_ref() else { return };
                 if qte_blocks(game_state, player_id, Some(card_id)) {
-                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Esa carta se está peleando".to_string(), kind: "gone".to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta se está peleando")).await;
                     return;
                 }
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) {
-                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Esa carta ya no está".to_string(), kind: "gone".to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta ya no está")).await;
                     return;
                 }
                 let Some(p) = game_state.players.iter().find(|p| p.id == player_id) else { return };
@@ -1601,7 +1603,7 @@ pub(crate) async fn handle_client_message(
                 // rellenar, y sin intercambio 1↔1 no hay otra forma de coger.
                 if !p.owes_card() {
                     state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Suelta una carta antes de coger otra".to_string(), kind: "rule".to_string(),
+                        reason: "Suelta una carta antes de coger otra".to_string(), kind: "rule".to_string(), taunt: None, by: None,
                     }).await;
                     // Quien intenta coger cree deber una carta y el servidor
                     // dice que no: lo que ve no es lo que hay. Se le manda su
@@ -2179,12 +2181,11 @@ async fn execute_delayed_take(
 
     let Some((set_index, new_set, _completed, _gain)) = taken else {
         // Otro se la llevó mientras esperábamos: se sigue debiendo una.
-        state.send_to_player(&player_id, ServerMessage::SwapFailed {
-            reason: "Esa carta ya no está".to_string(), kind: "gone".to_string(),
-        }).await;
+        state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta ya no está")).await;
         return;
     };
 
+    note_take(&state, &lobby, &lobby_id, card_id, player_id);
     // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
     let (new_center, players_progress, mirones) = snapshot(&lobby);
     // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
@@ -2203,6 +2204,41 @@ async fn execute_delayed_take(
         players_progress,
         spectators: mirones,
     }).await;
+}
+
+/// Apunta que `player_id` acaba de coger `card_id` (con su burla, si tiene).
+fn note_take(state: &AppState, lobby: &crate::game::Lobby, lobby_id: &str, card_id: u32, player_id: Uuid) {
+    let Some(p) = lobby.players.iter().find(|p| p.id == player_id) else { return };
+    if let Ok(mut r) = state.recent_takes.lock() {
+        r.record(lobby_id, card_id, crate::taunts::Taken {
+            by: player_id,
+            nickname: p.nickname.clone(),
+            taunt: p.taunt.clone(),
+            at: Instant::now(),
+        });
+    }
+}
+
+/// El `swap_failed` de "la carta ya no está": con la burla del ladrón si la
+/// cogió hace menos de 500 ms y tiene una configurada.
+fn gone_msg(state: &AppState, lobby_id: &str, card_id: u32, victim: Uuid, reason: &str) -> ServerMessage {
+    let hit = state.recent_takes.lock().ok()
+        .and_then(|r| r.taunt_for(lobby_id, card_id, victim, Instant::now()));
+    let (taunt, by) = match hit { Some((t, b)) => (Some(t), Some(b)), None => (None, None) };
+    ServerMessage::SwapFailed { reason: reason.to_string(), kind: "gone".to_string(), taunt, by }
+}
+
+/// Guarda la burla del jugador, si es una del catálogo.
+async fn remember_taunt(state: &AppState, lobby_id: &str, player_id: Uuid, taunt: Option<String>) {
+    let Some(taunt) = crate::taunts::valid(taunt) else { return };
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
+    {
+        let l: &mut crate::game::Lobby = &mut lobby;
+        if let Some(p) = l.players.iter_mut().chain(l.spectators.iter_mut()).find(|p| p.id == player_id) {
+            p.taunt = Some(taunt);
+        }
+    }
+    lobby.commit().await;
 }
 
 /// Borra los intentos de coger carta que tuviera ese jugador pendientes.
@@ -2261,6 +2297,7 @@ async fn enter_new_lobby(
     lobby_id: &str,
     nickname: String,
     rating_key: Option<String>,
+    taunt: Option<String>,
 ) {
     // Sala recién creada: está vacía, no hay ningún sitio que reclamar.
     let live = std::collections::HashSet::new();
@@ -2268,6 +2305,7 @@ async fn enter_new_lobby(
         Ok((lobby, _)) => {
             *current_lobby = Some(lobby_id.to_string());
             remember_rating_key(state, lobby_id, player_id, rating_key).await;
+            remember_taunt(state, lobby_id, player_id, taunt).await;
             state.send_to_player(&player_id, ServerMessage::LobbyCreated {
                 lobby_id: lobby_id.to_string(),
                 player_id: player_id.to_string(),
@@ -2945,6 +2983,7 @@ async fn run_qte(
             );
         }
         let mirones = lobby.spectators.len();
+        if awarded.is_some() { note_take(&state, &lobby, &lobby_id, card_id, winner.player_id); }
         // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
         lobby.save().await;
 
@@ -2974,7 +3013,7 @@ async fn run_qte(
             // Quien cedió se queda sin la carta pero sin bloqueo: vuelve a
             // jugar en el momento, que es justo lo que ha comprado.
             state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
-                reason: "Perdiste la carta".to_string(), kind: "gone".to_string(),
+                reason: "Perdiste la carta".to_string(), kind: "gone".to_string(), taunt: None, by: None,
             }).await;
             if !cedio_el_perdedor {
                 state.send_to_player(&loser.player_id, ServerMessage::Stunned {

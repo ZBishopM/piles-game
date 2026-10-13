@@ -984,6 +984,7 @@ async fn spawn_bot_inner(state: &AppState, lobby_id: &str, difficulty: Difficult
             lobby_id: lobby_id.to_string(),
             nickname: nickname.clone(),
             rating_key: None,
+            taunt: None,
             seat_token: None,
         },
         id,
