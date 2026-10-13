@@ -1150,6 +1150,30 @@
             100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
         }
 
+        /* Confeti del 1º puesto. Capa propia POR ENCIMA del overlay final (200),
+           porque #fxLayer queda debajo. Solo transform/opacity. */
+        #confetiLayer {
+            position: fixed;
+            inset: 0;
+            overflow: hidden;
+            pointer-events: none;
+            z-index: 210;
+        }
+        .confeti {
+            position: absolute;
+            left: 50%;
+            top: 40%;
+            opacity: 0;
+            animation: confetiCae var(--t) linear var(--d) forwards;
+        }
+        .confeti.carta { border-radius: 2px; border-top: 3px solid var(--c); background: #fff !important; }
+        @keyframes confetiCae {
+            0%   { transform: translate(0, 0) rotate(0); opacity: 1; animation-timing-function: cubic-bezier(0.1, 0.7, 0.3, 1); }
+            25%  { transform: translate(calc(var(--dx) * 0.7), var(--up)) rotate(calc(var(--r) * 0.4)); opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.9, 0.8); }
+            85%  { opacity: 1; }
+            100% { transform: translate(var(--dx), var(--fall)) rotate(var(--r)); opacity: 0; }
+        }
+
         /* ── BOTS ── */
         #botControls { margin: 12px 0; background: var(--card); border-radius: 10px; }
         #botControls[hidden] { display: none; }
@@ -5472,7 +5496,39 @@ function clearMatchNotifications() {
     qteMyCardId = null;
 }
 
+/** Lluvia breve de confeti (~4 s): ráfaga hacia arriba y caída suave. Se
+ *  retira sola; `returnToLobby` la quita antes si hace falta. */
+function lanzarConfeti() {
+    if (REDUCED_MOTION?.matches || document.getElementById('confetiLayer')) return;
+    const layer = document.createElement('div');
+    layer.id = 'confetiLayer';
+    layer.setAttribute('aria-hidden', 'true');
+    const colores = ['#a9b689', '#f7d51d', '#d6208f', '#ffffff'];
+    const r = (a, b) => a + Math.random() * (b - a);
+    const vw = window.innerWidth, vh = window.innerHeight;
+    for (let i = 0; i < 48; i++) {
+        const c = document.createElement('i');
+        const color = colores[i % colores.length];
+        const carta = i % 12 === 0;
+        c.className = 'confeti' + (carta ? ' carta' : '');
+        c.style.width = (carta ? 11 : r(6, 10)) + 'px';
+        c.style.height = (carta ? 16 : r(9, 15)) + 'px';
+        c.style.background = color;
+        c.style.setProperty('--c', color);
+        c.style.setProperty('--dx', r(-0.5, 0.5) * vw + 'px');
+        c.style.setProperty('--up', -r(0.12, 0.35) * vh + 'px');
+        c.style.setProperty('--fall', vh * 0.6 + r(0, 0.2) * vh + 'px');
+        c.style.setProperty('--r', r(-900, 900) + 'deg');
+        c.style.setProperty('--t', r(2.6, 3.5) + 's');
+        c.style.setProperty('--d', r(0, 0.3) + 's');
+        layer.appendChild(c);
+    }
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 4200);
+}
+
 function onGameOver(rankings, elo = []) {
+    const yaMostrado = document.getElementById('gameOverOverlay').classList.contains('active');
     gameOver = true;
     stopMusic();
     closeVerifyOverlay();
@@ -5509,6 +5565,8 @@ function onGameOver(rankings, elo = []) {
     document.getElementById('gameOverOverlay').classList.add('active');
     showMyElo(elo);
     claimSessionManagerResult(rankings);
+    // Solo si ganas una partida con rivales; un mensaje repetido no relanza.
+    if (!yaMostrado && rankings.length > 1 && rankings.some(e => e.position === 1 && e.nickname === currentNickname)) lanzarConfeti();
 }
 
 /** Tu Elo en el overlay final: gira desde el que tenías hasta el nuevo. */
@@ -5719,6 +5777,7 @@ function returnToLobby() {
     gameOver = false;
     isReady = false;
     document.getElementById('gameOverOverlay').classList.remove('active');
+    document.getElementById('confetiLayer')?.remove();
     // Resetear estado de juego
     allSets = [];
     centerCards = [];
