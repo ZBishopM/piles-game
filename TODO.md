@@ -12,23 +12,14 @@ Lo de aquí abajo tiene tests automáticos o se ha comprobado con navegadores
 reales, pero **no** con varias personas jugando a la vez, que es donde salen
 los problemas de sincronización.
 
+### Nuevas funcionalidades
+ - [ ] cuando tomas una carta y alguien clickea en menos de medio segundo el lugar donde la carta no esta, reproducir un audio personalizado que puedes configurar en el perfil, una burla personalizada para cuando te "roban" alguna que querías, quizá tambien añadir cuando ganas o pierdes una pelea.
+
 ### Peleas
-- [ ] Conflicto real: dos personas tocando la misma carta del centro a la vez
-      (la ventana de detección son 300 ms; con navegadores automatizados sale
-      siempre, con personas reales está sin confirmar)
-- [ ] Conteo de clicks en vivo para ambos participantes
-- [ ] Que la racha suba al ganar y se corte al perder, con dos personas de
-      verdad peleando
+- [ ] a veces jugadores empatan pero uno gana, ver como solucionar esto para que no se vea injusto para el que perido, mostrar un segundo minijuego de muerte subita maybe.
 
 ### Flujo completo
-- [ ] Partida entera a 2 **personas**: intercambios → pelea → verificación →
-      fin. Entre bots ya corre sola (ver `D:/Temp/bot-e2e.mjs` como referencia
-      del arnés), pero con personas sigue sin comprobarse.
-- [ ] Partida a 3+ para ver los rankings (1º, 2º, 3º)
-- [ ] Desconexión a mitad de partida, con personas: cerrar la pestaña de una y
-      comprobar que las demás siguen jugando y ven la cuenta atrás, que volver
-      antes de 30 s recupera el tablero, y que al agotarse la espera el centro y
-      los sets quedan coherentes y la partida se puede terminar.
+- [ ] las partidas cuando todos estan listos empieza muy rápido, agregar un  contador hacia atrás para empezar a jugar
 - [ ] `bot-e2e.mjs` vive en `D:/Temp/` y se perderá. Si los bots van a
       seguir, merece la pena meterlo en el repo (`tests/`) para que la única
       prueba multijugador automática no dependa de un fichero temporal.
@@ -42,17 +33,15 @@ números, no lógica: tocarlos no puede romper nada.
 
 | Mando | Fácil | Normal | Difícil |
 |---|---|---|---|
-| Pensar entre jugadas | 2,5 s | 1,2 s | 0,5 s |
+| Pensar entre jugadas | 2 s | 1,5 s | 1 s |
 | Pulsar en pelea (±25 % jitter) | 320 ms | 180 ms | 110 ms |
-| Elige la carta buena | 50 % | 80 % | 95 % |
-| Se pelea una carta que te ve coger | 5 % | 20 % | 50 % |
+| Elige la carta buena | 80 % | 95 % | 100 % |
+| Se pelea una carta que te ve coger | 5 % | 15 % | 30 % |
 
-- [ ] Jugar contra los tres niveles y ajustar. Lo que hay es una primera
-      aproximación, no algo medido con gente.
 - [ ] El bot apunta al set con más cartas iguales y suelta lo que no encaja.
       No mira lo que han revelado los demás ni lo que hay en el centro para
-      decidir qué set perseguir — se podría, si resulta demasiado tonto.
-
+      decidir qué set perseguir — en dificil, el bot no debería soltar una carta que un jugador tiene 3 de ellos.
+[to verify]
 - [ ] **Los bots cierran sets, pero demasiado pocos** (2026-09-11). Cerraron uno
       en 2 de 5 partidas medidas; antes, ninguno en 3. Para ganar hacen falta 6,
       así que siguen sin terminar una partida. La mesa ya no se para.
@@ -91,33 +80,23 @@ sola carta.
 
 ## 📼 Grabar partidas y verlas después
 
-Siempre activo, sin nada que encender. **Antes hacía falta `PILES_REC=1`**, y el
-resultado fue el previsible: nunca se puso en beta, así que la función estuvo
-apagada desde que se subió. Un paso extra que hay que recordar es un paso que
-se olvida.
-
     ./server/target/release/piles-server
     # jugar una partida, y luego:
     #   http://<host>/replay.html
 
-El visor lista lo grabado, y al abrir una partida se puede arrastrar por la
-línea de tiempo, ir evento a evento (flechas, `J`/`K`, espacio para reproducir)
-y **tocar cualquier set de cualquier jugador** para ver sus cuatro cartas —
-también las que en ese momento estaban boca abajo, que para depurar es justo lo
-que hace falta.
+Existe una línea de tiempo, ir evento a evento (flechas, space to play)
+se puede navegar entre sets y jugadores
 
 Trae dos relojes a propósito: el desplazamiento desde el inicio para moverse, y
-la **hora de reloj** para cuadrarlo con un vídeo del móvil. El botón
-"aquí es 0:00 del vídeo" marca el momento en que empezaste a grabar con el
-teléfono y a partir de ahí enseña también el tiempo del vídeo.
+la **hora de reloj** para cuadrarlo con un vídeo real.
 
 **Las vueltas atrás salen marcadas**, que es lo que más cuesta ver en un vídeo:
 pediste una carta y llegaste tarde (`swap_failed` con `kind: gone`), la jugada
 rompía una regla, o el plazo de 3 s te asignó una carta. En el móvil las tres se
-ven igual, como un parpadeo raro.
+ven igual, como un parpadeo raro. [ tiene que ver con la nueva funcionalidad arriba]  
 
 Se guardan **las 10 últimas**; las viejas se borran solas. La máquina no tiene
-swap y también lleva producción y el correo: un disco lleno se los lleva.
+swap y también lleva producción y el correo: un disco lleno se los lleva. [to verify, que yo sepa se guardan todas pero se muestran 10 ]
 
 ⚠️ **Ahora graba también producción.** Una grabación contiene la mano de todos
 los jugadores y la puede abrir cualquiera que tenga el enlace. Es aceptable
@@ -130,57 +109,6 @@ clave) y un `replay.html?test` que lo probaba. Se quitaron: nadie los pidió y
 en ninguna partida encontraron nada.
 
 ---
-
-## 🧪 Abrir el juego en un navegador antes de dar nada por bueno
-
-Las pruebas automáticas de este repo no ven una clase entera de fallos: los que
-solo existen en tiempo de ejecución y en un camino concreto.
-
-Ejemplo real (2026-09-15): tras renombrar `qteBlockedCenterIndex` a
-`qteBlockedCardId`, quedó un `centerCardIndex` dentro de una plantilla de texto,
-en el aviso de pelea para espectadores. **Todas las peleas reventaban el cliente
-de quien miraba**, con 64 tests en verde y las dos revisiones de código muerto
-sin decir nada. Se vio al primer intento de jugar una partida de verdad.
-
-Se probó a escribir un detector estático de nombres sin declarar. Se descartó:
-daba 60 avisos y la mayoría eran funciones que sí existen. Un detector que se
-equivoca tanto se acaba ignorando, y entonces estorba más que ayuda.
-
-Así que el paso que falta no es otro script, es **abrir el juego y jugar**:
-
-1. Levantar el servidor y entrar con un navegador.
-2. Crear sala, meter 3 bots, empezar.
-3. Soltar una carta y coger otra.
-4. **Esperar a que salte una pelea** — es el camino que más se rompe.
-5. Mirar la consola del navegador. Ahí sale lo que los tests no ven.
-
----
-
-## 🔌 Cosas enchufadas a nada
-
-Dos revisiones que no cambian nada, solo miran. Conviene pasarlas al quitar una
-función o cambiar el protocolo:
-
-- `node tools/dead-wiring-audit.mjs` — funciones que no llama nadie, `onclick`
-  que apuntan a funciones que no existen, ids y clases que ya no están.
-- `node tools/protocol-audit.mjs` — variantes de `ClientMessage` y
-  `ServerMessage` que nadie manda o nadie escucha.
-
-Ojo con los falsos positivos: los ids formados con plantillas
-(`` `vicon-${i}` ``) salen siempre, y `.css`/`.md`/`.webp` son extensiones
-dentro de comentarios. Lo que hay que mirar son las dos primeras secciones.
-
-**Y ojo con lo que NO ven.** `protocol-audit` compara variantes, no campos, así
-que ocho campos que el cliente no leía nunca —`GameOver.your_total_points`,
-`ComboUpdate.total_points`, `LobbyUpdate.status`, `SwapSuccess.player`,
-`FrenzyFired.ms`…— pasaron por delante sin que dijeran nada. Para el servidor
-hay un truco mejor: quitar los `#[derive(Serialize)]` de las estructuras que no
-viajan por el cable. El derive cuenta como "lectura" y tapa el aviso de
-`never read`; sin él, el compilador encuentra los campos muertos solo.
-
-Ya encontraron: el botón de "Solicitar verificación", que no se podía pulsar
-nunca —se deshabilitaba solo y la verificación se pedía sola al enseñar el sexto
-set—, y `PlayerFinished`, un mensaje que no mandaba ni escuchaba nadie.
 
 Pendientes, encontrados en la revisión del 2026-09-16 y **sin arreglar**:
 
@@ -332,52 +260,6 @@ muestras de verdad, el único sitio que hay que tocar es `playSfx`.
         juego. Haría falta mandarlos y ampliar el juego de variables del
         DSL (`src/lib/core/achievement-generator.ts` y `achievements.ts` en
         session-manager).
-- [x] **Soltar y coger sustituyen al intercambio 1↔1** — hecho. Ya no hay
-      intercambio simultáneo: tocas una carta tuya y va directa al centro
-      (sin botón ni confirmación), y luego coges una del centro para tapar el
-      hueco. Hasta taparlo no puedes soltar otra ni mostrar sets. La carta
-      soltada la puede coger cualquiera, incluido tú.
-      Las peleas ahora saltan cuando dos jugadores van a por la misma carta
-      del centro, no al intercambiar. Las cartas se identifican por id y no
-      por posición: el centro cambia de tamaño constantemente y un índice
-      dejaría de apuntar a la misma carta.
-- [x] **Desconexión en partida activa** — hecho, y convertido en mecánica. Se
-      le espera 30 s (`GRACE_PERIOD`) con su sitio y sus cartas intactos
-      mientras los demás siguen jugando; si vuelve, recupera el tablero. Si no
-      vuelve, la partida se redimensiona a un jugador menos retirando **prendas
-      enteras** (`deck::retire_types_on_leave`) en vez de borrar sus 24 cartas
-      sueltas, que es lo que antes dejaba ~20 prendas imposibles de completar.
-      Solo se cancela si no quedan dos personas.
-      Nota: `owed_slot` guarda una sola deuda, así que cada superviviente puede
-      absorber un hueco como máximo y normalmente se retiran menos de las 6
-      prendas que sobran. Es seguro (sobrar sets solo da holgura). Recortar
-      exacto pide convertir `owed_slot` en lista.
-- [x] **Reconexión automática** — hecho. Al caerse la conexión el cliente
-      reintenta solo con backoff (1s, 2s, 4s, 8s y luego cada 15s, sin límite
-      de intentos) y el overlay dice por qué intento va. El botón
-      *Reconectar* se queda como "ahora mismo, sin esperar".
-- [x] `ListLobbies` — construido en vez de borrado. Las salas llevan
-      `is_public` (público por defecto, con interruptor al crearla), así que
-      `list_available_lobbies` ya no anuncia la sala que compartes por QR con
-      tus amigos — que es lo que habría pasado en cuanto el cliente empezara a
-      enseñar la lista. El `case 'lobby_list': break` ya hace algo.
-- [x] **Partida rápida** — entra en la sala pública **más llena** (repartir
-      gente entre salas medio vacías es como nadie llega nunca a 2), y si no
-      hay ninguna abre una y espera. No mete bots por su cuenta: si sigues solo
-      a los 12 s, pregunta.
-- [x] **Bots** — `server/src/bot.rs`. Se añaden desde la sala, hasta llenarla,
-      con dificultad fácil/normal/difícil. Cuatro mandos: tiempo de pensar,
-      ritmo de pulsación en las peleas (con jitter, que un ritmo exacto suena a
-      metrónomo), calidad de la elección de carta, y ganas de pelear. Para
-      pelear leen `take_intents`, donde el servidor ya apunta quién va a por
-      qué dentro de la ventana de 300 ms, así que la pelea sale por el mismo
-      camino que entre dos personas.
-      No hicieron falta dependencias nuevas ni tocar la lógica del juego:
-      `handle_client_message` nunca necesitó un socket, así que un bot registra
-      su canal en `state.connections` y la llama directamente.
-- [x] Reanudar partida en curso tras reconectar — hecho con el mecanismo de
-      espera de arriba: al volver se reenvía el tablero entero, no solo la
-      sala.
 
 ---
 
@@ -453,97 +335,8 @@ Los resultados que se guardan van a Session Manager, no aquí.
       de arrastre de escritorio) y dejar el click-click funcionando como
       alternativa accesible.
 - [ ] Confeti para el 1º puesto
-- [ ] Chat básico en la sala
 - [ ] Avatar guardado en `localStorage`
-- [ ] Usar el reverso de la hoja de sprites (fila 12, celda 8) para las cartas
-      boca abajo — está dibujado y sin usar
+- [ ] personalizar tema o tener currency virtual para comprar esteticos
+- [ ] incitar a jugadores mediante mensajes al final de la partida para que se registren en sessionmanager, y guardar sus puntos asociados a un nombre, un ping y acceder a esteticos desde cualquier dispositivo
 
 ---
-
-## ✅ Hecho
-
-- **Una pelea podía congelar la partida entera** (2026-09-11). `run_qte` tenía
-  un `return` a secas cuando el ganador ya no podía quedarse la carta, y eso se
-  saltaba el `QteResolved`. Como cliente y bot solo salen del estado "peleando"
-  con ese mensaje, **todos los de esa pelea se quedaban bloqueados para
-  siempre**: una partida medida movió 92 cartas en dos minutos y luego nada en
-  seis. Ahora la pelea se resuelve siempre; sin premio no hay carta, ni racha,
-  ni bloqueo al perdedor —una pelea que no reparte nada no puede castigar.
-  La causa era el plazo de 3 s: al tapar el hueco dejaba vivo el intento de
-  coger, así que otro podía convertirlo en pelea que su "ganador" ya no podía
-  ganar. Ahora saldar la deuda borra los intentos de ese jugador.
-- **Los bots no podían ganar** (2026-09-11). Ganar exige voltear los 6 sets,
-  que es lo que dispara la verificación, y los bots no mandaban nunca `FlipSet`
-  ni `RequestVerification`: podían tener los 6 sets perfectos y no terminar
-  jamás. Ahora enseñan cada set en cuanto lo cierran —nunca debiendo una
-  carta— y piden verificación al tener los seis.
-- **Los bots peleaban por todo** (2026-09-11). El dado de pelear se tiraba cada
-  80 ms mientras durase el intento rival, o sea ~4 veces por oportunidad: el
-  0,35 de normal era un 82 % real. Ahora se tira **una vez por carta**, y los
-  números bajan a 5 % / 20 % / 50 %.
-- **El centro ya no se recoloca** (2026-09-11). El servidor lo guarda en una
-  lista, así que coger una carta corría todas las de detrás y la que ibas a
-  tocar se movía debajo del dedo. Ahora cada carta se queda en su hueco, el
-  hueco vacío se queda vacío y la siguiente soltada ocupa el primero libre.
-  Además caen "tiradas": ángulo y desplazamiento salen del id de la carta, así
-  que son iguales en la pantalla de todos, y van en % para verse igual en
-  cualquier tamaño.
-
-- **Cuatro fallos salidos de jugar en beta** (2026-09-11).
-  - *Soltar una carta y cambiar de set bloqueaba la partida.* La respuesta a
-    `SwitchSet` se construía con `filter_map` y **se comía el hueco**: el set
-    volvía con 3 cartas y sin ningún nulo, así que `owesCard()` en el cliente
-    decía que no debías nada y el centro dejaba de responder — mientras el
-    servidor sí seguía sabiendo que debías, con lo que tampoco podías soltar.
-    Ahora viaja con `set_to_info()`, igual que `GameStart` y `SwapSuccess`, y
-    además **no se puede cambiar de set mientras debes una carta**.
-  - *Plazo de 3 s para tapar el hueco* (`DEBT_DEADLINE`). Si se agota, el
-    servidor asigna una carta del centro al azar. El hueco no costaba nada
-    mientras no lo taparas, y con varios jugadores el centro se quedaba fijo en
-    7 u 8 cartas. La cuenta se **pausa mientras estás bloqueado** por perder una
-    pelea: eso ya cuesta la carta y 3 s parado, y una carta al azar encima sería
-    un tercer castigo por el mismo error.
-  - *El centro ya no mueve la interfaz en móvil.* Tiene altura fija y se
-    desplaza por dentro; antes, al añadirse una fila, empujaba hacia abajo las
-    cartas y los botones y el toque caía donde no era. También cubre el centro
-    enorme que deja alguien al abandonar.
-  - *Bots que no cerraban sets.* Van al set cuya prenda **está en el centro** en
-    vez de al que más cartas iguales tiene —perseguían sets imposibles—, y al
-    coger prefieren la que cierra el set, luego una que ya tengan en él, y solo
-    después la que más lleven en la mano; antes, si no estaba la que quería,
-    cogía la primera del centro y se pasaba la partida cambiando basura por
-    basura. Además tapan el hueco con un reflejo de 250 ms en lugar de esperar
-    un ciclo entero, que es lo que más despeja el centro.
-    (Se probó también "soltar la carta más rara del set" y se descartó: en un
-    set de 4, las que no son mayoritarias son siempre igual de raras, así que
-    elegía exactamente la misma que el código que ya había.)
-
-- **Los logs del servidor se ven** (2026-09-10). `tracing_subscriber::fmt::init()`
-  a secas y sin `RUST_LOG` puesta dejaba **todos** los `tracing::info!` fuera:
-  quién entra, quién se cae, qué prendas se retiran. En el VPS pm2 recoge
-  stdout, así que se veían los `println!` y ninguna traza — justo las que hacen
-  falta para entender un incidente. Ahora el nivel por defecto es `info`, y
-  `RUST_LOG` sigue mandando si está puesta.
-
-- **Peso e impacto en las cartas** (2026-09-10). La carta se inclina hacia el
-  puntero, se levanta al pasar por encima y se hunde al pulsarla; al aterrizar
-  se aplasta y rebota con un anillo de choque; ganar una pelea lo hace en
-  dorado, con chispas y una sacudida más fuerte; el centro destella cuando
-  mueve otro. Todo compuesto en un solo `transform` con variables CSS
-  (`--lift`, `--scale`, `--tilt-x/y`) para que las reglas no se pisen, y todo
-  apagado bajo `prefers-reduced-motion`. Falta el sonido, que es la otra mitad
-  (ver Polish).
-- Despliegue en VPS con pm2 + nginx, y entorno beta aparte (`DEPLOY.md`)
-- Arte real de las prendas desde `client/cards.webp` (50 prendas × 4 colores);
-  las cartas ya no llevan texto
-- Las prendas de cada partida se sortean entre las 50 (antes salían siempre
-  las mismas por orden)
-- Tutorial de 3 pasos en `#howToPlayScreen`, ilustrado con cartas reales
-- Pantalla de inicio reorganizada: perfil, cómo jugar, hospedar y unirse
-- Unirse por QR y por enlace `?join=CODE`, con escáner dentro de la app
-- Heartbeat WebSocket (ping cada 25 s)
-- Volver a la sala tras desconexión o F5, sin duplicar al jugador
-- Las salas vacías siguen siendo reutilizables y se reciclan a los 30 min
-- Nick guardado en `localStorage`
-- La sala se mantiene al terminar la partida, lista para otra ronda
-- Vinculación opcional con Session Manager (código en 👤 Perfil)
