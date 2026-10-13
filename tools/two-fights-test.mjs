@@ -77,7 +77,7 @@ for (let i = 1; i < 4; i++) { p[i].envia({ type: 'set_ready', ready: true }); aw
 await dormir(300);
 p[0].envia({ type: 'set_ready', ready: true });
 
-for (const c of p) if (!await c.espera('game_start')) fallo(`${c.nombre} no arrancó`);
+for (const c of p) if (!await c.espera('game_start', 10000)) fallo(`${c.nombre} no arrancó`);
 await dormir(400);
 
 // Los cuatro sueltan: así los cuatro deben una carta y pueden coger.

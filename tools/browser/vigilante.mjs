@@ -35,7 +35,7 @@ ok(reabierto !== null && reabierto >= 8 && reabierto <= 16, 'entre 8 y 16 s (9 s
 ok(overlayVisto, 'y avisa con el overlay de reconexión');
 
 // Vuelve a la partida con su misma mano.
-await p.locator('#gameScreen.active').waitFor({ timeout: 8000 });
+await p.locator('#gameScreen.active').waitFor({ timeout: 12000 });
 await wait(800);
 ok((await mano(p)) === antes, 'recupera su misma mano');
 ok(await p.locator('#reconnectOverlay').isHidden(), 'y el overlay desaparece');

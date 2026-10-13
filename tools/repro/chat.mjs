@@ -147,7 +147,7 @@ await wait(500);
   await wait(400);
   // Beto, Vieja (sigue sentada) y Eva; el bot ya entra listo.
   for (const c of [b, vieja, e]) send(c, { type: 'set_ready', ready: true });
-  const empezo = await Promise.all([b, vieja, e].map(c => esperar(c, m => m.type === 'game_start', 8000)));
+  const empezo = await Promise.all([b, vieja, e].map(c => esperar(c, m => m.type === 'game_start', 10000)));
   ok(empezo.every(Boolean), 'empieza la partida');
   await wait(600);   // pasada la ventana del límite de ritmo
 

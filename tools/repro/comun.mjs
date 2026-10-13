@@ -97,8 +97,8 @@ export async function empezar(a, b) {
   send(a, { type: 'set_ready', ready: true });
   send(b, { type: 'set_ready', ready: true });
   return Promise.all([
-    esperar(a, m => m.type === 'game_start', 6000),
-    esperar(b, m => m.type === 'game_start', 6000),
+    esperar(a, m => m.type === 'game_start', 12000),
+    esperar(b, m => m.type === 'game_start', 12000),
   ]);
 }
 

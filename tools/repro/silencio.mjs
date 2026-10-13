@@ -15,6 +15,9 @@ const a = await crear('Ana');
 const b = await unirse('Beto', a.lobby);
 await empezar(a, b);
 const paraB = pinguear(b);       // Beto se comporta como un cliente de verdad
+// Con la cuenta atrás de 3 s, lo último que dijo Ana (set_ready) queda 3 s
+// antes del reparto: un ping la deja "oída" justo al empezar.
+send(a, { type: 'ping', rtt_ms: null });
 const t0 = Date.now();           // Ana deja de decir nada desde aquí
 
 // Beto debe enterarse de que Ana cayó, entre ~20 y ~27 s (se mira cada 5 s).

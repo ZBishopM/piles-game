@@ -17,7 +17,7 @@ use crate::game::{
     FRENZY_STUN,
     get_clothing_name,
 };
-use crate::game::lobby::{Voto, DEBT_DEADLINE, GRACE_PERIOD, VOTE_PERIOD};
+use crate::game::lobby::{Voto, CountdownChange, COUNTDOWN, DEBT_DEADLINE, GRACE_PERIOD, VOTE_PERIOD};
 
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
@@ -793,6 +793,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
         } else {
             // Se queda en `Waiting` a propósito (ver `remove_player`) para que
             // quien se cayó pueda volver a su misma sala.
+            lobby.countdown = None;
             lobby.commit().await;
         }
         state.take_intents.write().await.remove(lobby_id);
@@ -802,6 +803,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     // Un mirón que se va en plena partida no mueve nada de la sala de espera.
     let en_partida = lobby.status == LobbyStatus::Playing;
     let update = lobby_update_msg(state, &lobby);
+    let cuenta = lobby.countdown_sync();
     lobby.commit().await;
 
     if !sentados.is_empty() {
@@ -810,6 +812,7 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     }
     if !en_partida {
         state.broadcast_to_lobby(lobby_id, update).await;
+        countdown_notify(state, lobby_id, cuenta, "left").await;
         retire_orphan_bots(state, lobby_id).await;
     }
 }
@@ -1201,6 +1204,7 @@ pub(crate) async fn handle_client_message(
                     // Broadcast actualización a todos los jugadores del lobby
                     send_lobby_update(&state, &lobby_id).await;
                     send_chat_history(state, &lobby, player_id).await;
+                    countdown_recheck(state, &lobby_id, "joined").await;
                 }
                 Err(e) => {
                     // El error solo lo veía el jugador: sin esto no quedaba
@@ -1219,7 +1223,7 @@ pub(crate) async fn handle_client_message(
             let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
             // Solo en la sala: meter un bot en mitad de una partida sería
             // repartirle cartas que ya están en manos de otros.
-            if lobby.status != LobbyStatus::Waiting || lobby.is_full() {
+            if lobby.status == LobbyStatus::Playing || lobby.is_full() {
                 state.send_to_player(&player_id, ServerMessage::Error {
                     message: "No se pueden añadir bots ahora".to_string(),
                 }).await;
@@ -1234,7 +1238,7 @@ pub(crate) async fn handle_client_message(
             let Some(lobby_id) = current_lobby.clone() else { return };
             let Some(bot_id) = Uuid::parse_str(&bot).ok() else { return };
             let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await else { return };
-            if lobby.status != LobbyStatus::Waiting {
+            if lobby.status == LobbyStatus::Playing {
                 return;
             }
             // Solo bots: este mensaje no sirve para expulsar a personas.
@@ -1243,6 +1247,7 @@ pub(crate) async fn handle_client_message(
             }
             crate::bot::remove_bot(state, &lobby_id, bot_id).await;
             send_lobby_update(state, &lobby_id).await;
+            countdown_recheck(state, &lobby_id, "left").await;
             // El hueco que deja el bot es para quien esperaba plaza.
             seat_waiting_spectators(state, &lobby_id).await;
         }
@@ -1271,55 +1276,16 @@ pub(crate) async fn handle_client_message(
                     }
                     match lobby.set_player_ready(&player_id, ready) {
                         Ok(_) => {
-                            // Intentar iniciar el juego si todos están listos
-                            if lobby.status == LobbyStatus::Ready {
-                                if let Ok(_) = lobby.start_game() {
-                                    // Juego iniciado, actualizar lobby
-                                    let lobby = lobby.commit_keep().await;
-                                    // Grabar desde aquí: los GameStart de
-                                    // más abajo son privados y traen la mano
-                                    // de cada uno.
-                                    state.rec_open(&lobby_id, &lobby).await;
-
-                                    if let Some(game_state) = &lobby.game_state {
-                                        // Enviar estado del juego a cada jugador (cada uno ve sus propias cartas)
-                                        for player_state in &game_state.players {
-                                            let your_sets: Vec<Vec<Option<CardInfo>>> = player_state.sets.iter()
-                                                .map(set_to_info)
-                                                .collect();
-
-                                            let center_cards: Vec<CardInfo> = game_state.center_cards.iter()
-                                                .map(|&card| CardInfo::from(card))
-                                                .collect();
-
-                                            let players: Vec<String> = game_state.players.iter()
-                                                .map(|p| p.nickname.clone())
-                                                .collect();
-
-                                            state.send_to_player(&player_state.id, ServerMessage::GameStart {
-                                                your_sets,
-                                                center_cards,
-                                                current_set: 0,
-                                                players,
-                                            }).await;
-                                        }
-                                    }
-                                    // Quien esperaba hueco en la sala (la mesa estaba
-                                    // llena) ve la partida desde el principio, y desde
-                                    // aquí el reloj de la sala le manda las manos.
-                                    for s in &lobby.spectators {
-                                        send_spectator_start(state, &lobby, s.id).await;
-                                    }
-                                    spawn_spectator_feed(state, lobby_id);
-                                    return; // Juego iniciado, salir
-                                }
-                            }
+                            // Con todos listos no se reparte aún: se abre la
+                            // cuenta atrás (o se cancela si alguien se desmarcó).
+                            let change = lobby.countdown_sync();
 
                             // Actualizar lobby en el manager
                             lobby.commit().await;
 
                             // Broadcast actualización a todos
                             send_lobby_update(&state, lobby_id).await;
+                            countdown_notify(state, lobby_id, change, "not_ready").await;
                         }
                         Err(e) => {
                             state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
@@ -2458,6 +2424,114 @@ fn has_pending_take(intents: &HashMap<u32, TakeIntent>, player: &Uuid, within: D
     intents.values().any(|i| i.player_id == *player && i.timestamp.elapsed() < within)
 }
 
+// ─── Cuenta atrás ─────────────────────────────────────────────────────────
+
+/// Manda la partida ya repartida (`start_game` hecho) a todos: guarda la sala,
+/// abre la grabación, el `GameStart` privado de cada jugador y el arranque de
+/// quien mira. Recibe la transacción abierta y la consume.
+async fn launch_game(state: &AppState, lobby_id: &str, lobby: crate::game::lobby::LobbyTxn) {
+    let lobby = lobby.commit_keep().await;
+    // Grabar desde aquí: los GameStart de más abajo son privados y traen la
+    // mano de cada uno.
+    state.rec_open(lobby_id, &lobby).await;
+
+    if let Some(game_state) = &lobby.game_state {
+        // Enviar estado del juego a cada jugador (cada uno ve sus propias cartas)
+        for player_state in &game_state.players {
+            let your_sets: Vec<Vec<Option<CardInfo>>> = player_state.sets.iter()
+                .map(set_to_info)
+                .collect();
+
+            let center_cards: Vec<CardInfo> = game_state.center_cards.iter()
+                .map(|&card| CardInfo::from(card))
+                .collect();
+
+            let players: Vec<String> = game_state.players.iter()
+                .map(|p| p.nickname.clone())
+                .collect();
+
+            state.send_to_player(&player_state.id, ServerMessage::GameStart {
+                your_sets,
+                center_cards,
+                current_set: 0,
+                players,
+            }).await;
+        }
+    }
+    // Quien esperaba hueco en la sala (la mesa estaba llena) ve la partida desde
+    // el principio, y desde aquí el reloj de la sala le manda las manos.
+    for s in &lobby.spectators {
+        send_spectator_start(state, &lobby, s.id).await;
+    }
+    spawn_spectator_feed(state, lobby_id);
+}
+
+/// Avisa a la sala de lo que `Lobby::countdown_sync` cambió. Abrir la cuenta
+/// lanza la tarea que la espera. Se puede llamar con la transacción de la sala
+/// abierta: solo manda mensajes y lanza una tarea.
+async fn countdown_notify(state: &AppState, lobby_id: &str, change: CountdownChange, motivo: &str) {
+    match change {
+        CountdownChange::None => {}
+        CountdownChange::Opened(id) => {
+            state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
+                "kind": "cuenta_atras", "fase": "inicio", "secs": COUNTDOWN.as_secs(),
+            })).await;
+            state.broadcast_to_lobby(lobby_id, ServerMessage::Countdown {
+                seconds: COUNTDOWN.as_secs(),
+            }).await;
+            tokio::spawn(run_countdown(state.clone(), lobby_id.to_string(), id, COUNTDOWN));
+        }
+        CountdownChange::Cancelled => {
+            state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
+                "kind": "cuenta_atras", "fase": "cancelada", "motivo": motivo,
+            })).await;
+            state.broadcast_to_lobby(lobby_id, ServerMessage::CountdownCancelled {
+                reason: motivo.to_string(),
+            }).await;
+        }
+    }
+}
+
+/// Para quien cambió la sala sin tener su transacción abierta (entrar, echar un
+/// bot): mira si la cuenta atrás sigue valiendo y, si no, la cancela.
+async fn countdown_recheck(state: &AppState, lobby_id: &str, motivo: &str) {
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
+    let change = lobby.countdown_sync();
+    if change == CountdownChange::None {
+        return;
+    }
+    lobby.commit().await;
+    countdown_notify(state, lobby_id, change, motivo).await;
+}
+
+/// Espera la cuenta atrás `id` y, si sigue siendo la vigente y la sala sigue
+/// toda lista, reparte. Una cuenta cancelada (o cancelada y reabierta) tiene
+/// otro `id` y se va sin hacer nada. `dur` se inyecta para poder probarla.
+async fn run_countdown(state: AppState, lobby_id: String, id: u64, dur: Duration) {
+    sleep(dur).await;
+
+    let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+    if lobby.countdown != Some(id) || lobby.status != LobbyStatus::Ready {
+        return;
+    }
+    lobby.countdown = None;
+    if lobby.start_game().is_err() {
+        // No debería pasar (Ready con menos de 2): se deja la sala en espera.
+        lobby.status = LobbyStatus::Waiting;
+        lobby.commit().await;
+        // (a mano y no con `countdown_notify`: esa lanza esta tarea, y el ciclo
+        // impide al compilador ver que la tarea es `Send`)
+        state.broadcast_to_lobby(&lobby_id, ServerMessage::CountdownCancelled {
+            reason: "left".to_string(),
+        }).await;
+        return;
+    }
+    launch_game(&state, &lobby_id, lobby).await;
+    state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
+        "kind": "cuenta_atras", "fase": "fin",
+    })).await;
+}
+
 /// Corta la partida y devuelve a todos a la sala. Una caída la cancela cuando,
 /// agotado el plazo de gracia, no quedan dos jugadores o ninguna persona.
 async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
@@ -3363,5 +3437,99 @@ mod spectator_tests {
         let j = serde_json::to_value(spectator_cards_msg(&gs)).unwrap();
         assert_eq!(j["type"], "spectator_cards");
         assert_eq!(j["cards"]["30"]["c"], 1, "misma forma que `cards` de la cabecera de una grabación");
+    }
+}
+#[cfg(test)]
+mod cuenta_atras_tests {
+    use super::*;
+
+    /// Una sala con dos jugadores sin listo y un `AppState` que graba en un
+    /// directorio temporal (no en `recordings/` del repo).
+    async fn sala() -> (AppState, String, Uuid, Uuid) {
+        let mut state = AppState::new();
+        let dir = std::env::temp_dir().join(format!("piles-test-{}", Uuid::new_v4()));
+        state.rec = Arc::new(crate::record::Recorder::new(dir));
+        let id = state.lobby_manager.create_lobby(4, true).await;
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        state.lobby_manager.mutate(&id, |l| {
+            l.add_player(a, "Ana".into()).unwrap();
+            l.add_player(b, "Beto".into()).unwrap();
+        }).await;
+        (state, id, a, b)
+    }
+
+    /// Marca y abre/cancela la cuenta como hace el handler de `SetReady`.
+    async fn listo(state: &AppState, id: &str, who: Uuid, ready: bool) -> CountdownChange {
+        let mut l = state.lobby_manager.txn(id).await.unwrap();
+        l.set_player_ready(&who, ready).unwrap();
+        let c = l.countdown_sync();
+        l.commit().await;
+        c
+    }
+
+    async fn status(state: &AppState, id: &str) -> LobbyStatus {
+        state.lobby_manager.get_lobby(id).await.unwrap().status
+    }
+
+    #[tokio::test]
+    async fn starts_only_after_the_countdown() {
+        let (state, id, a, b) = sala().await;
+        assert_eq!(listo(&state, &id, a, true).await, CountdownChange::None);
+        let CountdownChange::Opened(n) = listo(&state, &id, b, true).await else { panic!("no se abrió") };
+        assert_eq!(status(&state, &id).await, LobbyStatus::Ready, "aún no reparte");
+        tokio::spawn(run_countdown(state.clone(), id.clone(), n, Duration::from_millis(80)));
+        sleep(Duration::from_millis(30)).await;
+        assert_eq!(status(&state, &id).await, LobbyStatus::Ready);
+        sleep(Duration::from_millis(150)).await;
+        let l = state.lobby_manager.get_lobby(&id).await.unwrap();
+        assert_eq!(l.status, LobbyStatus::Playing);
+        assert!(l.game_state.is_some());
+        assert!(l.countdown.is_none());
+    }
+
+    #[tokio::test]
+    async fn unready_cancels_and_the_old_task_does_nothing() {
+        let (state, id, a, b) = sala().await;
+        listo(&state, &id, a, true).await;
+        let CountdownChange::Opened(n) = listo(&state, &id, b, true).await else { panic!() };
+        tokio::spawn(run_countdown(state.clone(), id.clone(), n, Duration::from_millis(60)));
+        assert_eq!(listo(&state, &id, b, false).await, CountdownChange::Cancelled);
+        sleep(Duration::from_millis(150)).await;
+        assert_eq!(status(&state, &id).await, LobbyStatus::Waiting);
+    }
+
+    #[tokio::test]
+    async fn cancel_then_reopen_starts_once_with_the_last_countdown() {
+        let (state, id, a, b) = sala().await;
+        listo(&state, &id, a, true).await;
+        let CountdownChange::Opened(n1) = listo(&state, &id, b, true).await else { panic!() };
+        tokio::spawn(run_countdown(state.clone(), id.clone(), n1, Duration::from_millis(60)));
+        assert_eq!(listo(&state, &id, b, false).await, CountdownChange::Cancelled);
+        let CountdownChange::Opened(n2) = listo(&state, &id, b, true).await else { panic!() };
+        assert_ne!(n1, n2);
+        tokio::spawn(run_countdown(state.clone(), id.clone(), n2, Duration::from_millis(200)));
+        sleep(Duration::from_millis(120)).await;
+        assert_eq!(status(&state, &id).await, LobbyStatus::Ready, "la vieja no arranca a su hora");
+        sleep(Duration::from_millis(250)).await;
+        assert_eq!(status(&state, &id).await, LobbyStatus::Playing);
+    }
+
+    #[tokio::test]
+    async fn leaving_or_a_newcomer_cancels() {
+        let (state, id, a, b) = sala().await;
+        listo(&state, &id, a, true).await;
+        listo(&state, &id, b, true).await;
+        let mut l = state.lobby_manager.txn(&id).await.unwrap();
+        l.add_player(Uuid::new_v4(), "Caro".into()).unwrap();
+        assert_eq!(l.countdown_sync(), CountdownChange::Cancelled, "entra uno sin listo");
+        l.commit().await;
+
+        let (state, id, a, b) = sala().await;
+        listo(&state, &id, a, true).await;
+        listo(&state, &id, b, true).await;
+        let mut l = state.lobby_manager.txn(&id).await.unwrap();
+        l.remove_player(&b);
+        assert_eq!(l.countdown_sync(), CountdownChange::Cancelled, "sale uno");
+        l.commit().await;
     }
 }

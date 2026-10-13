@@ -33,7 +33,7 @@ export async function aPartida(p, nick, dificultad = null) {
   await p.getByRole('button', { name: /Añadir bot/ }).click();
   await wait(500);
   await p.getByRole('button', { name: /Marcar como Listo/ }).click();
-  await p.locator('#gameScreen.active').waitFor({ timeout: 10000 });
+  await p.locator('#gameScreen.active').waitFor({ timeout: 12000 });
   await wait(800);
   return codigo;
 }

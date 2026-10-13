@@ -113,7 +113,7 @@ const secretos = [];
   const d = await crear('Gus');
   send(d, { type: 'add_bot', difficulty: 'easy' }); await wait(500);
   send(d, { type: 'set_ready', ready: true });
-  ok(!!(await esperar(d, m => m.type === 'game_start', 6000)), 'arranca contra el bot');
+  ok(!!(await esperar(d, m => m.type === 'game_start', 10000)), 'arranca contra el bot');
   secretos.push(d.token);
   const lobby = d.lobby;
   d.ws.terminate(); await wait(4000);

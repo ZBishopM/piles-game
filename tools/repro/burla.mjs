@@ -16,8 +16,8 @@ async function partida(tauntAna, tauntBeto) {
   await wait(200);
   send(beto, { type: 'set_ready', ready: true });
   send(ana, { type: 'set_ready', ready: true });
-  const gs = await esperar(ana, m => m.type === 'game_start', 6000);
-  await esperar(beto, m => m.type === 'game_start', 6000);
+  const gs = await esperar(ana, m => m.type === 'game_start', 12000);
+  await esperar(beto, m => m.type === 'game_start', 12000);
   if (!gs) throw new Error('la partida no arrancó');
   await wait(300);
   for (const c of [ana, beto]) {

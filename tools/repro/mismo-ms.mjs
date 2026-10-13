@@ -24,7 +24,7 @@ const a = await crear('Ana');
 const resto = [await unirse('Beto', a.lobby), await unirse('Caro', a.lobby), await unirse('Dani', a.lobby)];
 const jug = [a, ...resto];
 for (const c of jug) send(c, { type: 'set_ready', ready: true });
-const starts = await Promise.all(jug.map(c => esperar(c, m => m.type === 'game_start', 8000)));
+const starts = await Promise.all(jug.map(c => esperar(c, m => m.type === 'game_start', 10000)));
 ok(starts.every(Boolean), 'los cuatro empiezan la partida');
 const parar = jug.map(c => pinguear(c));
 
