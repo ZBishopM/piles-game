@@ -97,6 +97,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 |---|---|
 | `toques.mjs` | Con ratón, el clic cuenta al bajar (movido, mantenido, saliendo del centro); 3 toques = 1 envío |
 | `peleas.mjs` | Una pelea ajena no pisa la propia |
+| `avisos.mjs` | Dos peleas ajenas a la vez: sin ids repetidos, cada aviso mueve su barra y marcadores, apodo con `<img onerror>` como texto; y la oferta de bots tras partida rápida (sale si no llega nadie; no reaparece al descartar, salir, crear sala o aceptar). Tarda ~45 s (esperas reales de 12 s) |
 | `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |
 | `mirar.mjs` | Mirar desde «Unirse» (~45 s): la lista se refresca sola y pasa la sala a «En partida · Mirar»; «Mirando desde» cada jugador y «Todos» enseñan las cartas de verdad (comparadas con el `allSets` de su pestaña); ver la deuda al soltar; móvil sin desborde; «Salir de la sala»; y al acabar la partida, de vuelta en la sala de espera con chat |
 | `version.mjs` | Una pestaña abierta desde antes de un despliegue se recarga sola: la primera versión (`hello`) que ve es la suya, un cambio en una reconexión recarga (con aviso), y no más de una vez cada 30 s. En local la versión es «dev» y se ignora |
