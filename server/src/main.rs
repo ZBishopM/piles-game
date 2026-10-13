@@ -18,6 +18,7 @@ mod elo;
 mod game;
 mod ratings;
 mod record;
+mod taunts;
 mod websocket;
 
 use game::is_valid_lobby_code;

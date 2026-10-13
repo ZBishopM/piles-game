@@ -80,6 +80,8 @@ pub struct LobbyPlayer {
     pub bot_level: Option<crate::bot::Difficulty>,
     /// De quién es su Elo (`anon:…` / `sm:…`). No se reenvía a nadie.
     pub rating_key: Option<String>,
+    /// Id de su burla (validado contra 	aunts::IDS). Los bots no tienen.
+    pub taunt: Option<String>,
     /// Secreto del asiento: lo que demuestra que quien vuelve es quien se
     /// sentó. Lo recibe solo el dueño (y no se graba), y con él recupera el
     /// asiento al instante aunque la conexión vieja siga pareciendo viva.
@@ -260,6 +262,7 @@ impl Lobby {
             is_bot: false,
             bot_level: None,
             rating_key: None,
+            taunt: None,
             seat_token: None,
         };
 
