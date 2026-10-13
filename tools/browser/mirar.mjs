@@ -51,8 +51,8 @@ ok(/Para jugar/.test(await S.locator('#lobbyList').textContent()) && /Partidas e
 // ── Empieza la partida: la lista de Caro se refresca sola ──────────────────
 await A.locator('#readyBtn').click();
 await B.locator('#readyBtn').click();
-await A.locator('#gameScreen.active').waitFor({ timeout: 8000 });
-await B.locator('#gameScreen.active').waitFor({ timeout: 8000 });
+await A.locator('#gameScreen.active').waitFor({ timeout: 12000 });
+await B.locator('#gameScreen.active').waitFor({ timeout: 12000 });
 const fila = S.locator('.lobby-row.en-curso', { hasText: codigo });
 await fila.waitFor({ timeout: 9000 });   // el refresco es cada 4 s
 const textoFila = await fila.textContent();

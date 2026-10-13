@@ -394,6 +394,26 @@
         #readyCount { text-align: center; color: var(--text-faint); margin: 6px 0 0; font-size: 0.9rem; }
         /* Esperando plaza: la mesa estaba llena al acabar la partida. Se ve la
            sala y el chat, y se sienta solo en cuanto haya un hueco. */
+        /* Cuenta atrás antes de repartir. Encima de todo pero sin coger toques:
+           el botón de listo y el chat de debajo siguen funcionando. */
+        #cuentaAtras {
+            position: fixed; inset: 0; z-index: 900;
+            display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            pointer-events: none; text-align: center;
+            background: color-mix(in srgb, var(--bg) 45%, transparent);
+        }
+        #cuentaAtras.on { display: flex; }
+        #cuentaAtras .ca-num {
+            font: 800 clamp(4.5rem, 22vmin, 9rem)/1 var(--font-sans);
+            font-variant-numeric: tabular-nums;
+            color: var(--accent); text-shadow: 0 0 48px var(--accent-soft);
+        }
+        #cuentaAtras .ca-num.pulso { animation: caPulso 0.9s ease-out; }
+        /* El número y su pista van en un panel sólido: se leen sobre cualquier cosa y la pista no se mezcla con los controles de debajo. */
+        #cuentaAtras .ca-panel { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 28px; border-radius: 16px; background: var(--card); box-shadow: inset 0 0 0 1px var(--accent-line); }
+        #cuentaAtras .ca-pista { font-size: 0.95rem; color: var(--text-muted); }
+        @keyframes caPulso { from { transform: scale(1.4); opacity: 0.25; } to { transform: scale(1); opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { #cuentaAtras .ca-num.pulso { animation: none; } }
         #huecoBanda { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 0.82rem; text-align: center; }
         #lobbyScreen.espera-hueco #readyBtn,
         #lobbyScreen.espera-hueco #readyCount,
@@ -1787,6 +1807,16 @@
     <div id="lobbyList"></div>
 </div>
 
+<!-- Cuenta atrás: lo visible va oculto a los lectores de pantalla y el anuncio
+     (siempre en el DOM, para que el aviso salte) va aparte. -->
+<div id="cuentaAtras" aria-hidden="true">
+    <div class="ca-panel">
+        <div class="ca-num" id="cuentaNum"></div>
+        <div class="ca-pista">Desmárcate para cancelar</div>
+    </div>
+</div>
+<div id="cuentaAnuncio" class="pt-sr" role="status" aria-live="assertive" aria-atomic="true"></div>
+
 <!-- ════ LOBBY ════ -->
 <div id="lobbyScreen" class="screen">
     <!-- Arriba a la izquierda, como el "Atrás" de Nueva sala y Unirse. -->
@@ -2502,6 +2532,14 @@ function handleMsg(msg) {
 
         case 'game_start':
             onGameStart(msg);
+            break;
+
+        case 'countdown':
+            startCountdown(msg.seconds);
+            break;
+
+        case 'countdown_cancelled':
+            onCountdownCancelled(msg.reason);
             break;
 
         case 'set_switched':
@@ -3370,6 +3408,55 @@ function onLobbyUpdate(msg) {
         && !document.getElementById('lobbyScreen').classList.contains('active')) {
         showScreen('lobbyScreen');
     }
+}
+
+// ─── Cuenta atrás ─────────────────────────────────────────────────────────
+// El servidor avisa de que todos están listos (`countdown`) y reparte solo al
+// acabar. Aquí solo se pinta. El reloj va contra una hora de fin y no contando
+// ticks: con la pestaña oculta los temporizadores se frenan y el número saldría
+// atrasado; así se corrige solo al volver.
+let cuentaFin = 0, cuentaTimer = null, cuentaN = -1;
+
+function startCountdown(seconds) {
+    closeCountdown();
+    cuentaFin = Date.now() + Math.max(1, Number(seconds) || 3) * 1000;
+    document.getElementById('cuentaAtras').classList.add('on');
+    cuentaTick();
+    cuentaTimer = setInterval(cuentaTick, 100);
+}
+
+function cuentaTick() {
+    const n = Math.ceil((cuentaFin - Date.now()) / 1000);
+    if (n === cuentaN) return;
+    cuentaN = n;
+    const num = document.getElementById('cuentaNum');
+    const texto = n > 0 ? String(n) : '¡Ya!';
+    num.textContent = texto;
+    document.getElementById('cuentaAnuncio').textContent = texto;
+    // Reinicia la animación en cada número.
+    num.classList.remove('pulso');
+    void num.offsetWidth;
+    num.classList.add('pulso');
+    if (!document.hidden) playSfx(n > 0 ? 'countTick' : 'countGo');
+    // Si el reparto no llega (se perdió el mensaje), no se queda el 0 colgado.
+    if (n <= -2) closeCountdown();
+}
+
+function closeCountdown() {
+    clearInterval(cuentaTimer);
+    cuentaTimer = null;
+    cuentaN = -1;
+    document.getElementById('cuentaAtras')?.classList.remove('on');
+    const a = document.getElementById('cuentaAnuncio');
+    if (a) a.textContent = '';
+}
+
+function onCountdownCancelled(reason) {
+    if (cuentaTimer === null) return;
+    closeCountdown();
+    const porque = reason === 'left' ? 'alguien ha salido'
+        : reason === 'joined' ? 'ha entrado alguien' : 'alguien ya no está listo';
+    agToast({ kind: 'info', title: 'Cuenta atrás cancelada', message: porque[0].toUpperCase() + porque.slice(1) + '.' });
 }
 
 // ─── Inicio de juego ──────────────────────────────────────────────────────
@@ -4475,6 +4562,9 @@ const SFX = {
     fightLost: () => tone({ freq: 300, dur: 0.3, type: 'sawtooth', gain: 0.13, slideTo: 110 }),
     tiebreak: () => { tone({ freq: 440, dur: 0.08, type: 'square', gain: 0.1 }); setTimeout(() => tone({ freq: 440, dur: 0.08, type: 'square', gain: 0.1 }), 110); },
     refused: () => tone({ freq: 180, dur: 0.09, type: 'square', gain: 0.09 }),
+    // Cuenta atrás de la sala: un tic por número y un tono más alto al arrancar.
+    countTick: () => tone({ freq: 660, dur: 0.09, type: 'triangle', gain: 0.14 }),
+    countGo: () => tone({ freq: 990, dur: 0.22, type: 'triangle', gain: 0.16 }),
     // Cargado: arpegio corto hacia arriba. Soltado: barrido grande.
     frenzyReady: () => [0, 4, 7, 12].forEach((s, i) =>
         setTimeout(() => tone({ freq: 440 * Math.pow(2, s / 12), dur: 0.12 }), i * 70)),
@@ -6088,6 +6178,7 @@ function returnToLobby() {
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
+    if (id !== 'lobbyScreen') closeCountdown();   // la partida (o salir) cierra la cuenta atrás
 }
 </script>
 

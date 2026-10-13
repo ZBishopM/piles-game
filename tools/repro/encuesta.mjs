@@ -24,7 +24,7 @@ async function mesa(n1, n2, n3) {
   const b = await unirse(n2, a.lobby);
   const c = await unirse(n3, a.lobby);
   for (const x of [a, b, c]) send(x, { type: 'set_ready', ready: true });
-  const gs = await Promise.all([a, b, c].map(x => esperar(x, m => m.type === 'game_start', 8000)));
+  const gs = await Promise.all([a, b, c].map(x => esperar(x, m => m.type === 'game_start', 10000)));
   const paros = [a, b, c].map(x => pinguear(x));
   return { a, b, c, empezo: gs.every(Boolean), parar: () => paros.forEach(p => p()) };
 }

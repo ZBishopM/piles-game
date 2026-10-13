@@ -26,7 +26,7 @@ const caro = await unirse(CAIDO, codigo);
 send(beto, { type: 'set_ready', ready: true });
 send(caro, { type: 'set_ready', ready: true });
 await p.getByRole('button', { name: /Marcar como Listo/ }).click();
-await p.locator('#gameScreen.active').waitFor({ timeout: 10000 });
+await p.locator('#gameScreen.active').waitFor({ timeout: 12000 });
 const parar = pinguear(beto);
 ok(true, `partida de tres en ${codigo}`);
 

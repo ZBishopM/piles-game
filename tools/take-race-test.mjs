@@ -81,8 +81,8 @@ beto.envia({ type: 'set_ready', ready: true });
 await dormir(200);
 ana.envia({ type: 'set_ready', ready: true });
 
-if (!await ana.espera('game_start')) fallo('la partida no arrancó');
-await beto.espera('game_start');
+if (!await ana.espera('game_start', 10000)) fallo('la partida no arrancó');
+await beto.espera('game_start', 10000);
 await dormir(300);
 
 // ── Los dos sueltan, así que los dos deben una carta y pueden coger ──

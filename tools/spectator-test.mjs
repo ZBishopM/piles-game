@@ -60,7 +60,7 @@ if (!await beto.espera('lobby_update')) fallo('Beto no entró');
 beto.envia({ type: 'set_ready', ready: true });
 await dormir(200);
 ana.envia({ type: 'set_ready', ready: true });
-for (const c of [ana, beto]) if (!await c.espera('game_start')) fallo(`${c.nombre} no arrancó`);
+for (const c of [ana, beto]) if (!await c.espera('game_start', 10000)) fallo(`${c.nombre} no arrancó`);
 await dormir(300);
 
 // ── (a) Caro llega tarde ──────────────────────────────────────────────────

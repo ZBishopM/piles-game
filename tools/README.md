@@ -45,7 +45,7 @@ empezó la partida:
   de una caída), `voto`, `encuesta_fin` (`seguir` / `volvio` / `cancelar` / `fin`),
   `replaced`, `cancel`, y los
   reingresos que no salieron: `rejoin_sin_asiento` (volvió con secreto y no abrió
-  ningún asiento, con el porqué) y `join_error` (el servidor le contestó un error).
+  ningún asiento, con el porqué), `join_error` (el servidor le contestó un error) y\r\n  `cuenta_atras` (`fase: fin` = la cuenta de 3 s terminó y se repartió; `inicio` y\r\n  `cancelada` --con `motivo`: `not_ready` / `left` / `joined`-- solo se anotan si la\r\n  sala ya está grabando, es decir, casi nunca: la grabación empieza al repartir).
 - `resync`: el servidor rechazó una jugada porque el cliente creía algo falso (coger
   sin deber nada, soltar debiendo) y le reenvió su mano verdadera. Si salen muchas,
   hay un fallo de sincronización que investigar.
@@ -91,6 +91,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `mirar.mjs [--largo]` | Mirar partidas: la lista pública con las que están en curso (`status`, jugadores, mirones), la mano de TODOS por ids (coincide con el `game_start` de cada jugador y se actualiza en <1 s), sin mensajes privados ni acciones; `--largo` (~35 s) añade la cola de espera: la mesa llena no echa a quien miraba, se sienta al liberarse un hueco y puede escribir en el chat |
 | `encuesta.mjs` | Caída sin vuelta (~2 min): a los 30 s encuesta de 15 s; todos Sí o nadie contesta = otros 30 s, un No cancela; volver en plena encuesta la cierra; «Salir» retira como antes, sin encuesta |
 | `desempate.mjs` | Empate de clicks en una pelea → muerte súbita (~25 s): 0-0 = 3 rondas extra de 1 s y al azar (`random`), 5-5 y luego gana quien pulsa = 1 ronda, ceder en la ronda extra pierde sin bloqueo; `qte_tiebreak` llega a los dos, `qte_resolved` trae `clicks`/`tiebreaks`, ganador `swap_success`, perdedor `swap_failed` + `stunned` |
+| `cuenta.mjs` | La cuenta atrás de 3 s antes de repartir (~20 s): `countdown` a todos y `game_start` a los ~3 s; desmarcarse, entrar un tercero sin listo o salir uno la cancelan (`countdown_cancelled` con motivo) y la tarea vieja no reparte; cancelar y reabrir rápido reparte una sola vez; añadir un bot con un humano listo también espera; `conn`/`cuenta_atras`/`fin` en la grabación |
 | `mismo-ms.mjs [--rondas=60]` | 4 jugadores soltando y cogiendo a la vez: ninguna jugada se pierde, todos ven el mismo centro, y quien intenta coger sin deber (o soltar debiendo) recibe su mano verdadera |
 | `burla.mjs` | La burla: Ana (con `taunt`) coge una carta y Beto pide la misma; a 100 ms de ejecutarse el take de Ana su `swap_failed` lleva `taunt` y `by`; a 700 ms, con id desconocido, id enorme o Ana sin burla, no |
 
@@ -112,6 +113,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `burla.mjs` | «Mi burla» del perfil: guarda `piles.taunt` y lo recuerda, ▶ sintetiza (AudioContext y osciladores espiados) o dice «Silencio activado», el id viaja en `create_lobby`/`quick_match`, un `swap_failed` con `taunt` suena y avisa con el apodo como texto (no dos en 2 s, no en pelea); capturas 390x700 y 1280x800 |
 | `encuesta.mjs` | La encuesta en pantalla (~70 s): aviso de caída, botones Esperar/Cancelar que se pueden pulsar, «Votaste esperar», nueva cuenta atrás, Cancelar vuelve a la sala; apodo `<i>` como texto |
 | `titulo.mjs` | El título animado del inicio, en el lobby real: sin errores, anima, hay un set visible (4 de la misma prenda en 4 colores) en dos manos seguidas, se pausa del todo al salir de la pantalla de inicio o con la pestaña oculta y reanuda, formulario sin scroll en 390x700, y con movimiento reducido queda «Piles!» quieta (~25 s; fotos en `$CAPTURAS`) |
+| `cuenta.mjs` | El overlay de la cuenta atrás: 3-2-1 grande visible con `role=status`, no tapa el botón de listo ni el chat, se cierra con `game_start`, se cancela con aviso al desmarcarse otro, y con movimiento reducido no anima (capturas 390x700 y 1280x800 en `` o en la carpeta temporal) |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |
 
 `toques.mjs` y `peleas.mjs` fallan contra un cliente **sin** el arreglo: sirven de prueba

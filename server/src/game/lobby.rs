@@ -126,6 +126,19 @@ pub const STUN_DURATION: Duration = Duration::from_secs(3);
 /// tercer castigo por el mismo error.
 pub const DEBT_DEADLINE: Duration = Duration::from_secs(3);
 
+/// Cuánto se espera, con todos listos, antes de repartir. Hay tiempo de
+/// desmarcarse (o de que entre alguien) antes de que arranque.
+pub const COUNTDOWN: Duration = Duration::from_secs(3);
+
+/// Qué cambió en la cuenta atrás de una sala (ver `Lobby::countdown_sync`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CountdownChange {
+    None,
+    /// Se abrió; lleva su número de generación.
+    Opened(u64),
+    Cancelled,
+}
+
 /// Representa un lobby de juego
 #[derive(Debug, Clone)]
 pub struct Lobby {
@@ -163,9 +176,32 @@ pub struct Lobby {
     pub chat: std::collections::VecDeque<super::messages::ChatLine>,
     /// Encuestas abiertas, por el id de quien se cayó (ver `Encuesta`).
     pub encuestas: HashMap<Uuid, Encuesta>,
+    /// Generación de la cuenta atrás abierta (`None` si no hay ninguna). La
+    /// tarea que la espera solo arranca la partida si sigue siendo la suya.
+    pub countdown: Option<u64>,
+    /// Contador de generaciones: cada cuenta atrás nueva toma el siguiente.
+    pub countdown_seq: u64,
 }
 
 impl Lobby {
+    /// Pone la cuenta atrás al día con el estado de la sala: se abre si la sala
+    /// está `Ready` y no había ninguna, se cancela si ya no lo está. Quien
+    /// llama avisa a la sala según lo devuelto. No recalcula `status`.
+    pub fn countdown_sync(&mut self) -> CountdownChange {
+        match (self.status == LobbyStatus::Ready, self.countdown) {
+            (true, None) => {
+                self.countdown_seq += 1;
+                self.countdown = Some(self.countdown_seq);
+                CountdownChange::Opened(self.countdown_seq)
+            }
+            (false, Some(_)) => {
+                self.countdown = None;
+                CountdownChange::Cancelled
+            }
+            _ => CountdownChange::None,
+        }
+    }
+
     /// Crea un nuevo lobby. Público por defecto; `set_public` lo cambia.
     pub fn new(lobby_id: String, max_players: u8) -> Self {
         Self {
@@ -180,6 +216,8 @@ impl Lobby {
             seats: Vec::new(),
             chat: std::collections::VecDeque::new(),
             encuestas: HashMap::new(),
+            countdown: None,
+            countdown_seq: 0,
         }
     }
 
@@ -281,6 +319,10 @@ impl Lobby {
         nuevo.seat_token = Some(new_seat_token());
         self.players.push(nuevo);
         self.empty_since = None;
+        // Ya no están todos listos: si había cuenta atrás, se corta.
+        if self.status == LobbyStatus::Ready {
+            self.status = LobbyStatus::Waiting;
+        }
         Ok(false)
     }
 
@@ -315,6 +357,9 @@ impl Lobby {
             }
         }
         self.spectators = siguen;
+        if !sentados.is_empty() && self.status == LobbyStatus::Ready {
+            self.status = LobbyStatus::Waiting;
+        }
         if !self.players.is_empty() {
             self.empty_since = None;
         }
@@ -425,6 +470,7 @@ impl Lobby {
         }).collect();
 
         self.status = LobbyStatus::Playing;
+        self.countdown = None;
 
         // Resetear is_ready para que la siguiente ronda no arranque prematuramente
         for player in self.players.iter_mut() {

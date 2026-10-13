@@ -427,6 +427,16 @@ pub enum ServerMessage {
     GameCancelled {
         reason: String,
     },
+    /// Todos están listos: la partida empieza en `seconds` segundos si nada
+    /// cambia. Va a toda la sala (jugadores y quien espera plaza).
+    Countdown {
+        seconds: u64,
+    },
+    /// La cuenta atrás se cortó. `reason`: `not_ready` (alguien se desmarcó),
+    /// `left` (alguien salió) o `joined` (entró alguien sin estar listo).
+    CountdownCancelled {
+        reason: String,
+    },
     /// Respuesta a Ping del cliente
     Pong,
     /// Error
@@ -501,6 +511,17 @@ mod tests {
         assert_eq!(sent.len(), 4, "el set viaja con sus 4 huecos, no con 3 cartas");
         assert!(sent[2].is_none(), "el hueco tiene que llegar como null");
         assert_eq!(sent.iter().filter(|s| s.is_some()).count(), 3);
+    }
+
+    // El contrato con `lobby.html` (`case 'countdown'` / `'countdown_cancelled'`).
+    #[test]
+    fn the_countdown_messages_serialize_as_the_client_expects() {
+        let v = serde_json::to_value(ServerMessage::Countdown { seconds: 3 }).unwrap();
+        assert_eq!(v["type"], "countdown");
+        assert_eq!(v["seconds"], 3);
+        let v = serde_json::to_value(ServerMessage::CountdownCancelled { reason: "left".into() }).unwrap();
+        assert_eq!(v["type"], "countdown_cancelled");
+        assert_eq!(v["reason"], "left");
     }
 
     #[test]
