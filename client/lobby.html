@@ -2467,7 +2467,7 @@ function handleMsg(msg) {
         // así que solo cuentan las de LA carta que tienes delante. Sin esto, al
         // resolverse la pelea de otros dos se te cerraba la tuya a media pelea.
         case 'qte_update':
-            if (esMiPelea(msg.card_id)) onQteUpdate(msg.clicks);
+            if (esMiPelea(msg.card_id)) onQteUpdate(msg.clicks, msg.card_id);
             break;
 
         case 'qte_resolved':
@@ -2658,6 +2658,7 @@ function createLobby() {
     const nickname = requireNickname();
     if (!nickname) return;
     const maxPlayers = parseInt(document.getElementById('maxPlayers').value);
+    cancelQuickMatchOffer();
     send({ type: 'create_lobby', nickname, max_players: maxPlayers, is_public: lobbyIsPublic, rating_key: ratingKey() });
 }
 
@@ -2720,7 +2721,11 @@ function armQuickMatchOffer() {
     }, 12000);
 }
 
-function cancelQuickMatchOffer() {
+/** Oculta la oferta y para su temporizador. Salvo `seguirOfreciendo`, también
+ *  olvida que vienes de partida rápida: descartarla o aceptarla la cierra, y
+ *  los `lobby_update` con un jugador que siguen llegando no la reabren. */
+function cancelQuickMatchOffer(seguirOfreciendo) {
+    if (seguirOfreciendo !== true) cameFromQuickMatch = false;
     clearTimeout(quickMatchOfferTimer);
     const offer = document.getElementById('quickBotOffer');
     if (offer) offer.hidden = true;
@@ -2809,6 +2814,7 @@ function joinLobby() {
         document.getElementById('lobbyCode').focus();
         return;
     }
+    cancelQuickMatchOffer();
     send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey() });
 }
 
@@ -3054,6 +3060,7 @@ function leaveLobby() {
     if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'leave_lobby' });
     showScreen('homeScreen');
     forgetLobby();
+    cancelQuickMatchOffer();
     isReady = false;
     // Si mirabas (o esperabas plaza), ya no.
     soyEspectador = false;
@@ -3067,6 +3074,7 @@ function leaveLobby() {
  *  desde otro sitio). Esta ya no es la buena: se vuelve al inicio sin
  *  reintentar, que es lo que evita que dos pestañas se lo quiten sin parar. */
 function onSeatReplaced() {
+    cancelQuickMatchOffer();
     dropSeatLocally();
     stopMusic();
     closeVerifyOverlay();
@@ -3286,7 +3294,7 @@ function onLobbyUpdate(msg) {
     ponerBots(botsUser === true);
 
     // Llegó alguien: ya no hace falta ofrecer bots.
-    if (msg.players.length > 1) cancelQuickMatchOffer();
+    if (msg.players.length > 1) cancelQuickMatchOffer(true);
     else if (cameFromQuickMatch) armQuickMatchOffer();
 
     // Estar en el tablero manda: un `lobby_update` NUNCA puede sacarte de una
@@ -5055,7 +5063,10 @@ function onSwapConflict(players, cardId, durationMs) {
 
         const rival = players.find(p => p !== currentNickname) || '';
         document.getElementById('qteTitle').textContent = '⚡ ¡CLICK!';
-        document.getElementById('qteDesc').innerHTML = `Tú vs <strong>${rival}</strong>`;
+        const desc = document.getElementById('qteDesc');
+        const rivalEl = document.createElement('strong');
+        rivalEl.textContent = rival;
+        desc.replaceChildren('Tú vs ', rivalEl);
 
         const cardSlot = document.getElementById('qteCard');
         cardSlot.innerHTML = '';
@@ -5104,19 +5115,31 @@ function onSwapConflict(players, cardId, durationMs) {
         notif.className = 'qte-battle-notif';
         const funEmojis = ['⚔️', '🥊', '💥', '🔥', '⚡'];
         const emoji = funEmojis[Math.floor(Math.random() * funEmojis.length)];
-        notif.innerHTML = `
-            <div class="qbn-title">${emoji} PELEA</div>
-            <div class="qbn-versus">
-                <span class="qbn-player">${players[0]}</span>
-                <span class="qbn-vs">⚔️</span>
-                <span class="qbn-player">${players[1]}</span>
-            </div>
-            <div class="qbn-scores">
-                <span id="qbn-n-${players[0]}">0 clicks</span>
-                <span id="qbn-n-${players[1]}">0 clicks</span>
-            </div>
-            <div class="qbn-bar"><div class="qbn-bar-fill" id="qbnFill"></div></div>
-        `;
+        // Apodos como texto (el servidor no los filtra) y sin ids: con dos
+        // avisos a la vez se repetirían; todo se busca acotado al aviso.
+        const el = (cls, txt) => {
+            const e = document.createElement('div');
+            e.className = cls;
+            if (txt !== undefined) e.textContent = txt;
+            return e;
+        };
+        const span = (cls, txt) => {
+            const e = document.createElement('span');
+            if (cls) e.className = cls;
+            e.textContent = txt;
+            return e;
+        };
+        const versus = el('qbn-versus');
+        versus.append(span('qbn-player', players[0]), span('qbn-vs', '⚔️'), span('qbn-player', players[1]));
+        const scores = el('qbn-scores');
+        players.slice(0, 2).forEach(name => {
+            const s = span('', '0 clicks');
+            s.dataset.nick = name;
+            scores.append(s);
+        });
+        const bar = el('qbn-bar');
+        bar.append(el('qbn-bar-fill'));
+        notif.append(el('qbn-title', `${emoji} PELEA`), versus, scores, bar);
         area.appendChild(notif);
         // Por carta: con dos peleas a la vez hay dos avisos, y cada uno tiene
         // que poder cerrarse por su cuenta.
@@ -5126,7 +5149,7 @@ function onSwapConflict(players, cardId, durationMs) {
         // Barra de tiempo. El temporizador vive en el propio aviso, no en una
         // variable compartida: si no, el segundo aviso paraba la barra del
         // primero y la dejaba congelada a media cuenta.
-        const fill = notif.querySelector('#qbnFill');
+        const fill = notif.querySelector('.qbn-bar-fill');
         fill.style.width = '100%';
         const start = Date.now();
         notif._timer = setInterval(() => {
@@ -5166,14 +5189,18 @@ function esMiPelea(cardId) {
     return qteBlockedCards.has(cardId);
 }
 
-function onQteUpdate(clicks) {
-    // Participantes: actualizar overlay
+function onQteUpdate(clicks, cardId) {
+    // Sin card_id (mensajes viejos) se tocan todos los avisos.
+    const notifs = cardId == null ? [...qteNotifs.values()] : [qteNotifs.get(cardId)];
     Object.entries(clicks).forEach(([name, count]) => {
+        // Participantes: actualizar overlay
         const overlayEl = document.getElementById(`qte-n-${name}`);
         if (overlayEl) overlayEl.textContent = count;
-        // Espectadores: actualizar notificación
-        const notifEl = document.getElementById(`qbn-n-${name}`);
-        if (notifEl) notifEl.textContent = `${count} clicks`;
+        // Espectadores: actualizar el aviso de ESA pelea
+        notifs.forEach(n => {
+            const s = n && [...n.querySelectorAll('[data-nick]')].find(e => e.dataset.nick === name);
+            if (s) s.textContent = `${count} clicks`;
+        });
     });
 }
 
@@ -5715,6 +5742,7 @@ function onGameCancelled(reason) {
 }
 
 function returnToLobby() {
+    cancelQuickMatchOffer();
     stopMusic();
     gameOver = false;
     isReady = false;
