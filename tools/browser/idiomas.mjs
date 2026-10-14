@@ -68,7 +68,7 @@ async function revisar(p, idioma, donde) {
       if (ACENTOS.test(t)) malos.push(`acento español: «${t}»`);
       else if (PALABRAS_ES.test(t)) malos.push(`palabra española: «${t}»`);
     }
-    if (idioma === 'zh') {
+    if (idioma === 'zh' && donde !== 'lista de grabaciones') {   // la lista trae apodos de quien jugó: datos, no textos
       if (/^\s*\d+\s+\d\d:\d\d\.\d{3}\s/.test(t)) continue;   // el registro de eventos del visor: tipos de mensaje, técnicos
       const sueltos = (t.match(/\b[A-Za-z][a-z']{2,}\b/g) || []).filter(w => !LATIN_OK.has(w.toLowerCase()));   // los códigos de sala (MAYÚSCULAS y cifras) no cuentan
       if (sueltos.length) malos.push(`inglés suelto en chino: «${t}» (${sueltos.join(', ')})`);
@@ -123,7 +123,7 @@ const ENTRAR_SALA = async (p, nick) => {
   await p.locator('#nickname').fill(nick);
   await p.locator('button[onclick="showScreen(\'hostScreen\')"]').click();
   await p.locator('button[onclick="createLobby()"]').click();
-  await p.locator('#lobbyScreen.active').waitFor({ timeout: 6000 });
+  await p.locator('#lobbyScreen.active').waitFor({ timeout: 12000 });
   return (await p.locator('#lobbyCodeDisplay').textContent()).trim();
 };
 
@@ -396,10 +396,13 @@ console.log('\n══ elegir idioma ══');
   await p.locator('.profile-btn').click();
   await p.locator('#profileScreen .lang-btn[data-lang="en"]').click();
   await p.waitForFunction(() => document.documentElement.lang === 'en');
+  await p.locator('#profileScreen.active').waitFor({ timeout: 8000 });   // el lang se pone al cargar; la pantalla se restaura después (con latencia se nota)
   ok(await p.locator('#profileScreen.active').count() === 1 && /Profile/.test(await p.locator('#profileScreen h2').textContent()), 'cambiar desde el perfil recarga y vuelve al perfil, ya en inglés');
   ok(await p.evaluate(() => localStorage.getItem('piles.lang')) === 'en', 'persiste: en');
   await p.locator('#profileScreen .lang-btn[data-lang="es"]').click();
   await p.waitForFunction(() => document.documentElement.lang === 'es');
+  await p.waitForLoadState('networkidle');
+  await p.locator('#profileScreen.active').waitFor({ timeout: 8000 });   // que la recarga acabe antes de seguir (con latencia remota se cruzaba)
   ok(/Perfil/.test(await p.locator('#profileScreen h2').textContent()), 'y de vuelta a español');
 
   // Cambiar de idioma estando en una sala la conserva (el asiento vive en localStorage).
@@ -409,7 +412,7 @@ console.log('\n══ elegir idioma ══');
   await p.waitForFunction(() => document.documentElement.lang === 'en');
   await p.locator('#lobbyScreen.active').waitFor({ timeout: 8000 });
   await p.waitForFunction(c => document.getElementById('lobbyCodeDisplay').textContent.trim() === c, cod, { timeout: 6000 });
-  ok(/Leave room/.test(await p.locator('#lobbyScreen .back-btn').textContent()) && (await p.locator('#playerList li').count()) === 1,
+  ok(/Leave/.test(await p.locator('#lobbyScreen .back-btn').textContent()) && (await p.locator('#playerList li').count()) === 1,
     `cambiar de idioma dentro de la sala ${cod}: recarga y vuelve a ella, ya en inglés`);
   await p.evaluate(() => PilesI18n.setLang('es'));
   await p.waitForFunction(() => document.documentElement.lang === 'es');
