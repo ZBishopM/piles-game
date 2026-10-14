@@ -260,8 +260,10 @@ impl AppState {
 
     /// Un mensaje que va a toda la sala, más el fotograma clave si toca.
     async fn rec_broadcast(&self, lobby_id: &str, lobby: &crate::game::Lobby, msg: &ServerMessage) {
-        // El chat no se graba (ver `rec_private`).
-        if matches!(msg, ServerMessage::Chat { .. } | ServerMessage::ChatHistory { .. }) {
+        // El chat no se graba (ver `rec_private`), ni la votación de la sala de
+        // espera (puede llegar su cierre ya empezada la partida).
+        if matches!(msg, ServerMessage::Chat { .. } | ServerMessage::ChatHistory { .. }
+            | ServerMessage::KickPoll { .. } | ServerMessage::KickPollEnded { .. }) {
             return;
         }
         let mut mapa = self.grabando.write().await;
@@ -1009,7 +1011,14 @@ pub(crate) async fn handle_client_message(
             // una pública y se espera ahí. Los bots NO se añaden solos: el
             // cliente pregunta primero, porque alguien que pide partida rápida
             // normalmente quiere gente, no máquinas.
-            match state.lobby_manager.fullest_open_lobby().await {
+            let mut abierta = state.lobby_manager.fullest_open_lobby().await;
+            // A una sala de la que te echaron no vuelves: se abre otra.
+            if let Some(id) = abierta.as_deref() {
+                if expulsado_de(state, id, &nickname, rating_key.as_deref(), None).await.is_some() {
+                    abierta = None;
+                }
+            }
+            match abierta {
                 Some(lobby_id) => {
                     let live: std::collections::HashSet<Uuid> =
                         state.connections.read().await.keys().copied().collect();
@@ -1056,21 +1065,36 @@ pub(crate) async fn handle_client_message(
             // Ya está sentado en esa sala con esta misma conexión (doble toque
             // en "Unirse", o un cliente que "salió" solo en pantalla): no hay
             // nada que hacer, solo confirmar. Antes chocaba con su propio apodo.
+            // (Pero no si ya lo echaron: su conexión sigue apuntando a la sala.)
             if current_lobby.as_deref() == Some(lobby_id.as_str()) {
-                if let Some(lobby) = state.lobby_manager.get_lobby(&lobby_id).await {
-                    // En partida la confirmación llevaría a la pantalla de
-                    // sala, encima del tablero.
-                    if lobby.status != LobbyStatus::Playing {
-                        state.send_to_player(&player_id, ServerMessage::JoinedLobby {
-                            lobby_id: lobby_id.clone(),
-                            player_id: player_id.to_string(),
-                            spectator: lobby.is_spectator(&player_id),
-                        }).await;
-                        send_seat_token(state, &lobby, player_id).await;
-                        send_lobby_update(state, &lobby_id).await;
-                        send_chat_history(state, &lobby, player_id).await;
+                let lobby = state.lobby_manager.get_lobby(&lobby_id).await;
+                let sentado = lobby.as_ref()
+                    .is_none_or(|l| l.players.iter().chain(&l.spectators).any(|p| p.id == player_id));
+                if sentado {
+                    if let Some(lobby) = lobby {
+                        // En partida la confirmación llevaría a la pantalla de
+                        // sala, encima del tablero.
+                        if lobby.status != LobbyStatus::Playing {
+                            state.send_to_player(&player_id, ServerMessage::JoinedLobby {
+                                lobby_id: lobby_id.clone(),
+                                player_id: player_id.to_string(),
+                                spectator: lobby.is_spectator(&player_id),
+                            }).await;
+                            send_seat_token(state, &lobby, player_id).await;
+                            send_lobby_update(state, &lobby_id).await;
+                            send_chat_history(state, &lobby, player_id).await;
+                        }
                     }
+                    return;
                 }
+            }
+
+            // Si lo echaron de esta sala, no vuelve a entrar (ni a mirar).
+            if let Some(falta) = expulsado_de(state, &lobby_id, &nickname, rating_key.as_deref(), seat_token.as_deref()).await {
+                let min = falta.as_secs().div_ceil(60);
+                state.send_to_player(&player_id, ServerMessage::Error {
+                    message: format!("Te echaron de esta sala. Podrás volver en {min} min."),
+                }).await;
                 return;
             }
 
@@ -1889,6 +1913,55 @@ pub(crate) async fn handle_client_message(
                     cancel_match(state, &lobby_id, &nickname).await;
                 }
                 None => {}
+            }
+        }
+
+        // ── Votación para echar a alguien de la sala de espera ──
+        //
+        // La abre solo quien lleva más tiempo sentado (`start_kick` lo valida) y
+        // la cierra `run_kick_poll`, o el voto que la completa o la tumba. Nada
+        // de esto se graba: la sala de espera no se graba.
+        ClientMessage::StartKick { target } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Ok(target) = Uuid::parse_str(&target) else { return };
+            let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+            match lobby.start_kick(player_id, target) {
+                Err(message) => {
+                    state.send_to_player(&player_id, ServerMessage::Error { message }).await;
+                }
+                Ok(Some(fin)) => {
+                    lobby.commit().await;
+                    announce_kick(state, &lobby_id, fin).await;
+                }
+                Ok(None) => {
+                    // Se avisa dentro de la transacción: así la apertura llega
+                    // antes que cualquier voto o cierre posterior.
+                    let msg = kick_poll_msg(&lobby);
+                    lobby.save().await;
+                    if let Some(msg) = msg {
+                        state.broadcast_to_lobby(&lobby_id, msg).await;
+                    }
+                    tokio::spawn(run_kick_poll(state.clone(), lobby_id.clone()));
+                }
+            }
+        }
+
+        ClientMessage::KickVote { yes } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+            match lobby.kick_vote(&player_id, yes) {
+                None => {}
+                Some(Some(fin)) => {
+                    lobby.commit().await;
+                    announce_kick(state, &lobby_id, fin).await;
+                }
+                Some(None) => {
+                    let msg = kick_poll_msg(&lobby);
+                    lobby.save().await;
+                    if let Some(msg) = msg {
+                        state.broadcast_to_lobby(&lobby_id, msg).await;
+                    }
+                }
             }
         }
 
@@ -2764,6 +2837,69 @@ async fn vote_until_closed(state: AppState, lobby_id: String, caido: Uuid) {
     }
 }
 
+/// El `KickPoll` de la votación abierta, con apodos. `None` si no hay ninguna.
+fn kick_poll_msg(lobby: &crate::game::Lobby) -> Option<ServerMessage> {
+    let k = lobby.kick.as_ref()?;
+    let nick = |ids: &[Uuid]| -> Vec<String> {
+        ids.iter()
+            .filter_map(|id| lobby.players.iter().find(|p| p.id == *id))
+            .map(|p| p.nickname.clone())
+            .collect()
+    };
+    Some(ServerMessage::KickPoll {
+        target: k.target.to_string(),
+        nickname: k.target_nick.clone(),
+        initiator: k.initiator_nick.clone(),
+        seconds: crate::game::lobby::KICK_PERIOD.saturating_sub(k.desde.elapsed()).as_secs(),
+        voters: nick(&k.voters),
+        yes: nick(&k.yes),
+    })
+}
+
+/// Cuenta cómo acabó una votación para echar a alguien. Con la transacción ya
+/// escrita y soltada: abre las suyas.
+async fn announce_kick(state: &AppState, lobby_id: &str, fin: crate::game::lobby::KickEnd) {
+    tracing::info!("🗳️ votación para echar a {} en {}: {}", fin.nickname, lobby_id, fin.result);
+    state.broadcast_to_lobby(lobby_id, ServerMessage::KickPollEnded {
+        nickname: fin.nickname.clone(),
+        result: fin.result.to_string(),
+    }).await;
+    if fin.result == "expulsado" {
+        // Ya no está en la sala, así que la difusión de arriba no le llegó.
+        state.send_to_player(&fin.target, ServerMessage::Kicked).await;
+        // Su plaza es de quien esperaba hueco; luego el resto ve la sala sin él.
+        seat_waiting_spectators(state, lobby_id).await;
+        send_lobby_update(state, lobby_id).await;
+        // Si quien queda ya estaba listo, arranca la cuenta atrás por la misma
+        // ruta que `SetReady` (`countdown_sync`).
+        countdown_recheck(state, lobby_id, "left").await;
+    }
+}
+
+/// Vigila la votación abierta hasta que se cierra: plazo, o cambios en la sala
+/// (alguien se va, empieza la partida). Los votos los cierran ellos mismos.
+async fn run_kick_poll(state: AppState, lobby_id: String) {
+    loop {
+        sleep(Duration::from_millis(250)).await;
+        let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+        if lobby.kick.is_none() {
+            return;
+        }
+        if let Some(fin) = lobby.kick_tick() {
+            lobby.commit().await;
+            announce_kick(&state, &lobby_id, fin).await;
+            return;
+        }
+    }
+}
+
+/// Si lo echaron de esta sala hace poco, cuánto le falta para poder volver (ni
+/// jugando ni mirando).
+async fn expulsado_de(state: &AppState, lobby_id: &str, nickname: &str, key: Option<&str>, token: Option<&str>) -> Option<Duration> {
+    state.lobby_manager.get_lobby(lobby_id).await?
+        .expulsion_restante(nickname, key, token, Instant::now())
+}
+
 /// ¿Le impide jugar a este jugador la pelea que haya en curso?
 ///
 /// Solo a quien pelea, y solo sobre la carta en disputa. Antes una pelea
@@ -3169,6 +3305,7 @@ fn lobby_update_msg(state: &AppState, lobby: &crate::game::Lobby) -> ServerMessa
         pool,
         status: lobby.status_name().to_string(),
         queue: lobby.spectators.iter().filter(|s| s.want_seat).map(|s| s.id.to_string()).collect(),
+        oldest: lobby.oldest_human().map(|id| id.to_string()),
     }
 }
 
@@ -3208,6 +3345,12 @@ async fn send_chat_history(state: &AppState, lobby: &crate::game::Lobby, player_
     state.send_to_player(&player_id, ServerMessage::ChatHistory {
         messages: lobby.chat.iter().cloned().collect(),
     }).await;
+    // Y, con una votación para echar a alguien abierta, la votación tal como
+    // está (segundos que quedan y votos): quien recarga o llega tarde no se
+    // queda sin ella. Cada camino de entrada pasa por aquí.
+    if let Some(poll) = kick_poll_msg(lobby) {
+        state.send_to_player(&player_id, poll).await;
+    }
 }
 
 #[cfg(test)]

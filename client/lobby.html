@@ -1254,7 +1254,7 @@
         @media (prefers-reduced-motion: reduce) {
             .bots-body, .bots-chev { transition: none; }
         }
-        .kick-bot {
+        .kick-bot, .kick-human {
             margin-left: 8px;
             width: 28px;
             height: 28px;
@@ -1266,7 +1266,29 @@
             cursor: pointer;
             line-height: 1;
         }
-        .kick-bot:hover { border-color: var(--danger); color: var(--danger); }
+        .kick-bot:hover, .kick-human:hover { border-color: var(--danger); color: var(--danger); }
+        /* ── Votación para echar a alguien: pegada a la fila del votado ──
+           Todo con tokens de agapornis-ui. «Echar» comparte el estilo de .kick-bot, con texto
+           (mismo borde, hover en --danger); la encuesta usa la superficie
+           seleccionada (--accent-soft + --accent-line, como #huecoBanda y
+           #readyBtn.active) y los botones .btn-primary / .btn-secondary. */
+        .kick-human { width: auto; padding: 0 var(--space-3); border-radius: var(--radius-pill); font-size: 0.82rem; }
+        #playerList.kick-busy .kick-human { display: none; }
+        .player-item.has-poll { flex-wrap: wrap; }
+        .kick-poll {
+            flex: 0 0 100%; min-width: 0; margin-top: var(--space-3); padding: var(--space-3);
+            border-radius: var(--radius-panel); background: var(--accent-soft);
+            box-shadow: inset 0 0 0 1px var(--accent-line); font-size: 0.88rem;
+        }
+        .kick-q { font-weight: 600; color: var(--accent); overflow-wrap: anywhere; }
+        .kick-meta { margin-top: 2px; color: var(--text-muted); font-size: 0.82rem; }
+        .kick-who { margin-top: var(--space-2); padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); font-size: 0.82rem; color: var(--text-muted); }
+        .kick-who li { overflow-wrap: anywhere; }
+        .kick-who li.si { color: var(--accent); }
+        .kick-btns { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+        .kick-btns .btn { flex: 1; margin: 0; padding: 10px; font-size: 0.95rem; }
+        .kick-bar { height: 3px; margin-top: var(--space-2); border-radius: 2px; background: var(--border-strong); overflow: hidden; }
+        .kick-bar i { display: block; height: 100%; width: 100%; background: var(--accent); }
         #quickBotOffer {
             margin: 12px 0;
             padding: 12px;
@@ -1660,6 +1682,7 @@
             /* La ✕ de quitar un bot es diminuta en ratón; con el pulgar hay
                que poder acertarla sin tocar la fila de al lado. */
             .kick-bot { width: 44px; height: 44px; }
+            .kick-human { height: 44px; }
         }
 
         /* Sin puntero un :hover se queda pegado tras tocar: la carta se
@@ -2536,6 +2559,18 @@ function handleMsg(msg) {
             onHello(msg.version);
             break;
 
+        case 'kick_poll':
+            onKickPoll(msg);
+            break;
+
+        case 'kick_poll_ended':
+            onKickPollEnded(msg.nickname, msg.result);
+            break;
+
+        case 'kicked':
+            onKicked();
+            break;
+
         case 'spectator_cards':
             onSpectatorCards(msg);
             break;
@@ -3366,6 +3401,148 @@ function cambiarRol() {
     send({ type: 'set_spectator', spectate: mirar });
 }
 
+// ─── Votación para echar a alguien ────────────────────────────────────────
+// La abre quien lleva más tiempo sentado (botón «Echar» en la fila del otro) y
+// aparece pegada a la fila del votado. El servidor manda `kick_poll` al abrirla
+// y en cada voto; la cuenta atrás se pinta aquí. Los apodos, siempre textContent.
+let kickPoll = null;     // {nickname, initiator, voters, yes, fin}
+let kickResult = null;   // {nickname, texto}: el resultado, unos segundos
+let kickTimer = null;
+
+function onKickPoll(msg) {
+    kickPoll = { nickname: msg.nickname, initiator: msg.initiator, voters: msg.voters, yes: msg.yes,
+                 fin: Date.now() + msg.seconds * 1000, total: Math.max(msg.seconds, 1) * 1000 };
+    kickResult = null;
+    renderKickPoll();
+    clearInterval(kickTimer);
+    kickTimer = setInterval(tickKickPoll, 250);
+}
+
+function tickKickPoll() {
+    if (!kickPoll) { clearInterval(kickTimer); return; }
+    const left = Math.max(0, kickPoll.fin - Date.now());
+    const t = document.querySelector('#playerList .kick-time');
+    if (t) t.textContent = `${Math.ceil(left / 1000)} s`;
+    const bar = document.querySelector('#playerList .kick-bar i');
+    if (bar) bar.style.width = `${Math.min(100, left / kickPoll.total * 100)}%`;
+}
+
+const KICK_TEXTOS = {
+    expulsado: n => `${n} fue expulsado`,
+    rechazado: () => 'Alguien votó No: no se echa a nadie',
+    tiempo: () => 'Sin acuerdo a tiempo: no se echa a nadie',
+    salio: n => `${n} se fue antes de acabar la votación`,
+    cancelada: () => 'Votación cancelada',
+};
+
+function onKickPollEnded(nickname, result) {
+    kickPoll = null;
+    clearInterval(kickTimer);
+    const texto = (KICK_TEXTOS[result] ?? (() => ''))(nickname);
+    if (result === 'expulsado') {
+        agToast({ kind: 'info', message: texto });
+        kickResult = null;
+    } else {
+        kickResult = { nickname, texto };
+        setTimeout(() => { if (kickResult?.texto === texto) { kickResult = null; renderKickPoll(); } }, 4000);
+    }
+    renderKickPoll();
+}
+
+/** Te han echado: de vuelta a la lista de salas, con el aviso. */
+function onKicked() {
+    kickPoll = null;
+    kickResult = null;
+    clearInterval(kickTimer);
+    forgetLobby();
+    isReady = false;
+    soyEspectador = false;
+    aplicarModoEspectador();
+    agToast({ kind: 'warning', title: 'Te echaron de la sala', message: 'Podrás volver a entrar en 5 minutos.', duration: 8000 });
+    openJoinScreen();
+}
+
+/** Pinta la votación (o su resultado) dentro de la fila del votado. Se vuelve a
+ *  llamar al redibujar la lista, que la borra. */
+function renderKickPoll() {
+    const list = document.getElementById('playerList');
+    if (!list) return;
+    list.classList.toggle('kick-busy', !!kickPoll);
+    list.querySelectorAll('.kick-poll').forEach(e => e.remove());
+    list.querySelectorAll('.has-poll').forEach(e => e.classList.remove('has-poll'));
+    const info = kickPoll ?? kickResult;
+    if (!info) return;
+    const li = [...list.children].find(e => e.dataset.nick === info.nickname);
+    if (!li) return;
+    li.classList.add('has-poll');
+    const box = document.createElement('div');
+    box.className = 'kick-poll';
+    const estado = document.createElement('div');       // lo que se anuncia al lector de pantalla
+    estado.setAttribute('role', 'status');
+    const q = document.createElement('p');
+    q.className = 'kick-q';
+    const meta = document.createElement('p');
+    meta.className = 'kick-meta';
+    estado.append(q, meta);
+    box.append(estado);
+
+    if (!kickPoll) {                                    // resultado breve
+        q.textContent = info.texto;
+        li.append(box);
+        return;
+    }
+    const k = kickPoll;
+    const soyElVotado = k.nickname === currentNickname;
+    const puedoVotar = !soyEspectador && k.voters.includes(currentNickname);
+    const yaVote = k.yes.includes(currentNickname);
+    q.textContent = soyElVotado ? `Hay una votación para echarte` : `¿Echar a ${k.nickname}?`;
+    meta.textContent = `${k.yes.length} de ${k.voters.length} a favor · lo abrió ${k.initiator}`;
+
+    const quien = document.createElement('ul');
+    quien.className = 'kick-who';
+    quien.setAttribute('aria-label', 'Votos');
+    for (const v of k.voters) {
+        const e = document.createElement('li');
+        const si = k.yes.includes(v);
+        e.className = si ? 'si' : '';
+        e.textContent = si ? `${v} ✓ Sí` : `${v} …`;
+        quien.append(e);
+    }
+    box.append(quien);
+
+    if (puedoVotar && !yaVote) {
+        const botones = document.createElement('div');
+        botones.className = 'kick-btns';
+        for (const [texto, yes, cls] of [['Sí', true, 'btn-primary'], ['No', false, 'btn-secondary']]) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `btn ${cls}`;
+            b.textContent = texto;
+            b.setAttribute('aria-label', `${yes ? 'Votar sí' : 'Votar no'}: echar a ${k.nickname}`);
+            b.onclick = () => send({ type: 'kick_vote', yes });
+            botones.append(b);
+        }
+        box.append(botones);
+    } else if (soyElVotado) {
+        meta.textContent += ' · tú no votas';
+    } else if (yaVote) {
+        meta.textContent += ' · tu voto: Sí';
+    }
+    // Cuenta atrás visible, fuera del aviso para que no se lea cada segundo.
+    const t = document.createElement('span');
+    t.className = 'kick-time';
+    const cuenta = document.createElement('p');
+    cuenta.className = 'kick-meta';
+    cuenta.setAttribute('aria-hidden', 'true');
+    cuenta.append('Quedan ', t);
+    const bar = document.createElement('div');
+    bar.className = 'kick-bar';
+    bar.append(document.createElement('i'));
+    box.append(cuenta, bar);
+    li.append(box);
+    tickKickPoll();
+}
+
 function onLobbyUpdate(msg) {
     mirones = msg.spectators ?? 0;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
@@ -3443,6 +3620,20 @@ function onLobbyUpdate(msg) {
             estado.textContent = p.is_ready ? '✅ Listo' : '⏳';
             li.append(estado);
         }
+        li.dataset.nick = p.nickname;
+
+        // Echar a una persona: solo lo ve quien lleva más tiempo sentado, y
+        // abre una votación (los bots se quitan con la ✕ de abajo).
+        if (!p.is_bot && p.id !== currentPlayerId && msg.oldest === currentPlayerId
+            && !soyEspectador && msg.status === 'waiting') {
+            const echar = document.createElement('button');
+            echar.type = 'button';
+            echar.className = 'kick-human';
+            echar.textContent = 'Echar';
+            echar.setAttribute('aria-label', `Votar para echar a ${p.nickname}`);
+            echar.onclick = () => send({ type: 'start_kick', target: p.id });
+            li.append(echar);
+        }
 
         // A los bots se les puede echar; a las personas no desde aquí.
         if (p.is_bot) {
@@ -3457,6 +3648,7 @@ function onLobbyUpdate(msg) {
         list.appendChild(li);
     });
     if (teniaFoco) readyBtnEl.focus({ preventScroll: true });
+    renderKickPoll();
     // Los nombres del chat toman el color del rango que acaba de llegar.
     retintarChat();
     // Solo tiene sentido ofrecer bots mientras quepa alguien más.
