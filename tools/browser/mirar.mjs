@@ -30,6 +30,7 @@ const pintadas = (p, sel) => p.locator(`${sel} > *`).evaluateAll(es => es.map(e 
 const mismas = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // ── Ana abre la sala, Beto entra, Caro se queda en «Unirse» ─────────────────
+// (la lista pinta UNA fila por sala con su etiqueta: «en espera», «empezando» o «jugando»)
 const ctxA = await browser.newContext({ viewport: { width: 1100, height: 900 } });
 const A = await pagina(ctxA);
 await A.getByPlaceholder(/Jugador1/).fill('Ana');
@@ -44,19 +45,21 @@ const S = await pestana('Caro', `${base}/lobby.html`);
 await S.evaluate(() => openJoinScreen());
 await S.locator('.lobby-row', { hasText: codigo }).waitFor({ timeout: 5000 });
 // (Solo nuestra sala: en un servidor compartido puede haber otras partidas en curso.)
-ok((await S.locator('.lobby-row.en-curso', { hasText: codigo }).count()) === 0, 'con la sala en espera, la lista la enseña para jugar (no en curso)');
-ok(/Para jugar/.test(await S.locator('#lobbyList').textContent()) && /Partidas en curso/.test(await S.locator('#lobbyList').textContent()),
-   'la lista tiene las dos secciones: «Para jugar» y «Partidas en curso»');
+const fila = S.locator('.lobby-row', { hasText: codigo });
+{
+  const t = await fila.textContent();
+  ok(/en espera/.test(t) && /2\/4/.test(t) && /Entrarás a jugar/.test(t) && (await fila.locator('.lr-tag.waiting').count()) === 1,
+     `con la sala en espera: etiqueta «en espera», 2/4 y «Entrarás a jugar» (${t})`);
+}
 
 // ── Empieza la partida: la lista de Caro se refresca sola ──────────────────
 await A.locator('#readyBtn').click();
 await B.locator('#readyBtn').click();
 await A.locator('#gameScreen.active').waitFor({ timeout: 12000 });
 await B.locator('#gameScreen.active').waitFor({ timeout: 12000 });
-const fila = S.locator('.lobby-row.en-curso', { hasText: codigo });
-await fila.waitFor({ timeout: 9000 });   // el refresco es cada 4 s
+await fila.locator('.lr-tag.playing').waitFor({ timeout: 9000 });   // el refresco es cada 2 s
 const textoFila = await fila.textContent();
-ok(/En partida/.test(textoFila) && /2 jugadores/.test(textoFila) && /Mirar/.test(textoFila), `sin pulsar nada, la partida pasa a «En partida · 2 jugadores · Mirar» (${textoFila})`);
+ok(/jugando/.test(textoFila) && /2\/4/.test(textoFila) && /Entrarás a mirar/.test(textoFila), `sin pulsar nada, la partida pasa a «jugando · 2/4 · Entrarás a mirar» (${textoFila})`);
 await S.screenshot({ path: path.join(capturas, 'lista.png') });
 
 // ── Caro la mira ───────────────────────────────────────────────────────────
@@ -64,6 +67,17 @@ await fila.click();
 await S.locator('#gameScreen.espectador').waitFor({ timeout: 8000 });
 await S.locator('#specCards .card').first().waitFor({ timeout: 5000 });
 ok(await S.locator('#espectadorBanda').textContent().then(t => /estás mirando/.test(t) && /Salir de la sala/.test(t)), 'la banda dice «estás mirando» y tiene «Salir de la sala»');
+{
+  // Llegó con la partida en marcha: en cola. El botón alterna esperar plaza para la próxima.
+  const bt = S.locator('#rolPartidaBtn');
+  ok(/Jugarás la próxima/.test(await bt.textContent()) && await bt.getAttribute('aria-pressed') === 'true', 'y «Jugar la próxima» ya está marcado (cola): «✓ Jugarás la próxima»');
+  await bt.click();
+  await S.waitForFunction(() => document.getElementById('rolPartidaBtn').getAttribute('aria-pressed') === 'false', null, { timeout: 3000 });
+  ok(/^Jugar la próxima/.test(await bt.textContent()), 'al pulsarlo sale de la cola: «Jugar la próxima»');
+  await bt.click();
+  await S.waitForFunction(() => document.getElementById('rolPartidaBtn').getAttribute('aria-pressed') === 'true', null, { timeout: 3000 });
+  ok(true, 'y al pulsarlo otra vez vuelve a la cola');
+}
 const botones = await S.locator('.spec-seat').evaluateAll(es => es.map(e => e.textContent));
 ok(JSON.stringify(botones) === JSON.stringify(['Ana', 'Beto', 'Todos']), `«mirando desde»: ${botones.join(' · ')}`);
 ok((await S.locator('#yourCards').isHidden()) && (await S.locator('#setNav').isHidden()), 'y no tiene mano ni botones de set propios');
@@ -116,7 +130,7 @@ await S.setViewportSize({ width: 1100, height: 900 });
 {
   const D = await pestana('Dani', `${base}/lobby.html?join=${codigo}`);
   await D.locator('#gameScreen.espectador').waitFor({ timeout: 8000 });
-  await D.locator('#espectadorBanda button').click();
+  await D.locator('#espectadorBanda').getByRole('button', { name: 'Salir de la sala' }).click();
   await D.locator('#homeScreen.active').waitFor({ timeout: 4000 });
   ok(true, '«Salir de la sala» devuelve a quien mira al inicio');
   await D.context().close();

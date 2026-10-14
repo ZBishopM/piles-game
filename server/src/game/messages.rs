@@ -53,6 +53,15 @@ pub enum ClientMessage {
         seat_token: Option<String>,
         #[serde(default)]
         taunt: Option<String>,
+        /// Entrar a mirar aunque haya sitio. Una pestaña vieja no lo manda: entra a
+        /// jugar si hay hueco, como siempre.
+        #[serde(default)]
+        spectate: bool,
+    },
+    /// Cambiar de rol dentro de la sala: `true` = pasar a espectador, `false` =
+    /// quiero jugar (se sienta ya si hay hueco; si no, espera plaza).
+    SetSpectator {
+        spectate: bool,
     },
     /// Irse de la sala de verdad. Quien solo cambia de pantalla se queda
     /// sentado: la sala sigue listada y su apodo, ocupado.
@@ -182,6 +191,9 @@ pub enum ServerMessage {
         /// `"waiting"` o `"playing"`. Quien mira (en partida, o esperando hueco
         /// en la sala) lo necesita para saber en qué pantalla está la sala.
         status: String,
+        /// Ids de quienes miran y se sentarán solos en cuanto haya hueco (los que
+        /// miran por gusto no salen). El botón de rol del cliente lo lee.
+        queue: Vec<String>,
     },
     /// Las cartas de la partida (id → prenda y nombre), una vez al entrar a
     /// mirar y al arrancar una partida a quien esperaba hueco. Con esto basta
@@ -552,6 +564,7 @@ mod tests {
             spectators: 0,
             pool: crate::elo::Pool::Fun,
             status: "waiting".to_string(),
+            queue: vec![],
         };
         let j = serde_json::to_value(&msg).unwrap();
         assert_eq!(j["type"], "lobby_update");
@@ -562,7 +575,7 @@ mod tests {
         assert!(j["players"][2]["elo"].is_null(), "sin clave de Elo no hay chip");
         let glory = serde_json::to_value(&ServerMessage::LobbyUpdate {
             players: vec![], ready_count: 0, max_players: 4, spectators: 0, pool: crate::elo::Pool::Glory,
-            status: "playing".to_string(),
+            status: "playing".to_string(), queue: vec![],
         }).unwrap();
         assert_eq!(glory["pool"], "glory");
     }
@@ -573,7 +586,9 @@ mod tests {
         let j = serde_json::to_value(&ServerMessage::LobbyList { lobbies: vec![
             LobbyInfo { id: "AB12CD".into(), player_count: 3, max_players: 4, status: "playing".into(), spectators: 1 },
             LobbyInfo { id: "ZZ99XX".into(), player_count: 1, max_players: 4, status: "waiting".into(), spectators: 0 },
+            LobbyInfo { id: "QQ11WW".into(), player_count: 2, max_players: 4, status: "starting".into(), spectators: 0 },
         ] }).unwrap();
+        assert_eq!(j["lobbies"][2]["status"], "starting");
         assert_eq!(j["lobbies"][0]["status"], "playing");
         assert_eq!(j["lobbies"][0]["spectators"], 1);
         assert_eq!(j["lobbies"][1]["status"], "waiting");
@@ -608,7 +623,16 @@ mod tests {
         let v: ClientMessage = serde_json::from_str(r#"{"type":"quick_match","nickname":"A"}"#).unwrap();
         assert!(matches!(v, ClientMessage::QuickMatch { taunt: None, .. }));
         let n: ClientMessage = serde_json::from_str(r#"{"type":"join_lobby","lobby_id":"L","nickname":"A","taunt":"honk"}"#).unwrap();
-        assert!(matches!(n, ClientMessage::JoinLobby { taunt: Some(t), .. } if t == "honk"));
+        assert!(matches!(n, ClientMessage::JoinLobby { taunt: Some(t), spectate: false, .. } if t == "honk"));
+    }
+
+    // Los mensajes del rol: una pestaña vieja no manda `spectate` al unirse.
+    #[test]
+    fn the_role_messages_parse() {
+        let m: ClientMessage = serde_json::from_str(r#"{"type":"join_lobby","lobby_id":"L","nickname":"A","spectate":true}"#).unwrap();
+        assert!(matches!(m, ClientMessage::JoinLobby { spectate: true, .. }));
+        let s: ClientMessage = serde_json::from_str(r#"{"type":"set_spectator","spectate":false}"#).unwrap();
+        assert!(matches!(s, ClientMessage::SetSpectator { spectate: false }));
     }
 }
 

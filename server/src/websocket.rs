@@ -614,18 +614,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let _ = tx.send(ServerMessage::Hello { version: crate::debug::version().to_string() });
 
     // Enviar mensaje de bienvenida
-    let welcome_msg = ServerMessage::LobbyList {
-        lobbies: state.lobby_manager.list_available_lobbies().await
-            .into_iter()
-            .map(|l| LobbyInfo {
-                status: l.status_name().to_string(),
-                spectators: l.spectators.len(),
-                id: l.id,
-                player_count: l.players.len(),
-                max_players: l.max_players,
-            })
-            .collect(),
-    };
+    let welcome_msg = lobby_list_msg(&state).await;
     let _ = tx.send(welcome_msg);
 
     // Loop principal de mensajes del cliente.
@@ -786,15 +775,21 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     };
 
     if lobby.players.is_empty() {
-        if voluntary {
+        let mirones = !lobby.spectators.is_empty();
+        if voluntary && !mirones {
             // Se fue la última persona a propósito: la sala deja de existir.
             state.lobby_manager.remove_lobby(lobby_id).await;
             tracing::info!("🚪 sala {} cerrada: se fue la última persona", lobby_id);
         } else {
             // Se queda en `Waiting` a propósito (ver `remove_player`) para que
-            // quien se cayó pueda volver a su misma sala.
+            // quien se cayó pueda volver a su misma sala; y con quien miraba por
+            // gusto dentro, que se entera de que la mesa quedó vacía.
             lobby.countdown = None;
+            let update = lobby_update_msg(state, &lobby);
             lobby.commit().await;
+            if mirones {
+                state.broadcast_to_lobby(lobby_id, update).await;
+            }
         }
         state.take_intents.write().await.remove(lobby_id);
         return;
@@ -891,7 +886,8 @@ async fn check_desync(state: &AppState, player_id: Uuid, lobby_id: &str, detail:
 /// vacía SIN bots se sigue guardando un rato para volver con el código.
 async fn retire_orphan_bots(state: &AppState, lobby_id: &str) {
     let Some(lobby) = state.lobby_manager.get_lobby(lobby_id).await else { return };
-    if lobby.players.is_empty() || lobby.players.iter().any(|p| !p.is_bot) {
+    // Quien mira por gusto sigue dentro: puede sentarse con ellos.
+    if lobby.players.is_empty() || lobby.players.iter().any(|p| !p.is_bot) || !lobby.spectators.is_empty() {
         return;
     }
     let bots: Vec<Uuid> = lobby.players.iter().map(|p| p.id).collect();
@@ -976,7 +972,7 @@ pub(crate) async fn handle_client_message(
     if !matches!(msg, ClientMessage::Ping { .. } | ClientMessage::ListLobbies
         | ClientMessage::LeaveLobby | ClientMessage::CreateLobby { .. }
         | ClientMessage::QuickMatch { .. } | ClientMessage::JoinLobby { .. }
-        | ClientMessage::Chat { .. })
+        | ClientMessage::Chat { .. } | ClientMessage::SetSpectator { .. })
     {
         if let Some(id) = current_lobby.as_deref() {
             if state.lobby_manager.get_lobby(id).await
@@ -1056,7 +1052,7 @@ pub(crate) async fn handle_client_message(
             }
         }
 
-        ClientMessage::JoinLobby { lobby_id, nickname, rating_key, seat_token, taunt } => {
+        ClientMessage::JoinLobby { lobby_id, nickname, rating_key, seat_token, taunt, spectate } => {
             // Ya está sentado en esa sala con esta misma conexión (doble toque
             // en "Unirse", o un cliente que "salió" solo en pantalla): no hay
             // nada que hacer, solo confirmar. Antes chocaba con su propio apodo.
@@ -1177,7 +1173,7 @@ pub(crate) async fn handle_client_message(
                 state.connections.read().await.keys().copied().collect();
             let quien = nickname.clone();
             let con_secreto = seat_token.is_some();
-            match state.lobby_manager.join_lobby(&lobby_id, player_id, nickname, &live).await {
+            match state.lobby_manager.join_lobby_as(&lobby_id, player_id, nickname, &live, spectate).await {
                 Ok((lobby, mirando)) => {
                     *current_lobby = Some(lobby_id.clone());
                     remember_rating_key(state, &lobby_id, player_id, rating_key).await;
@@ -1253,16 +1249,29 @@ pub(crate) async fn handle_client_message(
         }
 
         ClientMessage::ListLobbies => {
-            let lobbies = state.lobby_manager.list_available_lobbies().await;
-            let lobby_infos: Vec<LobbyInfo> = lobbies.into_iter().map(|l| LobbyInfo {
-                status: l.status_name().to_string(),
-                spectators: l.spectators.len(),
-                id: l.id,
-                player_count: l.players.len(),
-                max_players: l.max_players,
-            }).collect();
+            state.send_to_player(&player_id, lobby_list_msg(state).await).await;
+        }
 
-            state.send_to_player(&player_id, ServerMessage::LobbyList { lobbies: lobby_infos }).await;
+        ClientMessage::SetSpectator { spectate } => {
+            let Some(lobby_id) = current_lobby.clone() else { return };
+            let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
+            match lobby.set_spectator(&player_id, spectate) {
+                Ok(false) => {}
+                Ok(true) => {
+                    let update = lobby_update_msg(state, &lobby);
+                    let cuenta = lobby.countdown_sync();
+                    lobby.commit().await;
+                    // Quien se sienta (él, o quien esperaba el asiento que deja)
+                    // estrena secreto; el que se va a mirar ya no tiene.
+                    send_seat_tokens(state, &lobby_id).await;
+                    state.broadcast_to_lobby(&lobby_id, update).await;
+                    countdown_notify(state, &lobby_id, cuenta, if spectate { "left" } else { "joined" }).await;
+                    retire_orphan_bots(state, &lobby_id).await;
+                }
+                Err(e) => {
+                    state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+                }
+            }
         }
 
         ClientMessage::SetReady { ready } => {
@@ -3159,6 +3168,23 @@ fn lobby_update_msg(state: &AppState, lobby: &crate::game::Lobby) -> ServerMessa
         spectators: lobby.spectators.len(),
         pool,
         status: lobby.status_name().to_string(),
+        queue: lobby.spectators.iter().filter(|s| s.want_seat).map(|s| s.id.to_string()).collect(),
+    }
+}
+
+/// La lista pública de salas, tal como se manda al conectar y al pedirla.
+async fn lobby_list_msg(state: &AppState) -> ServerMessage {
+    ServerMessage::LobbyList {
+        lobbies: state.lobby_manager.list_available_lobbies().await
+            .into_iter()
+            .map(|l| LobbyInfo {
+                status: l.status_name().to_string(),
+                spectators: l.spectators.len(),
+                id: l.id,
+                player_count: l.players.len(),
+                max_players: l.max_players,
+            })
+            .collect(),
     }
 }
 

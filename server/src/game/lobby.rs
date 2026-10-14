@@ -91,6 +91,11 @@ pub struct LobbyPlayer {
     /// reintentos chocaban con "Ya hay alguien llamado…". `None` en los
     /// mirones, que no tienen asiento que recuperar.
     pub seat_token: Option<String>,
+    /// Solo mirones: se sentará solo en cuanto haya hueco. `true` en quien llegó
+    /// con la sala llena o la partida en marcha (esperan plaza); `false` en quien
+    /// miró por gusto o se pasó a espectador desde la mesa: ese no se sienta
+    /// hasta que lo pida (`Lobby::set_spectator`).
+    pub want_seat: bool,
 }
 
 /// 128 bits aleatorios en hexadecimal.
@@ -286,7 +291,15 @@ impl Lobby {
     /// juego ya ha comenzado" y te quedabas fuera mirando una pantalla de
     /// error. Ahora entras igual, sin jugar. Que un espectador le sople cartas
     /// a alguien es un riesgo asumido: esto es para jugar entre amigos.
+    #[cfg(test)]
     pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<bool, String> {
+        self.add_player_as(player_id, nickname, false)
+    }
+
+    /// Como `add_player`, pudiendo pedir entrar **mirando** (`spectate`). Con la
+    /// partida en marcha, o con la mesa llena, se entra mirando igual y esperando
+    /// plaza (`want_seat`); mirar por gusto no cancela una cuenta atrás.
+    pub fn add_player_as(&mut self, player_id: Uuid, nickname: String, spectate: bool) -> Result<bool, String> {
         if self.players.iter().chain(&self.spectators).any(|p| p.nickname == nickname) {
             return Err(format!("Ya hay alguien llamado «{nickname}» en esta sala. Cambia tu nombre en el inicio y vuelve a intentarlo."));
         }
@@ -302,17 +315,19 @@ impl Lobby {
             rating_key: None,
             taunt: None,
             seat_token: None,
+            want_seat: false,
         };
 
-        // Con partida en curso —o sin sitio en la mesa— se entra a mirar.
-        if self.status == LobbyStatus::Playing {
+        // Con partida en curso —o sin sitio en la mesa— se entra a mirar, y se
+        // espera plaza; si se pidió mirar, se mira por gusto.
+        let en_partida = self.status == LobbyStatus::Playing;
+        let llena = self.players.len() >= self.max_players as usize;
+        if en_partida || llena || spectate {
+            let mut nuevo = nuevo;
+            nuevo.want_seat = en_partida || !spectate;
             self.spectators.push(nuevo);
             self.empty_since = None;
             return Ok(true);
-        }
-
-        if self.players.len() >= self.max_players as usize {
-            return Err("Lobby lleno".to_string());
         }
 
         let mut nuevo = nuevo;
@@ -346,7 +361,7 @@ impl Lobby {
         let mut sentados = Vec::new();
         let mut siguen = Vec::new();
         for mut s in std::mem::take(&mut self.spectators) {
-            if self.players.len() < self.max_players as usize {
+            if s.want_seat && self.players.len() < self.max_players as usize {
                 // Ahora tiene asiento, y con él su secreto. Quien llama se lo
                 // manda (`send_seat_tokens`): el mirón no tenía ninguno.
                 s.seat_token = Some(new_seat_token());
@@ -366,11 +381,68 @@ impl Lobby {
         sentados
     }
 
-    /// `"playing"` si la partida está en marcha; `"waiting"` en cualquier otro
-    /// caso (en espera, o todos listos a punto de empezar). Es lo que viaja en
-    /// `LobbyInfo` y en `LobbyUpdate`.
+    /// `"playing"` con la partida en marcha, `"starting"` con la cuenta atrás
+    /// abierta (todos listos) y `"waiting"` en cualquier otro caso. Es lo que
+    /// viaja en `LobbyInfo` y en `LobbyUpdate`.
     pub fn status_name(&self) -> &'static str {
-        if self.status == LobbyStatus::Playing { "playing" } else { "waiting" }
+        match self.status {
+            LobbyStatus::Playing => "playing",
+            LobbyStatus::Ready => "starting",
+            LobbyStatus::Waiting => "waiting",
+        }
+    }
+
+    /// Cambia de rol a `player_id`: `spectate = true` lo pasa a espectador
+    /// voluntario (fuera de partida; no se sienta solo), `false` lo sienta ya si
+    /// hay hueco o lo deja esperando plaza. Devuelve si algo cambió (pedir lo que
+    /// ya eres no hace nada). Quien llama, tras soltar la transacción, manda
+    /// `send_seat_tokens`, `countdown_sync` y `lobby_update`.
+    ///
+    /// Un jugador que se va a mirar libera su asiento: si hay quien espera plaza,
+    /// se sienta (`promote_spectators`). No reabre una cuenta atrás cancelada.
+    pub fn set_spectator(&mut self, player_id: &Uuid, spectate: bool) -> Result<bool, String> {
+        if let Some(pos) = self.spectators.iter().position(|s| s.id == *player_id) {
+            if spectate {
+                // Salir de la cola: se queda mirando por gusto.
+                let s = &mut self.spectators[pos];
+                return Ok(std::mem::replace(&mut s.want_seat, false));
+            }
+            if self.status != LobbyStatus::Playing && self.players.len() < self.max_players as usize {
+                let mut s = self.spectators.remove(pos);
+                s.seat_token = Some(new_seat_token());
+                s.is_ready = false;
+                s.want_seat = false;
+                self.players.push(s);
+                self.empty_since = None;
+                // Entra uno sin listo: la cuenta atrás, si había, se corta.
+                if self.status == LobbyStatus::Ready {
+                    self.status = LobbyStatus::Waiting;
+                }
+                return Ok(true);
+            }
+            let s = &mut self.spectators[pos];
+            return Ok(!std::mem::replace(&mut s.want_seat, true));
+        }
+
+        let pos = self.players.iter().position(|p| p.id == *player_id)
+            .ok_or("Jugador no encontrado")?;
+        if !spectate {
+            return Ok(false);
+        }
+        if self.status == LobbyStatus::Playing {
+            return Err("No puedes pasarte a espectador con la partida en marcha".to_string());
+        }
+        let mut p = self.players.remove(pos);
+        p.is_ready = false;
+        p.seat_token = None;
+        p.want_seat = false;
+        self.spectators.push(p);
+        if self.status == LobbyStatus::Ready {
+            self.status = LobbyStatus::Waiting;
+        }
+        // Su asiento es para quien esperaba plaza.
+        self.promote_spectators();
+        Ok(true)
     }
 
     /// Marca un jugador como listo
@@ -403,7 +475,12 @@ impl Lobby {
         // Un espectador sale sin más: no tiene cartas, no cuenta para nada y
         // nadie le está esperando.
         if let Some(pos) = self.spectators.iter().position(|s| s.id == *player_id) {
-            return Some(self.spectators.remove(pos).nickname);
+            let nickname = self.spectators.remove(pos).nickname;
+            // Una sala que solo tenía a quien miraba por gusto queda vacía.
+            if self.players.is_empty() && self.spectators.is_empty() {
+                self.empty_since = Some(Instant::now());
+            }
+            return Some(nickname);
         }
 
         let pos = self.players.iter().position(|p| p.id == *player_id)?;
@@ -421,7 +498,10 @@ impl Lobby {
         if self.players.is_empty() {
             self.status = LobbyStatus::Waiting;
             self.game_state = None;
-            self.empty_since = Some(Instant::now());
+            // Con alguien mirando por gusto dentro, la sala no está vacía.
+            if self.spectators.is_empty() {
+                self.empty_since = Some(Instant::now());
+            }
         } else if self.status == LobbyStatus::Ready {
             // Revalidar: si alguien se fue, volver a Waiting
             self.status = LobbyStatus::Waiting;
@@ -785,6 +865,18 @@ impl LobbyManager {
         nickname: String,
         live: &HashSet<Uuid>,
     ) -> Result<(Lobby, bool), String> {
+        self.join_lobby_as(lobby_id, player_id, nickname, live, false).await
+    }
+
+    /// Como `join_lobby`, pudiendo pedir entrar mirando (`Lobby::add_player_as`).
+    pub async fn join_lobby_as(
+        &self,
+        lobby_id: &str,
+        player_id: Uuid,
+        nickname: String,
+        live: &HashSet<Uuid>,
+        spectate: bool,
+    ) -> Result<(Lobby, bool), String> {
         let _guard = self.txn_guard(lobby_id).await;
         let mut lobbies = self.lobbies.write().await;
         let lobby = lobbies.get_mut(lobby_id)
@@ -804,7 +896,7 @@ impl LobbyManager {
             }
         }
 
-        let mirando = lobby.add_player(player_id, nickname)?;
+        let mirando = lobby.add_player_as(player_id, nickname, spectate)?;
         Ok((lobby.clone(), mirando))
     }
 
@@ -813,20 +905,16 @@ impl LobbyManager {
         self.lobbies.read().await.values().cloned().collect()
     }
 
-    /// Salas que enseña la lista pública, marcadas como públicas y con alguien
-    /// dentro:
-    /// - **en espera y no llenas**: para entrar a jugar;
-    /// - **en partida**: para entrar a mirar (`add_player` ya mete en
-    ///   `spectators` con la partida en marcha).
+    /// Salas que enseña la lista pública: todas las marcadas como públicas y con
+    /// alguien sentado, en cualquier estado (en espera, empezando o jugando). A
+    /// las que no tienen hueco o ya juegan se entra a mirar (`add_player_as`).
     ///
     /// Las privadas y las vacías existen igual (una vacía se guarda para que
     /// quien se cayó vuelva), solo que hay que saber su código.
     pub async fn list_available_lobbies(&self) -> Vec<Lobby> {
         let lobbies = self.lobbies.read().await;
         lobbies.values()
-            .filter(|l| l.is_public && !l.players.is_empty()
-                && (l.status == LobbyStatus::Playing
-                    || (l.status == LobbyStatus::Waiting && !l.is_full())))
+            .filter(|l| l.is_public && !l.players.is_empty())
             .cloned()
             .collect()
     }
@@ -1143,7 +1231,7 @@ mod tests {
         lobby.status = LobbyStatus::Waiting;
         assert_eq!(lobby.status_name(), "waiting");
         lobby.status = LobbyStatus::Ready;
-        assert_eq!(lobby.status_name(), "waiting", "todos listos todavía no es una partida");
+        assert_eq!(lobby.status_name(), "starting", "todos listos: la cuenta atrás está abierta");
     }
 
     // La lista de «Unirse» enseña las salas públicas en partida (para mirarlas)
@@ -1158,11 +1246,16 @@ mod tests {
             v
         };
         let (espera, en_curso, privada, llena, vacia) = (&ids[0], &ids[1], &ids[2], &ids[3], &ids[4]);
+        let empezando = &manager.create_lobby(2, true).await;
         manager.join_lobby(espera, Uuid::new_v4(), "Ana".into(), &no_one).await.unwrap();
-        for id in [en_curso, privada, llena] {
+        for id in [en_curso, privada, llena, empezando] {
             manager.join_lobby(id, Uuid::new_v4(), "A".into(), &no_one).await.unwrap();
             manager.join_lobby(id, Uuid::new_v4(), "B".into(), &no_one).await.unwrap();
         }
+        manager.mutate(empezando, |l| {
+            for p in l.players.iter_mut() { p.is_ready = true; }
+            l.status = LobbyStatus::Ready;
+        }).await.unwrap();
         // `llena` sigue en espera pero sin sitio; `en_curso` y `privada` arrancan.
         for id in [en_curso, privada] {
             manager.mutate(id, |l| {
@@ -1178,9 +1271,138 @@ mod tests {
         assert!(en(espera), "una sala en espera con sitio sale, como siempre");
         assert!(en(en_curso), "una partida pública en curso sale, para mirarla");
         assert!(!en(privada), "una partida privada no sale: solo con código");
-        assert!(!en(llena), "una sala en espera llena no sale");
+        assert!(en(llena), "una sala en espera llena sale: se entra a mirar");
+        assert!(en(empezando), "con la cuenta atrás abierta también sale");
         assert!(!en(vacia), "una sala vacía no sale");
-        assert_eq!(lista.iter().find(|l| &l.id == en_curso).unwrap().status_name(), "playing");
+        let estado = |id: &String| lista.iter().find(|l| &l.id == id).unwrap().status_name();
+        assert_eq!(estado(en_curso), "playing");
+        assert_eq!(estado(empezando), "starting");
+        assert_eq!(estado(espera), "waiting");
+        assert_eq!(estado(llena), "waiting");
+    }
+
+    /// Dos sentados (Ana, Beto) en una sala de `max` plazas.
+    fn mesa(max: u8) -> (Lobby, Uuid, Uuid) {
+        let mut lobby = Lobby::new("TEST123".to_string(), max);
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        lobby.add_player(a, "Ana".to_string()).unwrap();
+        lobby.add_player(b, "Beto".to_string()).unwrap();
+        (lobby, a, b)
+    }
+
+    #[test]
+    fn asking_to_spectate_with_room_left_watches_without_cutting_the_countdown() {
+        let (mut lobby, a, b) = mesa(4);
+        lobby.set_player_ready(&a, true).unwrap();
+        lobby.set_player_ready(&b, true).unwrap();
+        assert_eq!(lobby.status, LobbyStatus::Ready);
+
+        let c = Uuid::new_v4();
+        assert_eq!(lobby.add_player_as(c, "Caro".into(), true), Ok(true));
+        assert!(lobby.is_spectator(&c));
+        assert!(!lobby.spectators[0].want_seat, "mira por gusto: no espera plaza");
+        assert_eq!(lobby.status, LobbyStatus::Ready, "mirar no corta la cuenta atrás");
+        // En cambio, entrar a jugar sí la corta.
+        assert_eq!(lobby.add_player_as(Uuid::new_v4(), "Dani".into(), false), Ok(false));
+        assert_eq!(lobby.status, LobbyStatus::Waiting);
+    }
+
+    #[test]
+    fn joining_a_full_room_queues_you_instead_of_failing() {
+        let (mut lobby, _, _) = mesa(2);
+        let c = Uuid::new_v4();
+        assert_eq!(lobby.add_player_as(c, "Caro".into(), false), Ok(true));
+        assert!(lobby.spectators[0].want_seat, "en cola");
+        // Y con partida en marcha, también en cola aunque pida mirar.
+        let (mut en_juego, _, _) = playing_lobby();
+        assert_eq!(en_juego.add_player_as(Uuid::new_v4(), "Caro".into(), true), Ok(true));
+        assert!(en_juego.spectators[0].want_seat);
+    }
+
+    #[test]
+    fn a_player_can_step_aside_and_a_volunteer_does_not_sit_alone() {
+        let (mut lobby, a, b) = mesa(2);
+        lobby.set_player_ready(&a, true).unwrap();
+        lobby.set_player_ready(&b, true).unwrap();
+        assert_eq!(lobby.status, LobbyStatus::Ready);
+
+        assert_eq!(lobby.set_spectator(&a, true), Ok(true));
+        assert!(lobby.is_spectator(&a) && lobby.players.len() == 1);
+        let ana = &lobby.spectators[0];
+        assert!(ana.seat_token.is_none() && !ana.is_ready && !ana.want_seat);
+        assert_eq!(lobby.status, LobbyStatus::Waiting, "se corta la cuenta atrás");
+        assert_eq!(lobby.countdown_sync(), CountdownChange::None, "y no se reabre sola");
+        assert_eq!(lobby.set_player_ready(&b, true).map(|_| lobby.status.clone()), Ok(LobbyStatus::Waiting));
+
+        // Hay hueco y es voluntaria: no se sienta sola, ni al acabar una partida.
+        assert!(lobby.promote_spectators().is_empty());
+        assert_eq!(lobby.set_spectator(&a, true), Ok(false), "idempotente");
+
+        // Pide jugar: hay hueco, se sienta ya con secreto nuevo y sin listo.
+        assert_eq!(lobby.set_spectator(&a, false), Ok(true));
+        let ana = lobby.players.iter().find(|p| p.id == a).unwrap();
+        assert!(ana.seat_token.is_some() && !ana.is_ready);
+        assert_eq!(lobby.set_spectator(&a, false), Ok(false), "idempotente");
+        assert_eq!(lobby.set_spectator(&Uuid::new_v4(), true), Err("Jugador no encontrado".into()));
+    }
+
+    #[test]
+    fn leaving_the_table_gives_the_seat_to_the_queue_but_not_to_other_volunteers() {
+        let (mut lobby, a, b) = mesa(2);
+        let (cola, mirón) = (Uuid::new_v4(), Uuid::new_v4());
+        lobby.add_player_as(mirón, "Mirón".into(), true).unwrap();
+        lobby.add_player_as(cola, "Cola".into(), false).unwrap();   // llena: en cola
+        assert!(lobby.is_spectator(&cola));
+
+        lobby.set_spectator(&a, true).unwrap();
+        assert!(!lobby.is_spectator(&cola), "el hueco es de quien esperaba");
+        assert!(lobby.is_spectator(&mirón) && lobby.is_spectator(&a));
+        assert!(lobby.players.iter().any(|p| p.id == b));
+    }
+
+    #[test]
+    fn a_spectator_asking_to_play_without_room_queues_and_can_leave_the_queue() {
+        // Sin hueco.
+        let (mut lobby, _, _) = mesa(2);
+        let c = Uuid::new_v4();
+        lobby.add_player_as(c, "Caro".into(), true).unwrap();
+        assert!(!lobby.spectators[0].want_seat);
+        assert_eq!(lobby.set_spectator(&c, false), Ok(true));
+        assert!(lobby.is_spectator(&c) && lobby.spectators[0].want_seat, "en cola");
+        assert_eq!(lobby.set_spectator(&c, false), Ok(false), "idempotente");
+        assert_eq!(lobby.set_spectator(&c, true), Ok(true), "sale de la cola");
+        assert!(!lobby.spectators[0].want_seat);
+
+        // Con partida en marcha, hay hueco pero no se sienta: espera a la próxima.
+        let (mut en_juego, _, _) = playing_lobby();
+        let d = Uuid::new_v4();
+        en_juego.add_player_as(d, "Dani".into(), true).unwrap();
+        en_juego.spectators[0].want_seat = false;
+        assert_eq!(en_juego.set_spectator(&d, false), Ok(true));
+        assert!(en_juego.is_spectator(&d) && en_juego.spectators[0].want_seat);
+        en_juego.status = LobbyStatus::Waiting;
+        assert_eq!(en_juego.promote_spectators(), vec![d], "al acabar la partida, se sienta");
+    }
+
+    #[test]
+    fn a_player_cannot_become_a_spectator_during_a_match() {
+        let (mut lobby, a, _) = playing_lobby();
+        assert!(lobby.set_spectator(&a, true).is_err());
+        assert_eq!(lobby.players.len(), 2);
+        assert_eq!(lobby.game_state.as_ref().unwrap().players.len(), 2);
+        assert_eq!(lobby.set_spectator(&a, false), Ok(false), "sentado ya, pedir jugar no hace nada");
+    }
+
+    #[test]
+    fn the_last_player_stepping_aside_leaves_a_room_with_a_watcher_not_an_empty_one() {
+        let mut lobby = Lobby::new("TEST123".to_string(), 4);
+        let a = Uuid::new_v4();
+        lobby.add_player(a, "Ana".to_string()).unwrap();
+        lobby.set_spectator(&a, true).unwrap();
+        assert!(lobby.players.is_empty() && lobby.empty_since.is_none());
+        // Y al irse ella, la sala sí queda vacía.
+        lobby.remove_player(&a);
+        assert!(lobby.empty_since.is_some());
     }
 
     // Salir mirando no es abandonar: no hay cartas que retirar ni a quien
@@ -1483,8 +1705,10 @@ mod tests {
 
         assert!(lobby.is_full());
 
+        // Ya no es un error: el tercero entra mirando, en cola.
         let result = lobby.add_player(Uuid::new_v4(), "Player3".to_string());
-        assert!(result.is_err());
+        assert_eq!(result, Ok(true));
+        assert!(lobby.is_full());
     }
 
     #[test]
