@@ -1,6 +1,57 @@
 use serde::{Deserialize, Serialize};
 use super::models::Card;
 
+/// Un fallo que se le cuenta a una persona.
+///
+/// `text` es el texto en español de siempre: respaldo para una pestaña vieja que
+/// no conoce el `code`, y lo que queda en los registros. `code` es lo que
+/// traduce el cliente (`err.<code>` en `client/i18n.js`) y `args` los datos que
+/// ese texto lleva (segundos, apodos), para que el cliente nunca tenga que
+/// analizar la frase.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fail {
+    pub code: &'static str,
+    pub text: String,
+    pub args: Option<serde_json::Value>,
+}
+
+impl Fail {
+    pub fn new(code: &'static str, text: impl Into<String>) -> Self {
+        Self { code, text: text.into(), args: None }
+    }
+
+    pub fn with(mut self, args: serde_json::Value) -> Self {
+        self.args = Some(args);
+        self
+    }
+}
+
+impl std::fmt::Display for Fail {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+impl From<Fail> for ServerMessage {
+    fn from(f: Fail) -> Self {
+        ServerMessage::Error { message: f.text, code: Some(f.code.to_string()), args: f.args }
+    }
+}
+
+impl ServerMessage {
+    /// Un `Error` con su código y sin datos.
+    pub fn error(code: &'static str, text: &str) -> Self {
+        Fail::new(code, text).into()
+    }
+
+    /// Un `SwapFailed` sin burla.
+    pub fn swap_failed(code: &'static str, reason: &str, kind: &str) -> Self {
+        ServerMessage::SwapFailed {
+            reason: reason.to_string(), kind: kind.to_string(), code: Some(code.to_string()), taunt: None, by: None,
+        }
+    }
+}
+
 /// Mensajes que el cliente envía al servidor
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -306,6 +357,10 @@ pub enum ServerMessage {
         /// Va aparte del texto a propósito: decidir comparando `reason` ya
         /// rompió esto una vez.
         kind: String,
+        /// Qué pasó, para traducir el `reason` (`swapfail.<code>` en el cliente).
+        /// Ausente en servidores viejos: entonces se enseña `reason`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
         /// Burla del que acaba de llevarse la carta (id del catálogo). Solo en
         /// `gone` y si la cogieron hace menos de 500 ms.
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -455,6 +510,9 @@ pub enum ServerMessage {
     PlayerLeft {
         nickname: String,
         retired: Vec<String>,
+        /// Los mismos, por tipo de prenda: el cliente los nombra en su idioma.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        retired_types: Vec<u8>,
     },
     /// Reenvío del estado propio sin reiniciar nada del cliente.
     ///
@@ -470,6 +528,11 @@ pub enum ServerMessage {
     /// Partida cancelada (un jugador se desconectó)
     GameCancelled {
         reason: String,
+        /// `disconnected` (con `args.nick`): ver `Fail`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<serde_json::Value>,
     },
     /// Todos están listos: la partida empieza en `seconds` segundos si nada
     /// cambia. Va a toda la sala (jugadores y quien espera plaza).
@@ -486,6 +549,12 @@ pub enum ServerMessage {
     /// Error
     Error {
         message: String,
+        /// Qué error es (`err.<code>` en el cliente) y sus datos; ver `Fail`.
+        /// Opcionales: una pestaña vieja solo lee `message`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        args: Option<serde_json::Value>,
     },
 }
 
@@ -644,11 +713,11 @@ mod tests {
     #[test]
     fn swap_failed_carries_the_taunt_only_when_there_is_one() {
         let sin = serde_json::to_value(&ServerMessage::SwapFailed {
-            reason: "x".into(), kind: "gone".into(), taunt: None, by: None,
+            reason: "x".into(), kind: "gone".into(), code: None, taunt: None, by: None,
         }).unwrap();
         assert_eq!(sin, serde_json::json!({ "type": "swap_failed", "reason": "x", "kind": "gone" }));
         let con = serde_json::to_value(&ServerMessage::SwapFailed {
-            reason: "x".into(), kind: "gone".into(), taunt: Some("honk".into()), by: Some("Ana".into()),
+            reason: "x".into(), kind: "gone".into(), code: None, taunt: Some("honk".into()), by: Some("Ana".into()),
         }).unwrap();
         assert_eq!(con["taunt"], "honk");
         assert_eq!(con["by"], "Ana");
@@ -657,6 +726,47 @@ mod tests {
         assert!(matches!(v, ClientMessage::QuickMatch { taunt: None, .. }));
         let n: ClientMessage = serde_json::from_str(r#"{"type":"join_lobby","lobby_id":"L","nickname":"A","taunt":"honk"}"#).unwrap();
         assert!(matches!(n, ClientMessage::JoinLobby { taunt: Some(t), spectate: false, .. } if t == "honk"));
+    }
+
+    // Los textos que llegan a pantalla llevan un `code` para que el cliente los
+    // traduzca; el texto en español sigue ahí de respaldo, y sin código el
+    // mensaje es el de siempre.
+    #[test]
+    fn errors_carry_a_code_and_their_data_but_keep_the_spanish_text() {
+        let j = serde_json::to_value(ServerMessage::error("not_in_lobby", "No estás en un lobby")).unwrap();
+        assert_eq!(j, serde_json::json!({ "type": "error", "message": "No estás en un lobby", "code": "not_in_lobby" }));
+
+        let con_datos: ServerMessage = Fail::new("kicked_wait", "Te echaron de esta sala. Podrás volver en 4 min.")
+            .with(serde_json::json!({ "min": 4 })).into();
+        let j = serde_json::to_value(con_datos).unwrap();
+        assert_eq!(j["code"], "kicked_wait");
+        assert_eq!(j["args"]["min"], 4);
+        assert_eq!(j["message"], "Te echaron de esta sala. Podrás volver en 4 min.");
+
+        // Un error sin código (el de siempre) no suelta campos nuevos.
+        let viejo = serde_json::to_value(ServerMessage::Error { message: "x".into(), code: None, args: None }).unwrap();
+        assert_eq!(viejo, serde_json::json!({ "type": "error", "message": "x" }));
+    }
+
+    #[test]
+    fn swap_failed_cancel_and_leave_messages_carry_their_codes() {
+        let j = serde_json::to_value(ServerMessage::swap_failed("owe_card", "Coge una carta del centro antes de soltar otra", "rule")).unwrap();
+        assert_eq!((j["code"].as_str(), j["kind"].as_str()), (Some("owe_card"), Some("rule")));
+        assert!(j.get("taunt").is_none() && j.get("by").is_none());
+
+        let c = serde_json::to_value(ServerMessage::GameCancelled {
+            reason: "Ana se desconectó".into(), code: Some("disconnected".into()), args: Some(serde_json::json!({ "nick": "Ana" })),
+        }).unwrap();
+        assert_eq!((c["code"].as_str(), c["args"]["nick"].as_str()), (Some("disconnected"), Some("Ana")));
+
+        let s = serde_json::to_value(ServerMessage::PlayerLeft {
+            nickname: "Ana".into(), retired: vec!["Bufanda".into()], retired_types: vec![44],
+        }).unwrap();
+        assert_eq!(s["retired_types"][0], 44);
+        let sin = serde_json::to_value(ServerMessage::PlayerLeft {
+            nickname: "Ana".into(), retired: vec![], retired_types: vec![],
+        }).unwrap();
+        assert!(sin.get("retired_types").is_none());
     }
 
     // Los mensajes del rol: una pestaña vieja no manda `spectate` al unirse.

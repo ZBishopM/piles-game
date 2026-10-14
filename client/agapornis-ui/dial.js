@@ -225,7 +225,8 @@
       const prev = rank;
       const up = next.index > prev.index;
       rank = next;   // el rango "de verdad" cambia ya; lo visual (applyRank) llega en unos ms
-      pill.textContent = `${up ? '▲ Asciendes' : '▼ Desciendes'} · ${next.name}`;
+      // `window.agText` (opcional) deja traducir la pastilla desde la página.
+      pill.textContent = `${up ? (window.agText?.up ?? '▲ Asciendes') : (window.agText?.down ?? '▼ Desciendes')} · ${next.name}`;
       pill.className = `ag-dial-rank is-shown ${up ? 'is-up' : 'is-down'}`;
       el.setAttribute('aria-label', aria(next));
       onRank?.({ dir: up ? 'up' : 'down', from: prev, to: next, skin: s });

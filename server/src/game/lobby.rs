@@ -1,4 +1,5 @@
 use super::models::{PlayerState, GameState};
+use super::messages::Fail;
 use super::deck::{generate_deck, distribute_cards};
 use std::collections::{HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
@@ -295,18 +296,18 @@ impl Lobby {
 
     /// Abre la votación de `initiator` contra `target`. Si ya la decide el
     /// propio iniciador (no hay nadie más que vote) devuelve cómo acabó.
-    pub fn start_kick(&mut self, initiator: Uuid, target: Uuid) -> Result<Option<KickEnd>, String> {
+    pub fn start_kick(&mut self, initiator: Uuid, target: Uuid) -> Result<Option<KickEnd>, Fail> {
         if self.status != LobbyStatus::Waiting {
-            return Err("Solo se puede votar en la sala de espera".to_string());
+            return Err(Fail::new("kick_only_waiting", "Solo se puede votar en la sala de espera"));
         }
         if self.kick.is_some() {
-            return Err("Ya hay una votación en marcha".to_string());
+            return Err(Fail::new("kick_busy", "Ya hay una votación en marcha"));
         }
         if self.oldest_human() != Some(initiator) {
-            return Err("Solo quien lleva más tiempo sentado puede abrir la votación".to_string());
+            return Err(Fail::new("kick_only_oldest", "Solo quien lleva más tiempo sentado puede abrir la votación"));
         }
         let Some(t) = self.players.iter().find(|p| p.id == target && !p.is_bot && p.id != initiator) else {
-            return Err("Solo se puede votar para echar a otra persona sentada".to_string());
+            return Err(Fail::new("kick_bad_target", "Solo se puede votar para echar a otra persona sentada"));
         };
         let (target_nick, initiator_nick) = (
             t.nickname.clone(),
@@ -317,7 +318,9 @@ impl Lobby {
         if let Some((_, _, hasta)) = self.kick_enfriamiento.iter()
             .find(|(i, t, _)| *i == initiator_nick && *t == target_nick)
         {
-            return Err(format!("Espera {} s para volver a votar a {target_nick}", (*hasta - ahora).as_secs() + 1));
+            let secs = (*hasta - ahora).as_secs() + 1;
+            return Err(Fail::new("kick_cooldown", format!("Espera {secs} s para volver a votar a {target_nick}"))
+                .with(serde_json::json!({ "secs": secs, "nick": target_nick })));
         }
         let voters: Vec<Uuid> = self.players.iter()
             .filter(|p| !p.is_bot && p.disconnected_at.is_none() && p.id != target)
@@ -470,16 +473,17 @@ impl Lobby {
     /// error. Ahora entras igual, sin jugar. Que un espectador le sople cartas
     /// a alguien es un riesgo asumido: esto es para jugar entre amigos.
     #[cfg(test)]
-    pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<bool, String> {
+    pub fn add_player(&mut self, player_id: Uuid, nickname: String) -> Result<bool, Fail> {
         self.add_player_as(player_id, nickname, false)
     }
 
     /// Como `add_player`, pudiendo pedir entrar **mirando** (`spectate`). Con la
     /// partida en marcha, o con la mesa llena, se entra mirando igual y esperando
     /// plaza (`want_seat`); mirar por gusto no cancela una cuenta atrás.
-    pub fn add_player_as(&mut self, player_id: Uuid, nickname: String, spectate: bool) -> Result<bool, String> {
+    pub fn add_player_as(&mut self, player_id: Uuid, nickname: String, spectate: bool) -> Result<bool, Fail> {
         if self.players.iter().chain(&self.spectators).any(|p| p.nickname == nickname) {
-            return Err(format!("Ya hay alguien llamado «{nickname}» en esta sala. Cambia tu nombre en el inicio y vuelve a intentarlo."));
+            return Err(Fail::new("name_taken", format!("Ya hay alguien llamado «{nickname}» en esta sala. Cambia tu nombre en el inicio y vuelve a intentarlo."))
+                .with(serde_json::json!({ "nick": nickname })));
         }
 
         let nuevo = LobbyPlayer {
@@ -591,7 +595,7 @@ impl Lobby {
     ///
     /// Un jugador que se va a mirar libera su asiento: si hay quien espera plaza,
     /// se sienta (`promote_spectators`). No reabre una cuenta atrás cancelada.
-    pub fn set_spectator(&mut self, player_id: &Uuid, spectate: bool) -> Result<bool, String> {
+    pub fn set_spectator(&mut self, player_id: &Uuid, spectate: bool) -> Result<bool, Fail> {
         if let Some(pos) = self.spectators.iter().position(|s| s.id == *player_id) {
             if spectate {
                 // Salir de la cola: se queda mirando por gusto.
@@ -616,12 +620,12 @@ impl Lobby {
         }
 
         let pos = self.players.iter().position(|p| p.id == *player_id)
-            .ok_or("Jugador no encontrado")?;
+            .ok_or_else(|| Fail::new("player_not_found", "Jugador no encontrado"))?;
         if !spectate {
             return Ok(false);
         }
         if self.status == LobbyStatus::Playing {
-            return Err("No puedes pasarte a espectador con la partida en marcha".to_string());
+            return Err(Fail::new("no_spectate_in_game", "No puedes pasarte a espectador con la partida en marcha"));
         }
         let mut p = self.players.remove(pos);
         p.is_ready = false;
@@ -637,16 +641,16 @@ impl Lobby {
     }
 
     /// Marca un jugador como listo
-    pub fn set_player_ready(&mut self, player_id: &Uuid, ready: bool) -> Result<(), String> {
+    pub fn set_player_ready(&mut self, player_id: &Uuid, ready: bool) -> Result<(), Fail> {
         // Con la partida en marcha no hay "listo" que marcar. Sin este corte,
         // un SetReady tardío (el bot, o una pestaña vieja) recalculaba el
         // estado de abajo y devolvía la sala a Waiting en plena partida.
         if self.status == LobbyStatus::Playing {
-            return Err("La partida ya empezó".to_string());
+            return Err(Fail::new("game_started", "La partida ya empezó"));
         }
         let player = self.players.iter_mut()
             .find(|p| p.id == *player_id)
-            .ok_or("Jugador no encontrado")?;
+            .ok_or_else(|| Fail::new("player_not_found", "Jugador no encontrado"))?;
 
         player.is_ready = ready;
 
@@ -1073,7 +1077,7 @@ impl LobbyManager {
         player_id: Uuid,
         nickname: String,
         live: &HashSet<Uuid>,
-    ) -> Result<(Lobby, bool), String> {
+    ) -> Result<(Lobby, bool), Fail> {
         self.join_lobby_as(lobby_id, player_id, nickname, live, false).await
     }
 
@@ -1085,11 +1089,11 @@ impl LobbyManager {
         nickname: String,
         live: &HashSet<Uuid>,
         spectate: bool,
-    ) -> Result<(Lobby, bool), String> {
+    ) -> Result<(Lobby, bool), Fail> {
         let _guard = self.txn_guard(lobby_id).await;
         let mut lobbies = self.lobbies.write().await;
         let lobby = lobbies.get_mut(lobby_id)
-            .ok_or("Lobby no encontrado")?;
+            .ok_or_else(|| Fail::new("lobby_not_found", "Lobby no encontrado"))?;
 
         // Solo fuera de partida. En partida un asiento sin conexión no está
         // abandonado: está esperando a su dueño, que vuelve con su secreto
@@ -1442,7 +1446,12 @@ mod tests {
         l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
         l.kick_vote(&ids["Beto"], false).unwrap().unwrap();
         let e = l.start_kick(ids["Ana"], ids["Caro"]).unwrap_err();
-        assert!(e.starts_with("Espera"), "{e}");
+        assert!(e.text.starts_with("Espera"), "{e}");
+        // Y el cliente recibe el código con los datos, sin analizar la frase.
+        assert_eq!(e.code, "kick_cooldown");
+        let args = e.args.as_ref().expect("lleva sus datos");
+        assert_eq!(args["nick"], "Caro");
+        assert!(args["secs"].as_u64().is_some_and(|s| (1..=30).contains(&s)), "{args}");
         assert!(l.start_kick(ids["Ana"], ids["Beto"]).is_ok(), "otro votado sí se puede");
         l.kick_enfriamiento[0].2 = Instant::now() - Duration::from_secs(1);
         l.kick = None;
@@ -1786,7 +1795,7 @@ mod tests {
         let ana = lobby.players.iter().find(|p| p.id == a).unwrap();
         assert!(ana.seat_token.is_some() && !ana.is_ready);
         assert_eq!(lobby.set_spectator(&a, false), Ok(false), "idempotente");
-        assert_eq!(lobby.set_spectator(&Uuid::new_v4(), true), Err("Jugador no encontrado".into()));
+        assert_eq!(lobby.set_spectator(&Uuid::new_v4(), true), Err(Fail::new("player_not_found", "Jugador no encontrado")));
     }
 
     #[test]
@@ -2170,6 +2179,26 @@ mod tests {
 
         lobby.set_player_ready(&player2_id, true).unwrap();
         assert_eq!(lobby.status, LobbyStatus::Ready);
+    }
+
+    // Los errores que llegan a pantalla llevan un código estable y sus datos: el
+    // cliente los traduce sin leer la frase en español.
+    #[test]
+    fn user_facing_failures_carry_a_code_and_their_data() {
+        let mut l = Lobby::new("ABC123".to_string(), 4);
+        let a = Uuid::new_v4();
+        l.add_player(a, "Ana".into()).unwrap();
+        let e = l.add_player(Uuid::new_v4(), "Ana".into()).unwrap_err();
+        assert_eq!((e.code, e.args.as_ref().and_then(|a| a["nick"].as_str())), ("name_taken", Some("Ana")));
+        assert!(e.text.contains("Ana"), "el texto en español sigue ahí de respaldo");
+
+        let e = l.set_player_ready(&Uuid::new_v4(), true).unwrap_err();
+        assert_eq!(e.code, "player_not_found");
+        l.status = LobbyStatus::Playing;
+        assert_eq!(l.set_player_ready(&a, true).unwrap_err().code, "game_started");
+        assert_eq!(l.set_spectator(&a, true).unwrap_err().code, "no_spectate_in_game");
+        l.status = LobbyStatus::Waiting;
+        assert_eq!(l.start_kick(a, Uuid::new_v4()).unwrap_err().code, "kick_bad_target");
     }
 
     #[test]
