@@ -59,6 +59,7 @@ piles-game/
 │   └── Cargo.toml
 ├── client/                     # Frontend estático (lo sirve el propio binario)
 │   ├── lobby.html              # TODA la UI: menú, sala y partida, en un fichero
+│   ├── i18n.js                 # Idiomas (es, en, zh): diccionarios y t(); ver tools/README.md
 │   ├── replay.html             # Reproduce una grabación de recordings/
 │   ├── index.html              # Redirección a /lobby.html
 │   ├── cards.webp              # Hoja de sprites: 50 prendas × 4 colores + reverso

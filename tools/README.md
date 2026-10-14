@@ -118,10 +118,50 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | `titulo.mjs` | El título animado del inicio, en el lobby real: sin errores, anima, hay un set visible (4 de la misma prenda en 4 colores) en dos manos seguidas, se pausa del todo al salir de la pantalla de inicio o con la pestaña oculta y reanuda, formulario sin scroll en 390x700, y con movimiento reducido queda «Piles!» quieta (~25 s; fotos en `$CAPTURAS`) |
 | `cuenta.mjs` | El overlay de la cuenta atrás: 3-2-1 grande visible con `role=status`, no tapa el botón de listo ni el chat, se cierra con `game_start`, se cancela con aviso al desmarcarse otro, y con movimiento reducido no anima (capturas 390x700 y 1280x800 en `` o en la carpeta temporal) |
 | `roles.mjs` | La lista de «Unirse» con una etiqueta por sala («en espera», «empezando», «jugando»), ordenada y con «Entrarás a jugar/mirar»; tocar una sala llena entra a mirar la sala de espera («Estás mirando», sin «Listo» ni bots); el botón de rol en ambos sentidos («Quiero jugar», «Salir de la cola», «Pasar a espectador», ≥ 40 px); 390x700 y 1280x800 sin desborde ni errores de JS (~25 s; capturas en `$CAPTURAS`) |
+| `idiomas.mjs [--solo=en,zh]` | Los tres idiomas de punta a punta (~1 min por idioma; ver «Idiomas» abajo). Por idioma recorre portada, perfil, cómo jugar, nueva sala, «Unirse» con lista, sala de espera con bots y chat, cuenta atrás, partida, un espectador, errores reales del servidor (`code` + `args`), y —con mensajes inyectados— pelea y desempate, caída y encuesta, verificación, fin con rango, partida cancelada, más la votación para echar con tres personas. En cada pantalla exige que el texto visible (también `aria-label`, `title`, `placeholder` y `::before/::after`) no traiga claves crudas ni `undefined`, que en en/zh no haya español (acentos y palabras típicas; en zh, ni inglés suelto) y que no desborde en 390x700 y 1280x800. Aparte: `<html lang>`, `navigator.language` → idioma, el selector y que persiste, cambiar de idioma dentro de una sala vuelve a ella, el respaldo a español, la fuente CJK y `replay.html`. Capturas `idiomas-<idioma>-*.png` en `$CAPTURAS` o en la carpeta temporal: **míralas** |
 | `medir-desktop.mjs` | Desbordamiento real del centro en escritorio (sin servidor) |
 
 `toques.mjs` y `peleas.mjs` fallan contra un cliente **sin** el arreglo: sirven de prueba
 de que el bug estaba. Para reproducir un bug nuevo, escribe antes la prueba que falla.
+
+Las pruebas con navegador arrancan Chromium con `--lang=es-ES` (`lanzar()` en `browser/comun.mjs`):
+buscan los textos en español y, sin eso, el idioma saldría del sistema donde se ejecuten.
+`idiomas.mjs` lo cambia por contexto con `localStorage['piles.lang']`.
+
+## Idiomas
+
+Español (base), inglés y chino simplificado, sin librerías ni peticiones nuevas.
+
+- **Dónde vive**: `client/i18n.js` (lo cargan `lobby.html` y `replay.html`; `index.html` solo redirige y
+  no tiene texto). Arriba, el glosario de términos del juego (hay que respetarlo); abajo, el diccionario:
+  una línea por clave, `'clave': { es, en, zh }`, con `{x}` para las variables y `{ one, other }` (o
+  `{ 1, 2, 3, other }` para ordinales) para los plurales por `n`.
+- **Usarlo**: `t('clave', { n })` en JS; `data-i18n` (texto), `data-i18n-html` (solo textos del
+  diccionario, con `<strong>`), `data-i18n-attr="aria-label:clave;title:otra"` en el HTML estático; el
+  texto en español queda en el HTML como respaldo. Los apodos y todo lo que escribe otra persona se
+  insertan con `textContent` o `esc()`, nunca dentro de un `t()` que acabe en `innerHTML`. Si falta una
+  clave en el idioma activo cae a español; si falta en todos devuelve la clave y avisa por consola.
+- **Elegir idioma**: `localStorage['piles.lang']` → `navigator.language` (`zh*` → zh, `en*` → en, lo
+  demás → es). Selector ES / EN / 中文 en la portada y en el perfil. Cambiarlo **recarga la página**:
+  el asiento vive en `localStorage`, así que dentro de una sala se vuelve a ella igual que con F5, y
+  desde la portada, el perfil o «Unirse» se vuelve a esa pantalla. (Aplicar en caliente habría obligado a
+  repintar a mano medio centenar de textos creados desde JS.)
+- **Añadir un idioma**: su código en `LANGS`, `LANG_LABEL` y `HTML_LANG` de `i18n.js`, y un campo con ese
+  código en cada clave. Hasta que esté completo cae a español; `node i18n-test.mjs` dice lo que falta.
+  Si es CJK u otro alfabeto, una pila tipográfica en `injectStyle()` (como la del chino).
+- **Textos del servidor**: no habla en otro idioma. `error`, `swap_failed` y `game_cancelled` llevan un
+  `code` opcional (más `args` con los datos: segundos, apodos, minutos) y conservan el texto en español
+  de siempre como respaldo; `player_left` suma `retired_types` (ids de prenda). El cliente traduce por
+  `err.<code>`, `swapfail.<code>` o `cancel.<code>`; sin `code` (pestaña o servidor viejo) o con uno
+  que no conoce, enseña el texto del servidor. En Rust, `Fail` (`messages.rs`) los construye.
+- **Rangos y burlas**: los nombres de rango salen de `agapornis-ui/rank.js` (copia vendored); se traducen
+  desde `traducirVendored()` en `lobby.html`, por id, sin tocar su lógica. Único cambio al vendored: un
+  gancho `window.agText` en `dial.js` para la pastilla «Asciendes / Desciendes». Las burlas se nombran
+  con `taunt.<id>`; las prendas, con `cloth.<tipo>`.
+
+| Script | Comprueba |
+|---|---|
+| `node i18n-test.mjs` | Los diccionarios, sin navegador: las tres lenguas tienen las mismas claves y las mismas `{variables}`, los plurales tienen `other`, toda clave que usa el código existe (y cada `t()` da las variables que pide), y están traducidos todos los `code` de error del servidor, los ids de burla, los de rango y las 50 prendas |
 
 ## Reglas
 

@@ -10,7 +10,10 @@ import { base, wait } from '../repro/comun.mjs';
 export const ver = process.argv.includes('--ver');
 
 export async function lanzar() {
-  return chromium.launch({ headless: !ver });
+  // Navegador en español, como el de un jugador hispano: las pruebas buscan los textos
+  // en español, y sin esto el idioma saldría del sistema donde se ejecuten. Las pruebas
+  // de idioma (idiomas.mjs) lo fuerzan con `localStorage['piles.lang']`.
+  return chromium.launch({ headless: !ver, args: ['--lang=es-ES'] });
 }
 
 /** Una pestaña con la página del juego abierta y sus errores recogidos. */

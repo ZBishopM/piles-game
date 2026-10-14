@@ -13,6 +13,6 @@ pub use models::{
 };
 pub use lobby::{Lobby, LobbyManager, LobbyStatus, is_valid_lobby_code, STUN_DURATION};
 pub use messages::{
-    ClientMessage, ServerMessage, CardInfo, PlayerInfo, LobbyInfo, PlayerProgress,
+    ClientMessage, ServerMessage, Fail, CardInfo, PlayerInfo, LobbyInfo, PlayerProgress,
     RankingEntry, ChatLine, set_to_info,
 };

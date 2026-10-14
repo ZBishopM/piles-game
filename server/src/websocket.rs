@@ -11,7 +11,7 @@ use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 use crate::game::{
-    LobbyManager, ClientMessage, ServerMessage, PlayerInfo, LobbyInfo, CardInfo,
+    LobbyManager, ClientMessage, ServerMessage, Fail, PlayerInfo, LobbyInfo, CardInfo,
     LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
     COMBO_WINDOW, COMBO_BASE_X100, COMBO_GAIN_FIGHT_WON_X100, COMBO_GAIN_SET_DONE_X100,
     FRENZY_STUN,
@@ -670,9 +670,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     }
                     Err(e) => {
                         eprintln!("Error parseando mensaje: {}", e);
-                        let error_msg = ServerMessage::Error {
-                            message: format!("Mensaje inválido: {}", e),
-                        };
+                        let error_msg = ServerMessage::error("bad_message", &format!("Mensaje inválido: {}", e));
                         let _ = tx.send(error_msg);
                     }
                 }
@@ -1092,9 +1090,8 @@ pub(crate) async fn handle_client_message(
             // Si lo echaron de esta sala, no vuelve a entrar (ni a mirar).
             if let Some(falta) = expulsado_de(state, &lobby_id, &nickname, rating_key.as_deref(), seat_token.as_deref()).await {
                 let min = falta.as_secs().div_ceil(60);
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: format!("Te echaron de esta sala. Podrás volver en {min} min."),
-                }).await;
+                state.send_to_player(&player_id, Fail::new("kicked_wait", format!("Te echaron de esta sala. Podrás volver en {min} min."))
+                    .with(serde_json::json!({ "min": min })).into()).await;
                 return;
             }
 
@@ -1231,9 +1228,9 @@ pub(crate) async fn handle_client_message(
                     // constancia de por qué alguien "no podía volver a entrar".
                     tracing::warn!("🚫 {} no pudo entrar en {}: {} (con secreto: {})", quien, lobby_id, e, con_secreto);
                     state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
-                        "kind": "join_error", "player": quien, "motivo": e, "con_secreto": con_secreto,
+                        "kind": "join_error", "player": quien, "motivo": e.text, "con_secreto": con_secreto,
                     })).await;
-                    state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+                    state.send_to_player(&player_id, ServerMessage::from(e)).await;
                 }
             }
         }
@@ -1244,9 +1241,7 @@ pub(crate) async fn handle_client_message(
             // Solo en la sala: meter un bot en mitad de una partida sería
             // repartirle cartas que ya están en manos de otros.
             if lobby.status == LobbyStatus::Playing || lobby.is_full() {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No se pueden añadir bots ahora".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("no_bots_now", "No se pueden añadir bots ahora")).await;
                 return;
             }
             if crate::bot::spawn_bot(state, &lobby_id, difficulty).await.is_some() {
@@ -1293,7 +1288,7 @@ pub(crate) async fn handle_client_message(
                     retire_orphan_bots(state, &lobby_id).await;
                 }
                 Err(e) => {
-                    state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+                    state.send_to_player(&player_id, ServerMessage::from(e)).await;
                 }
             }
         }
@@ -1321,18 +1316,14 @@ pub(crate) async fn handle_client_message(
                             countdown_notify(state, lobby_id, change, "not_ready").await;
                         }
                         Err(e) => {
-                            state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+                            state.send_to_player(&player_id, ServerMessage::from(e)).await;
                         }
                     }
                 } else {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Lobby no encontrado".to_string()
-                    }).await;
+                    state.send_to_player(&player_id, ServerMessage::error("lobby_not_found", "Lobby no encontrado")).await;
                 }
             } else {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No estás en un lobby".to_string()
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("not_in_lobby", "No estás en un lobby")).await;
             }
         }
 
@@ -1340,9 +1331,7 @@ pub(crate) async fn handle_client_message(
             if let Some(ref lobby_id) = *current_lobby {
                 if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     if set_index >= 6 {
-                        state.send_to_player(&player_id, ServerMessage::Error {
-                            message: "Índice de set inválido (debe ser 0-5)".to_string(),
-                        }).await;
+                        state.send_to_player(&player_id, ServerMessage::error("bad_set_index", "Índice de set inválido (debe ser 0-5)")).await;
                         return;
                     }
 
@@ -1350,9 +1339,7 @@ pub(crate) async fn handle_client_message(
                         let game_state = match lobby.game_state.as_mut() {
                             Some(gs) => gs,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "El juego no ha iniciado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("game_not_started", "El juego no ha iniciado")).await;
                                 return;
                             }
                         };
@@ -1360,9 +1347,7 @@ pub(crate) async fn handle_client_message(
                         let player = match game_state.find_player_mut(&player_id) {
                             Some(p) => p,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "Jugador no encontrado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("player_not_found", "Jugador no encontrado")).await;
                                 return;
                             }
                         };
@@ -1388,14 +1373,10 @@ pub(crate) async fn handle_client_message(
                         cards,
                     }).await;
                 } else {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Lobby no encontrado".to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, ServerMessage::error("lobby_not_found", "Lobby no encontrado")).await;
                 }
             } else {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No estás en una partida".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("not_in_game", "No estás en una partida")).await;
             }
         }
 
@@ -1406,9 +1387,7 @@ pub(crate) async fn handle_client_message(
                         let game_state = match lobby.game_state.as_mut() {
                             Some(gs) => gs,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "El juego no ha iniciado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("game_not_started", "El juego no ha iniciado")).await;
                                 return;
                             }
                         };
@@ -1416,24 +1395,18 @@ pub(crate) async fn handle_client_message(
                         let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
                             Some(idx) => idx,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "Jugador no encontrado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("player_not_found", "Jugador no encontrado")).await;
                                 return;
                             }
                         };
 
                         if game_state.players[player_idx].is_verifying {
-                            state.send_to_player(&player_id, ServerMessage::Error {
-                                message: "Ya estás verificando".to_string(),
-                            }).await;
+                            state.send_to_player(&player_id, ServerMessage::error("already_verifying", "Ya estás verificando")).await;
                             return;
                         }
 
                         if game_state.players[player_idx].finished_position.is_some() {
-                            state.send_to_player(&player_id, ServerMessage::Error {
-                                message: "Ya terminaste el juego".to_string(),
-                            }).await;
+                            state.send_to_player(&player_id, ServerMessage::error("already_finished", "Ya terminaste el juego")).await;
                             return;
                         }
 
@@ -1459,14 +1432,10 @@ pub(crate) async fn handle_client_message(
                         run_verification(state_clone, lobby_id_owned, player_id, player_nickname, sets).await;
                     });
                 } else {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Lobby no encontrado".to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, ServerMessage::error("lobby_not_found", "Lobby no encontrado")).await;
                 }
             } else {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No estás en una partida".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("not_in_game", "No estás en una partida")).await;
             }
         }
 
@@ -1499,19 +1468,19 @@ pub(crate) async fn handle_client_message(
                 let Some(game_state) = lobby.game_state.as_mut() else { return };
                 let Some(idx) = game_state.players.iter().position(|p| p.id == player_id) else { return };
                 if qte_blocks(game_state, player_id, None) {
-                    Err(("Espera a que acabe tu pelea", "rule"))
+                    Err(("wait_fight", "Espera a que acabe tu pelea", "rule"))
                 } else {
                     let player = &mut game_state.players[idx];
                     if player.is_verifying {
-                        Err(("Estás verificando tus pilas", "rule"))
+                        Err(("verifying", "Estás verificando tus pilas", "rule"))
                     } else if player.owes_card() {
-                        Err(("Coge una carta del centro antes de soltar otra", "rule"))
+                        Err(("owe_card", "Coge una carta del centro antes de soltar otra", "rule"))
                     } else {
                         let set_index = player.current_set_index;
                         match player.sets[set_index][my_card_index].take() {
                             // Ya no está donde creías: el cliente iba con una
                             // mano vieja, así que se deshace y no se dice nada.
-                            None => Err(("Ese hueco ya está vacío", "gone")),
+                            None => Err(("empty_slot", "Ese hueco ya está vacío", "gone")),
                             Some(card) => {
                                 player.owed_slot = Some((set_index, my_card_index));
                                 player.owed_since = Some(Instant::now());
@@ -1527,13 +1496,11 @@ pub(crate) async fn handle_client_message(
 
             let (set_index, new_set) = match result {
                 Ok(v) => v,
-                Err((reason, kind)) => {
-                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: reason.to_string(), kind: kind.to_string(), taunt: None, by: None,
-                    }).await;
+                Err((code, reason, kind)) => {
+                    state.send_to_player(&player_id, ServerMessage::swap_failed(code, reason, kind)).await;
                     // Soltar con deuda: el cliente cree que ya la saldó y el
                     // servidor no. Lo mismo que al coger sin deuda.
-                    if reason.starts_with("Coge una carta del centro antes") {
+                    if code == "owe_card" {
                         if let Some(gs) = lobby.game_state.as_ref() {
                             resync_hand(state, player_id, gs, "drop_con_deuda").await;
                         }
@@ -1590,20 +1557,19 @@ pub(crate) async fn handle_client_message(
             let nickname = {
                 let Some(game_state) = lobby.game_state.as_ref() else { return };
                 if qte_blocks(game_state, player_id, Some(card_id)) {
-                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta se está peleando")).await;
+                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "card_fought", "Esa carta se está peleando")).await;
                     return;
                 }
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) {
-                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta ya no está")).await;
+                    state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "card_gone", "Esa carta ya no está")).await;
                     return;
                 }
                 let Some(p) = game_state.players.iter().find(|p| p.id == player_id) else { return };
                 // Solo se coge para tapar un hueco: sin deuda no hay nada que
                 // rellenar, y sin intercambio 1↔1 no hay otra forma de coger.
                 if !p.owes_card() {
-                    state.send_to_player(&player_id, ServerMessage::SwapFailed {
-                        reason: "Suelta una carta antes de coger otra".to_string(), kind: "rule".to_string(), taunt: None, by: None,
-                    }).await;
+                    state.send_to_player(&player_id,
+                        ServerMessage::swap_failed("no_debt", "Suelta una carta antes de coger otra", "rule")).await;
                     // Quien intenta coger cree deber una carta y el servidor
                     // dice que no: lo que ve no es lo que hay. Se le manda su
                     // mano verdadera. Sin esto se quedaba así hasta que otra
@@ -1691,9 +1657,7 @@ pub(crate) async fn handle_client_message(
             if let Some(ref lobby_id) = *current_lobby {
                 if let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await {
                     if set_index >= 6 {
-                        state.send_to_player(&player_id, ServerMessage::Error {
-                            message: "Índice de set inválido (debe ser 0-5)".to_string(),
-                        }).await;
+                        state.send_to_player(&player_id, ServerMessage::error("bad_set_index", "Índice de set inválido (debe ser 0-5)")).await;
                         return;
                     }
 
@@ -1701,9 +1665,7 @@ pub(crate) async fn handle_client_message(
                         let game_state = match lobby.game_state.as_mut() {
                             Some(gs) => gs,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "El juego no ha iniciado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("game_not_started", "El juego no ha iniciado")).await;
                                 return;
                             }
                         };
@@ -1711,9 +1673,7 @@ pub(crate) async fn handle_client_message(
                         let player_idx = match game_state.players.iter().position(|p| p.id == player_id) {
                             Some(idx) => idx,
                             None => {
-                                state.send_to_player(&player_id, ServerMessage::Error {
-                                    message: "Jugador no encontrado".to_string(),
-                                }).await;
+                                state.send_to_player(&player_id, ServerMessage::error("player_not_found", "Jugador no encontrado")).await;
                                 return;
                             }
                         };
@@ -1753,14 +1713,10 @@ pub(crate) async fn handle_client_message(
                         cards,
                     }).await;
                 } else {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: "Lobby no encontrado".to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, ServerMessage::error("lobby_not_found", "Lobby no encontrado")).await;
                 }
             } else {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No estás en una partida".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("not_in_game", "No estás en una partida")).await;
             }
         }
 
@@ -1816,9 +1772,7 @@ pub(crate) async fn handle_client_message(
             };
 
             let Some((nombre, pararon, bloqueados)) = resultado else {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "No tienes frenesí".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("no_frenzy", "No tienes frenesí")).await;
                 return;
             };
 
@@ -1927,7 +1881,7 @@ pub(crate) async fn handle_client_message(
             let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
             match lobby.start_kick(player_id, target) {
                 Err(message) => {
-                    state.send_to_player(&player_id, ServerMessage::Error { message }).await;
+                    state.send_to_player(&player_id, ServerMessage::from(message)).await;
                 }
                 Ok(Some(fin)) => {
                     lobby.commit().await;
@@ -1986,21 +1940,19 @@ pub(crate) async fn handle_client_message(
                 rapido
             };
             if demasiado_deprisa {
-                state.send_to_player(&player_id, ServerMessage::Error {
-                    message: "Más despacio: espera un momento antes de escribir otra vez.".to_string(),
-                }).await;
+                state.send_to_player(&player_id, ServerMessage::error("chat_slow", "Más despacio: espera un momento antes de escribir otra vez.")).await;
                 return;
             }
 
             let linea = state.lobby_manager.mutate(lobby_id, |lobby| {
                 if lobby.status == LobbyStatus::Playing {
-                    return Err("El chat es de la sala de espera: durante la partida no se puede escribir.");
+                    return Err(Fail::new("chat_in_game", "El chat es de la sala de espera: durante la partida no se puede escribir."));
                 }
                 // Quien espera plaza (la mesa estaba llena) también escribe.
                 let Some(p) = lobby.players.iter().chain(&lobby.spectators)
                     .find(|p| p.id == player_id && !p.is_bot)
                 else {
-                    return Err("Solo quien está en la sala puede escribir.");
+                    return Err(Fail::new("chat_not_in_room", "Solo quien está en la sala puede escribir."));
                 };
                 let linea = crate::game::ChatLine {
                     from: p.nickname.clone(),
@@ -2017,9 +1969,7 @@ pub(crate) async fn handle_client_message(
                     }).await;
                 }
                 Some(Err(motivo)) => {
-                    state.send_to_player(&player_id, ServerMessage::Error {
-                        message: motivo.to_string(),
-                    }).await;
+                    state.send_to_player(&player_id, ServerMessage::from(motivo)).await;
                 }
                 None => {}
             }
@@ -2229,7 +2179,7 @@ async fn execute_delayed_take(
 
     let Some((set_index, new_set, _completed, _gain)) = taken else {
         // Otro se la llevó mientras esperábamos: se sigue debiendo una.
-        state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "Esa carta ya no está")).await;
+        state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "card_gone", "Esa carta ya no está")).await;
         return;
     };
 
@@ -2269,11 +2219,11 @@ fn note_take(state: &AppState, lobby: &crate::game::Lobby, lobby_id: &str, card_
 
 /// El `swap_failed` de "la carta ya no está": con la burla del ladrón si la
 /// cogió hace menos de 500 ms y tiene una configurada.
-fn gone_msg(state: &AppState, lobby_id: &str, card_id: u32, victim: Uuid, reason: &str) -> ServerMessage {
+fn gone_msg(state: &AppState, lobby_id: &str, card_id: u32, victim: Uuid, code: &'static str, reason: &str) -> ServerMessage {
     let hit = state.recent_takes.lock().ok()
         .and_then(|r| r.taunt_for(lobby_id, card_id, victim, Instant::now()));
     let (taunt, by) = match hit { Some((t, b)) => (Some(t), Some(b)), None => (None, None) };
-    ServerMessage::SwapFailed { reason: reason.to_string(), kind: "gone".to_string(), taunt, by }
+    ServerMessage::SwapFailed { reason: reason.to_string(), kind: "gone".to_string(), code: Some(code.to_string()), taunt, by }
 }
 
 /// Guarda la burla del jugador, si es una del catálogo.
@@ -2363,7 +2313,7 @@ async fn enter_new_lobby(
             send_chat_history(state, &lobby, player_id).await;
         }
         Err(e) => {
-            state.send_to_player(&player_id, ServerMessage::Error { message: e }).await;
+            state.send_to_player(&player_id, ServerMessage::from(e)).await;
         }
     }
 }
@@ -2645,6 +2595,8 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
 
     state.broadcast_to_lobby(lobby_id, ServerMessage::GameCancelled {
         reason: format!("{because_of} se desconectó"),
+        code: Some("disconnected".to_string()),
+        args: Some(serde_json::json!({ "nick": because_of })),
     }).await;
     state.broadcast_to_lobby(lobby_id, update).await;
     broadcast_chat_history(state, lobby_id).await;
@@ -2728,7 +2680,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, vo
     // Retirar prendas enteras en vez de borrar sus cartas sueltas: quitar 24
     // cartas repartidas entre ~20 prendas rompe esas 20 para siempre, porque
     // cada prenda necesita sus 4 cartas exactas.
-    let retired: Vec<String> = {
+    let (retired, retired_types): (Vec<String>, Vec<u8>) = {
         let game = lobby.game_state.as_mut().expect("comprobado arriba");
         let outcome = crate::game::deck::retire_types_on_leave(game, &player_id);
         tracing::info!(
@@ -2736,9 +2688,8 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, vo
             nickname, outcome.retired_types.len(),
             outcome.returned_to_center, outcome.holes_punched
         );
-        outcome.retired_types.iter()
-            .map(|t| get_clothing_name(*t).to_string())
-            .collect()
+        (outcome.retired_types.iter().map(|t| get_clothing_name(*t).to_string()).collect(),
+         outcome.retired_types.iter().copied().collect())
     };
     lobby.players.retain(|p| p.id != player_id);
     state.rec_line_lobby(&lobby_id, "conn", serde_json::json!({
@@ -2766,6 +2717,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, vo
     state.broadcast_to_lobby(&lobby_id, ServerMessage::PlayerLeft {
         nickname,
         retired,
+        retired_types,
     }).await;
     state.broadcast_to_lobby(&lobby_id, ServerMessage::GameUpdate {
         center_cards: new_center,
@@ -3231,9 +3183,8 @@ async fn run_qte(
             // Perdedor: swap_failed (el cliente no lo muestra) + el bloqueo.
             // Quien cedió se queda sin la carta pero sin bloqueo: vuelve a
             // jugar en el momento, que es justo lo que ha comprado.
-            state.send_to_player(&loser.player_id, ServerMessage::SwapFailed {
-                reason: "Perdiste la carta".to_string(), kind: "gone".to_string(), taunt: None, by: None,
-            }).await;
+            state.send_to_player(&loser.player_id,
+                ServerMessage::swap_failed("lost_card", "Perdiste la carta", "gone")).await;
             if !cedio_el_perdedor {
                 state.send_to_player(&loser.player_id, ServerMessage::Stunned {
                     ms: STUN_DURATION.as_millis() as u64,

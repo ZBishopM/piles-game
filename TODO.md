@@ -375,7 +375,7 @@ Los resultados que se guardan van a Session Manager, no aquí.
 ## 🧭 Próximo (ideas del autor, sin diseñar)
 
 - [ ] **Tutorial dentro del juego** (hoy hay un «Cómo jugar» estático).
-- [ ] **Idiomas**: inglés y chino, además del español.
+- [x] **Idiomas**: inglés y chino, además del español.
 - [ ] **Perks iniciales**: modificadores que cambian el juego al empezar,
       elegidos con una ruleta. El autor describirá cómo funciona; mientras
       tanto, dejar el diseño de la partida lo bastante flexible para aceptarlos.

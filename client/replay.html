@@ -22,6 +22,7 @@
   `thrownStyle`, hay que tocarlo en los dos sitios.
 -->
 <link rel="stylesheet" href="/agapornis-ui/agapornis.css">
+<script src="/i18n.js"></script>
 <style>
     /* --bg y --accent vienen de agapornis-ui; estos alias mantienen los
        nombres que ya usa la página. */
@@ -36,7 +37,8 @@
         font-family: var(--font-sans);
         font-size: 14px;
     }
-    h1 { font-size: 1.05rem; margin: 0 0 10px; color: var(--accent); }
+    h1 { font-size: 1.05rem; margin: 0; color: var(--accent); }
+    .cabecera { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
     a { color: var(--accent); }
     .vacio { color: var(--text-faint); font-size: 0.8rem; }
 
@@ -96,7 +98,7 @@
     .carta.tirada { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
     .carta.peleada { outline: 3px solid var(--bad); }
     .carta.peleada::after {
-        content: "PELEADA"; position: absolute; left: 50%; top: 50%;
+        content: var(--t-peleada, "PELEADA"); position: absolute; left: 50%; top: 50%;
         transform: translate(-50%,-50%) rotate(-8deg);
         background: var(--bad); color: #fff; font-size: 0.55rem; font-weight: bold;
         padding: 1px 5px; border-radius: 4px;
@@ -149,12 +151,20 @@
 </head>
 <body>
 
-<h1>📼 Piles! · partidas terminadas</h1>
-<div id="app"><p class="vacio">Cargando…</p></div>
+<div class="cabecera">
+    <h1 data-i18n="replay.title">📼 Piles! · partidas terminadas</h1>
+    <div class="lang-pick" data-lang-picker></div>
+</div>
+<div id="app"><p class="vacio" data-i18n="replay.loading">Cargando…</p></div>
 
 <script>
 const $ = (s, r = document) => r.querySelector(s);
 const app = $('#app');
+// Fechas en el idioma de la página, y el rótulo CSS de las cartas en pelea.
+const LOCALE = { es: 'es-ES', en: 'en-GB', zh: 'zh-CN' }[PilesI18n.lang];
+document.documentElement.style.setProperty('--t-peleada', JSON.stringify(t('card.fought')));
+/** Nombre de una prenda por su tipo en el idioma de la página (respaldo: el de la grabación). */
+const nombreCarta = (tipo, respaldo) => PilesI18n.has(`cloth.${tipo}`) ? t(`cloth.${tipo}`) : (respaldo || '');
 
 // ── Copiado de lobby.html: sprite e inclinación ──
 const SPRITE_COLS = 16, SPRITE_ROWS = 13;
@@ -177,33 +187,33 @@ function inclinacion(id) {
  *  obliga a traducir de cabeza, que es justo lo que esto viene a evitar. */
 function formatMult(x100) {
     return x100 % 100 === 0 ? String(x100 / 100)
-                            : (x100 / 100).toFixed(2).replace('.', ',');
+                            : (x100 / 100).toFixed(2).replace('.', t('num.dec'));
 }
 
 const mmss = (ms) => {
     const s = Math.floor(ms / 1000);
     return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}.${String(ms%1000).padStart(3,'0')}`;
 };
-const horaDe = (ms) => new Date(ms).toLocaleTimeString('es-ES', { hour12: false });
+const horaDe = (ms) => new Date(ms).toLocaleTimeString(LOCALE, { hour12: false });
 
 // ─── Lista de partidas ────────────────────────────────────────────────────
 async function pintarLista() {
     let datos;
     try {
         const r = await fetch('/api/recordings');
-        if (!r.ok) throw new Error(`El servidor respondió ${r.status}.`);
+        if (!r.ok) throw new Error(t('replay.http', { status: r.status }));
         datos = await r.json();
     } catch (e) {
-        app.innerHTML = `<p class="vacio">${e.message || 'No se pudo conectar.'}</p>`;
+        app.innerHTML = `<p class="vacio">${esc(e.message || t('replay.offline'))}</p>`;
         return;
     }
-    if (!datos.length) { app.innerHTML = '<p class="vacio">Todavía no hay partidas grabadas.</p>'; return; }
+    if (!datos.length) { app.innerHTML = `<p class="vacio">${esc(t('replay.none'))}</p>`; return; }
     app.innerHTML = `<table>
-        <thead><tr><th>Cuándo</th><th>Sala</th><th>Jugadores</th><th>Duró</th><th>Tamaño</th></tr></thead>
-        <tbody>${datos.map(d => `<tr data-f="${d.file}">
-            <td>${new Date(d.started_ms).toLocaleString('es-ES')}</td>
-            <td>${d.lobby ?? '—'}</td>
-            <td>${(d.players||[]).map(p=>p.nick).join(', ')}</td>
+        <thead><tr><th>${esc(t('replay.when'))}</th><th>${esc(t('replay.room'))}</th><th>${esc(t('replay.players'))}</th><th>${esc(t('replay.lasted'))}</th><th>${esc(t('replay.size'))}</th></tr></thead>
+        <tbody>${datos.map(d => `<tr data-f="${esc(d.file)}">
+            <td>${new Date(d.started_ms).toLocaleString(LOCALE)}</td>
+            <td>${esc(d.lobby ?? '—')}</td>
+            <td>${esc((d.players||[]).map(p=>p.nick).join(', '))}</td>
             <td>${mmss(d.dur_ms||0)}</td><td>${Math.round((d.bytes||0)/1024)} KB</td>
           </tr>`).join('')}</tbody></table>`;
     app.querySelectorAll('tbody tr').forEach(tr => {
@@ -219,7 +229,7 @@ let vueltas = [];
 
 async function cargar(fichero) {
     const r = await fetch(`/api/recordings/${encodeURIComponent(fichero)}`);
-    if (!r.ok) { app.innerHTML = '<p class="vacio">No se encontró esa grabación.</p>'; return; }
+    if (!r.ok) { app.innerHTML = `<p class="vacio">${esc(t('replay.missing'))}</p>`; return; }
     const texto = await r.text();
     lineas = [];
     for (const l of texto.split('\n')) {
@@ -229,7 +239,7 @@ async function cargar(fichero) {
         try { lineas.push(JSON.parse(l)); } catch { /* cola truncada */ }
     }
     cab = lineas.find(l => l.t === 'header');
-    if (!cab) { app.innerHTML = '<p class="vacio">La grabación no tiene cabecera.</p>'; return; }
+    if (!cab) { app.innerHTML = `<p class="vacio">${esc(t('replay.nohead'))}</p>`; return; }
     asiento = (cab.players || []).find(p => !p.bot)?.nick
            ?? (cab.players || [])[0]?.nick ?? null;
 
@@ -258,12 +268,13 @@ function buscarVueltas() {
                 if (p.t === 'in' && p.from === l.to &&
                     (p.m?.type === 'take_card' || p.m?.type === 'drop_card')) { pidio = p; break; }
             }
+            // Las grabaciones nuevas traen `code` (se traduce); las viejas, solo el texto.
+            const k = `swapfail.${l.m.code}`;
             out.push({ i, ms: l.ms, quien: l.to, tipo: l.m.kind === 'gone' ? 'tarde' : 'regla',
-                       motivo: l.m.reason, pidio: pidio?.m?.type });
+                       motivo: l.m.code && PilesI18n.has(k) ? t(k) : l.m.reason, pidio: pidio?.m?.type });
         }
         if (l.m.type === 'debt_forced') {
-            out.push({ i, ms: l.ms, quien: l.to, tipo: 'forzada',
-                       motivo: 'se acabó el plazo y el servidor le asignó una carta' });
+            out.push({ i, ms: l.ms, quien: l.to, tipo: 'forzada' });
         }
     }
     return out;
@@ -317,36 +328,36 @@ function montar() {
     const nicks = (cab.players || []).map(p => p.nick);
     app.innerHTML = `
       <div class="barra">
-        <a href="?">← lista</a>
-        <strong>${cab.lobby}</strong>
-        <span class="vacio">${new Date(cab.started_ms).toLocaleString('es-ES')}</span>
+        <a href="?">${esc(t('replay.list'))}</a>
+        <strong>${esc(cab.lobby)}</strong>
+        <span class="vacio">${new Date(cab.started_ms).toLocaleString(LOCALE)}</span>
         <button id="play">▶</button>
         <input type="range" id="scrub" min="0" max="${lineas.length-1}" value="0">
-        <div class="reloj"><span id="tRel">00:00.000</span><small>desde el inicio</small></div>
-        <div class="reloj"><span id="tAbs">—</span><small>reloj · para el vídeo</small></div>
-        <div class="reloj"><span id="tVid">—</span><small>vídeo</small></div>
-        <button id="marcar" title="Marca este instante como el 0:00 del vídeo del móvil">⇥ 0:00 del vídeo</button>
+        <div class="reloj"><span id="tRel">00:00.000</span><small>${esc(t('replay.t_start'))}</small></div>
+        <div class="reloj"><span id="tAbs">—</span><small>${esc(t('replay.t_clock'))}</small></div>
+        <div class="reloj"><span id="tVid">—</span><small>${esc(t('replay.t_video'))}</small></div>
+        <button id="marcar" title="${esc(t('replay.mark_title'))}">${esc(t('replay.mark'))}</button>
         <button id="prev">◀</button><button id="next">▶</button>
         <span class="vacio" id="cuenta"></span>
       </div>
       <div class="barra asientos">
-        <span class="quien">mirando desde:</span>
-        ${nicks.map(n => `<button class="silla" data-n="${n}">${n}</button>`).join('')}
-        <button id="verdad" title="Enseña también lo que este jugador NO podía ver">👁 ver la verdad</button>
+        <span class="quien">${esc(t('replay.from'))}</span>
+        ${nicks.map(n => `<button class="silla" data-n="${esc(n)}">${esc(n)}</button>`).join('')}
+        <button id="verdad" title="${esc(t('replay.truth_title'))}">${esc(t('replay.truth'))}</button>
       </div>
       <div class="cols">
         <div class="tablero">
           <div class="hud" id="hud"></div>
-          <p class="etiqueta">Cartas del centro</p>
+          <p class="etiqueta">${esc(t('game.center'))}</p>
           <div class="fila-cartas" id="centro"></div>
-          <p class="etiqueta" id="etiSets">Sus sets</p>
+          <p class="etiqueta" id="etiSets">${esc(t('replay.his_sets'))}</p>
           <div class="sets-nav" id="setsNav"></div>
           <div class="fila-cartas" id="misCartas"></div>
           <div class="estado" id="estadoJug"></div>
         </div>
         <div class="lateral">
           <div class="eventos" id="eventos"></div>
-          <div class="avisos"><h2>vueltas atrás <span class="vacio" id="nVueltas"></span></h2>
+          <div class="avisos"><h2>${esc(t('replay.undos'))} <span class="vacio" id="nVueltas"></span></h2>
             <div id="listaVueltas"></div></div>
         </div>
       </div>`;
@@ -375,12 +386,12 @@ function montar() {
 
     const vueltaEn = new Set(vueltas.map(v => v.i));
     $('#eventos').innerHTML = lineas.map((l, i) => {
-        const et = l.t === 'in' ? `→ ${l.m?.type || '?'} (${l.from})`
-                 : l.t === 'key' ? '· estado'
+        const et = esc(l.t === 'in' ? `→ ${l.m?.type || '?'} (${l.from})`
+                 : l.t === 'key' ? t('replay.ev_state')
                  : l.t === 'ping' ? `· ping ${l.player} ${l.rtt}ms`
-                 : l.t === 'header' ? '· cabecera'
-                 : l.t === 'end' ? `· fin (${l.reason})`
-                 : `${l.m?.type || '?'}${l.to ? ' → ' + l.to : ''}`;
+                 : l.t === 'header' ? t('replay.ev_head')
+                 : l.t === 'end' ? t('replay.ev_end', { reason: l.reason })
+                 : `${l.m?.type || '?'}${l.to ? ' → ' + l.to : ''}`);
         const cls = vueltaEn.has(i) ? 'vuelta'
                   : l.t === 'in' ? 'dentro'
                   : (l.t === 'key' || l.t === 'ping') ? 'clave' : '';
@@ -391,10 +402,10 @@ function montar() {
     $('#nVueltas').textContent = `(${vueltas.length})`;
     $('#listaVueltas').innerHTML = vueltas.length
         ? vueltas.slice(0, 40).map(v => `<div class="aviso vuelta" data-i="${v.i}">
-            ${mmss(v.ms)} · ${v.quien}: ${v.tipo === 'tarde' ? 'llegó tarde a la carta'
-              : v.tipo === 'forzada' ? 'carta asignada por el plazo' : v.motivo}
-            ${v.pidio ? `<span class="vacio">(pidió ${v.pidio})</span>` : ''}</div>`).join('')
-        : '<p class="vacio">Ninguna.</p>';
+            ${mmss(v.ms)} · ${esc(v.quien)}: ${esc(v.tipo === 'tarde' ? t('replay.late')
+              : v.tipo === 'forzada' ? t('replay.forced') : v.motivo)}
+            ${v.pidio ? `<span class="vacio">${esc(t('replay.asked', { what: v.pidio }))}</span>` : ''}</div>`).join('')
+        : `<p class="vacio">${esc(t('replay.no_undos'))}</p>`;
     app.querySelectorAll('.aviso').forEach(a => a.onclick = () => ir(+a.dataset.i));
 }
 
@@ -414,7 +425,7 @@ function ir(n) {
     idx = Math.max(0, Math.min(lineas.length - 1, n));
     const l = lineas[idx];
     $('#scrub').value = idx;
-    $('#cuenta').textContent = `evento ${idx+1}/${lineas.length}`;
+    $('#cuenta').textContent = t('replay.event', { n: idx + 1, total: lineas.length });
     $('#tRel').textContent = mmss(l.ms || 0);
     $('#tAbs').textContent = l.w ? horaDe(l.w) : '—';
     $('#tVid').textContent = videoT0 === null ? '—' : mmss(Math.max(0, (l.ms||0) - videoT0));
@@ -432,7 +443,7 @@ function carta(id, opts = {}) {
     if (id === null || id === undefined) { d.className = 'carta hueco'; return d; }
     d.className = 'carta' + (opts.tirada ? ' tirada' : '') + (opts.peleada ? ' peleada' : '');
     const info = cab.cards?.[String(id)];
-    if (info) { pintarCarta(d, info.c, id); d.title = `${info.n} · #${id}`; }
+    if (info) { pintarCarta(d, info.c, id); d.title = `${nombreCarta(info.c, info.n)} · #${id}`; }
     if (opts.tirada) {
         const t = inclinacion(id);
         d.style.setProperty('--rot', `${t.rot}deg`);
@@ -446,7 +457,7 @@ function pintar(est, pings) {
     if (!est) {
         $('#centro').innerHTML = '';
         $('#misCartas').innerHTML = '';
-        $('#hud').innerHTML = '<p class="vacio">Todavía no hay estado: el primero llega más adelante.</p>';
+        $('#hud').innerHTML = `<p class="vacio">${esc(t('replay.nostate'))}</p>`;
         return;
     }
     const peleadas = new Set((est.qtes || []).map(q => q.card));
@@ -463,13 +474,13 @@ function pintar(est, pings) {
         const rtt = pings[nick];
         const f = document.createElement('div');
         f.className = 'franja' + (nick === asiento ? ' yo' : '');
-        f.title = `Mirar la partida desde ${nick}`;
+        f.title = t('replay.watch_from', { nick });
         f.onclick = () => { asiento = nick; ir(idx); };
         const puntos = (p.flip || []).map(v => `<i class="punto${v ? ' on' : ''}"></i>`).join('');
-        f.innerHTML = `<span class="nom">${nick}</span>
+        f.innerHTML = `<span class="nom">${esc(nick)}</span>
             <span style="display:flex;gap:2px">${puntos}</span>
             <span class="mult">×${formatMult(p.mult ?? 100)}</span>
-            ${p.frenzy ? '🌈' : ''}${p.fin ? ` 🏁${p.fin}º` : ''}
+            ${p.frenzy ? '🌈' : ''}${p.fin ? ` 🏁${esc(t('pos.ord', { n: p.fin }))}` : ''}
             <span class="ping ${rtt === undefined ? '' : rtt > 300 ? 'malo' : rtt > 150 ? 'medio' : ''}">
               ${rtt === undefined ? '—' : rtt + 'ms'}</span>`;
         hud.appendChild(f);
@@ -479,15 +490,15 @@ function pintar(est, pings) {
     const yo = est.players[asiento];
     const nav = $('#setsNav'), mias = $('#misCartas');
     nav.innerHTML = ''; mias.innerHTML = '';
-    if (!yo) { $('#etiSets').textContent = 'Sus sets'; return; }
-    $('#etiSets').textContent = `Sets de ${asiento}`;
+    if (!yo) { $('#etiSets').textContent = t('replay.his_sets'); return; }
+    $('#etiSets').textContent = t('spec.sets_of', { nick: asiento });
 
     const actual = yo.__ver ?? yo.cur ?? 0;
     for (let i = 0; i < 6; i++) {
         const b = document.createElement('button');
         b.className = (i === actual ? 'actual ' : '') +
                       (yo.flip?.[i] ? 'enseniado' : '');
-        b.textContent = `Set ${i+1}`;
+        b.textContent = t('set.n', { n: i + 1 });
         b.onclick = () => { yo.__ver = i; pintar(est, pings); };
         nav.appendChild(b);
     }
@@ -498,18 +509,18 @@ function pintar(est, pings) {
     // lo que ese jugador veía con lo que había de verdad, que es la diferencia
     // que delata un fallo.
     const estado = $('#estadoJug');
-    const deuda = yo.owed ? `debe una carta (set ${yo.owed[0]+1}, hueco ${yo.owed[1]+1})` : 'sin deuda';
-    estado.innerHTML = `<span><b>${asiento}</b></span>
-        <span>${deuda}</span>
-        <span>multiplicador <b>×${formatMult(yo.mult ?? 100)}</b></span>
-        <span>puntos <b>${yo.pts ?? 0}</b></span>
-        ${yo.verif ? '<span>verificando</span>' : ''}
-        ${yo.fin ? `<span>terminó <b>${yo.fin}º</b></span>` : ''}`;
+    const deuda = yo.owed ? t('spec.owes', { set: yo.owed[0] + 1, slot: yo.owed[1] + 1 }) : t('spec.no_debt');
+    estado.innerHTML = `<span><b>${esc(asiento)}</b></span>
+        <span>${esc(deuda)}</span>
+        <span>${esc(t('replay.mult'))} <b>×${formatMult(yo.mult ?? 100)}</b></span>
+        <span>${esc(t('replay.points'))} <b>${yo.pts ?? 0}</b></span>
+        ${yo.verif ? `<span>${esc(t('spec.verifying'))}</span>` : ''}
+        ${yo.fin ? `<span>${esc(t('spec.finished'))} <b>${esc(t('pos.ord', { n: yo.fin }))}</b></span>` : ''}`;
 
     if (verVerdad) {
         const otros = document.createElement('div');
         otros.style.cssText = 'margin-top:10px';
-        otros.innerHTML = '<p class="etiqueta">Lo que no veía: manos del resto</p>';
+        otros.innerHTML = `<p class="etiqueta">${esc(t('replay.hidden'))}</p>`;
         for (const [nick, p] of Object.entries(est.players)) {
             if (nick === asiento) continue;
             const t = document.createElement('p');
