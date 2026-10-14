@@ -414,9 +414,11 @@
         #cuentaAtras .ca-pista { font-size: 0.95rem; color: var(--text-muted); }
         @keyframes caPulso { from { transform: scale(1.4); opacity: 0.25; } to { transform: scale(1); opacity: 1; } }
         @media (prefers-reduced-motion: reduce) { #cuentaAtras .ca-num.pulso { animation: none; } }
+        /* Jugar ↔ mirar: debajo de la lista, a lo ancho en móvil (≥ 44 px de alto). */
+        #rolBtn { margin: 10px 0 0; min-height: 44px; font-size: 0.95rem; }
+        #rolBtn[hidden] { display: none; }
         #huecoBanda { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: 0.82rem; text-align: center; }
         #lobbyScreen.espera-hueco #readyBtn,
-        #lobbyScreen.espera-hueco #readyCount,
         #lobbyScreen.espera-hueco #botControls,
         #lobbyScreen.espera-hueco #quickBotOffer { display: none; }
 
@@ -704,6 +706,7 @@
             border: 1px solid var(--accent-line); border-radius: 6px;
             background: transparent; color: var(--accent); cursor: pointer;
         }
+        #espectadorBanda button[aria-pressed="true"] { background: var(--accent-soft); }
 
         /* ── Espectador: la mano de todos ──
            «Mirando desde» elige a quién ves (o «Todos»); el tablero que se pinta
@@ -1279,9 +1282,11 @@
         #lobbyList { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
         .lobby-empty { color: var(--text-faint); font-size: 0.85rem; text-align: center; margin: 8px 0; }
         .lobby-row {
-            display: flex;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: 1fr auto;
             align-items: center;
+            gap: 4px 10px;
+            text-align: left;
             width: 100%;
             padding: 12px 14px;
             min-height: 44px;      /* objetivo táctil */
@@ -1296,9 +1301,23 @@
         .lr-code { font-family: var(--font-mono); font-size: 1.05rem; letter-spacing: 0.12em; }
         .lr-count { font-size: 0.8rem; color: var(--text-muted); }
         .lobby-section { margin: 12px 0 2px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-faint); }
-        /* Una partida que ya empezó: se entra a mirarla. */
-        .lobby-row.en-curso .lr-count { text-align: right; }
-        .lobby-row.en-curso .lr-mirar { color: var(--accent); font-weight: 600; margin-left: 8px; }
+        /* Una línea con el código y el estado; debajo, qué pasará al tocarla. */
+        .lr-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+        .lr-count { text-align: right; white-space: nowrap; }
+        .lr-accion { grid-column: 1 / -1; font-size: 0.8rem; color: var(--text-muted); }
+        .lobby-row:hover .lr-accion { color: var(--accent); }
+        /* La etiqueta del estado (también va en el texto, no solo en el color). */
+        .lr-tag {
+            padding: 2px 9px; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+            letter-spacing: 0.02em; white-space: nowrap;
+            background: var(--accent-soft); color: var(--accent);
+            box-shadow: inset 0 0 0 1px var(--accent-line);
+        }
+        .lr-tag.starting {
+            background: color-mix(in srgb, var(--warning) 16%, transparent); color: var(--warning);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warning) 45%, transparent);
+        }
+        .lr-tag.playing { background: var(--accent-fill); color: var(--on-accent-fill); box-shadow: inset 0 0 0 1px var(--accent-line); }
 
         /* ── RACHA ──
            El multiplicador se lee de un vistazo o no sirve de nada: número
@@ -1802,7 +1821,7 @@
     </div>
     <p id="scanError" hidden></p>
 
-    <div class="divider">— salas abiertas —</div>
+    <div class="divider">— salas —</div>
     <button class="btn btn-secondary" onclick="refreshLobbies()">🔄 Actualizar</button>
     <div id="lobbyList"></div>
 </div>
@@ -1823,7 +1842,7 @@
     <div class="screen-top">
         <button type="button" class="back-btn" onclick="leaveLobby()">← Salir de la sala</button>
     </div>
-    <div id="huecoBanda" hidden>La sala está llena: te sentarás en cuanto haya un hueco. Si antes empieza otra partida, la verás desde el principio.</div>
+    <div id="huecoBanda" role="status" hidden></div>
     <div class="lobby-code-box">
         <small>Código del lobby</small>
         <div class="lobby-code" id="lobbyCodeDisplay">------</div>
@@ -1837,6 +1856,8 @@
     <!-- De qué clasificación es el Elo de al lado: con algún bot, For fun; solo personas, For glory. -->
     <p class="pool-note" id="poolNote"></p>
     <ul class="player-list" id="playerList"></ul>
+    <!-- Jugar o mirar: el mismo botón sirve en los dos sentidos (ver pintarRol). -->
+    <button type="button" id="rolBtn" class="btn btn-secondary" onclick="cambiarRol()" hidden></button>
     <p id="readyCount"></p>
 
     <!-- Chat de la sala. Solo en espera: en partida no se escribe. Lo que se
@@ -2352,7 +2373,8 @@ function attemptRejoin() {
     currentNickname = nickname;
     rejoinInFlight = true;
     send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname,
-           rating_key: ratingKey(), seat_token: seatToken, taunt: getTaunt() || undefined });
+           rating_key: ratingKey(), seat_token: seatToken, taunt: getTaunt() || undefined,
+           spectate: (soyEspectador && !enCola) || undefined });
 }
 
 function connectWs() {
@@ -2838,75 +2860,82 @@ function acceptBotsOffer() {
     for (let i = 0; i < 3; i++) addBot();
 }
 
-/** La lista de «Unirse»: salas abiertas (para jugar) y partidas en curso (para
- *  mirarlas). Entrar a una en curso es `join_lobby` igual que a una abierta: el
- *  servidor ya mete en `spectators` a quien llega con la partida empezada. */
+/** La lista de «Unirse»: todas las salas públicas, una sola lista ordenada por
+ *  estado (en espera, empezando, jugando) y, dentro, la más llena primero. Cada
+ *  fila dice qué pasará al tocarla: a una en espera con hueco se entra a jugar; a
+ *  una llena, empezando o jugando, a mirar (`spectate`). */
+const ESTADOS_SALA = {
+    waiting:  { orden: 0, texto: 'en espera' },
+    starting: { orden: 1, texto: 'empezando' },
+    playing:  { orden: 2, texto: 'jugando' },
+};
 function renderLobbyList(lobbies) {
     const div = document.getElementById('lobbyList');
     if (!div) return;
     div.replaceChildren();
-    const abiertas = lobbies.filter(l => l.status !== 'playing');
-    const enCurso = lobbies.filter(l => l.status === 'playing');
+    if (!lobbies.length) {
+        const p = document.createElement('p');
+        p.className = 'lobby-empty';
+        p.textContent = 'No hay salas ahora mismo.';
+        div.append(p);
+        return;
+    }
+    // Un estado que no conozco (otra versión del servidor) cuenta como «en espera».
+    const estado = (l) => ESTADOS_SALA[l.status] ? l.status : 'waiting';
+    const orden = [...lobbies].sort((a, b) =>
+        ESTADOS_SALA[estado(a)].orden - ESTADOS_SALA[estado(b)].orden || b.player_count - a.player_count);
 
-    const fila = (l, enPartida) => {
+    for (const l of orden) {
+        const st = estado(l);
+        const mirar = st !== 'waiting' || l.player_count >= l.max_players;
+        const accion = mirar ? 'Entrarás a mirar' : 'Entrarás a jugar';
+        const miran = l.spectators > 0 ? ` · 👁 ${l.spectators}` : '';
+
         const row = document.createElement('button');
         row.type = 'button';
-        row.className = 'lobby-row' + (enPartida ? ' en-curso' : '');
+        row.className = 'lobby-row';
+        // El nombre accesible lo dice todo de una vez (la etiqueta no es solo color).
+        row.setAttribute('aria-label',
+            `Sala ${l.id.split('').join(' ')}, ${ESTADOS_SALA[st].texto}, ${l.player_count} de ${l.max_players} jugadores`
+            + `${l.spectators > 0 ? `, ${l.spectators} mirando` : ''}. ${accion}`);
+        const head = document.createElement('span');
+        head.className = 'lr-head';
         const code = document.createElement('span');
         code.className = 'lr-code';
         code.textContent = l.id;
+        const tag = document.createElement('span');
+        tag.className = `lr-tag ${st}`;
+        tag.textContent = ESTADOS_SALA[st].texto;
+        head.append(code, tag);
         const count = document.createElement('span');
         count.className = 'lr-count';
-        if (enPartida) {
-            const quien = l.player_count === 1 ? '1 jugador' : `${l.player_count} jugadores`;
-            const miran = l.spectators > 0 ? ` · 👁 ${l.spectators}` : '';
-            count.textContent = `En partida · ${quien}${miran}`;
-            const mirar = document.createElement('span');
-            mirar.className = 'lr-mirar';
-            mirar.textContent = 'Mirar';
-            count.append(mirar);
-        } else {
-            count.textContent = `${l.player_count}/${l.max_players}`;
-        }
-        row.append(code, count);
+        count.textContent = `${l.player_count}/${l.max_players}${miran}`;
+        const que = document.createElement('span');
+        que.className = 'lr-accion';
+        que.textContent = accion;
+        row.append(head, count, que);
         row.onclick = () => {
             document.getElementById('lobbyCode').value = l.id;
-            joinLobby();
+            joinLobby(mirar);
         };
-        return row;
-    };
-    const titulo = (texto) => {
-        const t = document.createElement('div');
-        t.className = 'lobby-section';
-        t.textContent = texto;
-        return t;
-    };
-    const vacio = (texto) => {
-        const p = document.createElement('p');
-        p.className = 'lobby-empty';
-        p.textContent = texto;
-        return p;
-    };
-
-    div.append(titulo('Para jugar'));
-    if (abiertas.length) abiertas.forEach(l => div.append(fila(l, false)));
-    else div.append(vacio('No hay salas abiertas ahora mismo.'));
-    div.append(titulo('Partidas en curso · entrar a mirar'));
-    if (enCurso.length) enCurso.forEach(l => div.append(fila(l, true)));
-    else div.append(vacio('Ninguna partida en curso.'));
+        div.append(row);
+    }
 }
 
 // Mientras «Unirse» está abierto, la lista se refresca sola: una partida que
-// empieza o acaba aparece sin tener que pulsar «Actualizar».
+// empieza o acaba aparece sin tener que pulsar «Actualizar». Cada 2 s: la cuenta
+// atrás dura 3, así que «empezando» llega a verse.
 setInterval(() => {
     if (document.getElementById('joinScreen')?.classList.contains('active')
         && ws && ws.readyState === WebSocket.OPEN
         && document.visibilityState === 'visible') {
         refreshLobbies();
     }
-}, 4000);
+}, 2000);
 
-function joinLobby() {
+/** `spectate`: entrar a mirar aunque haya sitio (lo pide la lista; el botón
+ *  «Unirse» y el QR no lo mandan, y entran a jugar si hay hueco). */
+function joinLobby(spectate) {
     const nickname = requireNickname();
     if (!nickname) return;
     const code = document.getElementById('lobbyCode').value.trim().toUpperCase();
@@ -2916,7 +2945,8 @@ function joinLobby() {
         return;
     }
     cancelQuickMatchOffer();
-    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined });
+    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined,
+           spectate: spectate === true || undefined });
 }
 
 /** Host y jugador que se une llegan al lobby por mensajes distintos
@@ -2925,9 +2955,9 @@ function joinLobby() {
 function onEnteredLobby(lobbyId) {
     rejoinInFlight = false;
     rememberLobby(lobbyId);
-    // Llegaste con la partida empezada: no hay sala de espera que enseñar, el
-    // `game_start` que viene detrás pinta el tablero.
-    if (soyEspectador) { stopScanner(); return; }
+    // Mirando se ve la sala de espera igual (lista, chat y el botón para jugar);
+    // si la partida ya está en marcha, el `game_start` que viene detrás pinta
+    // el tablero encima.
     prepararSala(lobbyId);
     stopScanner();
     showScreen('lobbyScreen');
@@ -3165,6 +3195,8 @@ function leaveLobby() {
     isReady = false;
     // Si mirabas (o esperabas plaza), ya no.
     soyEspectador = false;
+    enCola = false;
+    rolPedido = 0;
     aplicarModoEspectador();
     document.getElementById('lobbyScreen')?.classList.remove('espera-hueco');
     const banda = document.getElementById('huecoBanda');
@@ -3299,6 +3331,41 @@ function sendChat(ev) {
     input.focus();
 }
 
+// ─── Jugar o mirar ───────────────────────────────────────────────────────
+// `enCola`: miras y te sentarás solo en cuanto haya hueco (llegaste con la mesa
+// llena o la partida en marcha, o lo pediste). Mirar por gusto no es cola.
+let enCola = false, rolPedido = 0;
+
+/** El botón de la sala (jugador → «Pasar a espectador»; mirando → «Quiero jugar»;
+ *  en cola → «Salir de la cola»), el aviso de arriba y el botón del tablero. */
+function pintarRol(mirandoEnSala, status) {
+    const btn = document.getElementById('rolBtn');
+    if (btn) {
+        // Los jugadores no pueden dejar una partida en marcha desde aquí.
+        btn.hidden = !soyEspectador && status === 'playing';
+        btn.textContent = !soyEspectador ? '👁 Pasar a espectador' : enCola ? 'Salir de la cola' : '🪑 Quiero jugar';
+    }
+    const banda = document.getElementById('huecoBanda');
+    if (banda) {
+        banda.hidden = !mirandoEnSala;
+        banda.textContent = enCola
+            ? 'La sala está llena: te sentarás en cuanto haya un hueco. Si antes empieza otra partida, la verás desde el principio.'
+            : 'Estás mirando. Pulsa «Quiero jugar» cuando quieras sentarte.';
+    }
+    const b = document.getElementById('rolPartidaBtn');
+    if (b) {
+        b.textContent = enCola ? '✓ Jugarás la próxima' : 'Jugar la próxima';
+        b.setAttribute('aria-pressed', String(enCola));
+    }
+}
+
+function cambiarRol() {
+    // Sentado: pasar a mirar. Mirando: pedir sitio; en cola: dejar la cola.
+    const mirar = !soyEspectador || enCola;
+    if (!soyEspectador) { rolPedido = Date.now(); isReady = false; pintarListo(); }
+    send({ type: 'set_spectator', spectate: mirar });
+}
+
 function onLobbyUpdate(msg) {
     mirones = msg.spectators ?? 0;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
@@ -3306,15 +3373,23 @@ function onLobbyUpdate(msg) {
     const sentado = msg.players.some(p => p.id === currentPlayerId);
     if (soyEspectador && sentado) {
         soyEspectador = false;
+        isReady = false;
         aplicarModoEspectador();
         onEnteredLobby(currentLobbyId);
+    } else if (!soyEspectador && !sentado && msg.status !== 'playing' && Date.now() - rolPedido < 5000) {
+        // Acabas de pasarte a espectador: el servidor te sacó de la mesa.
+        rolPedido = 0;
+        soyEspectador = true;
+        isReady = false;
+        seatToken = null;
+        aplicarModoEspectador();
     }
-    // Esperando plaza: eres de la sala pero la mesa estaba llena al acabar la
-    // partida. Se ve la sala y el chat, sin «Listo» ni bots, y te sientas solo.
-    const esperandoHueco = soyEspectador && !sentado && msg.status === 'waiting';
+    // Esperando plaza (la mesa llena) o mirando por gusto: se ve la sala y el
+    // chat, sin «Listo» ni bots.
+    enCola = soyEspectador && (msg.queue || []).includes(currentPlayerId);
+    const esperandoHueco = soyEspectador && !sentado && msg.status !== 'playing';
     document.getElementById('lobbyScreen')?.classList.toggle('espera-hueco', esperandoHueco);
-    const banda = document.getElementById('huecoBanda');
-    if (banda) banda.hidden = !esperandoHueco;
+    pintarRol(esperandoHueco, msg.status);
     document.getElementById('playerCount').textContent = msg.players.length;
     document.getElementById('maxPlayersDisplay').textContent = msg.max_players;
     document.getElementById('readyCount').textContent =
@@ -3525,8 +3600,14 @@ function aplicarModoEspectador() {
         salir.type = 'button';
         salir.textContent = 'Salir de la sala';
         salir.onclick = () => { stopMusic(); leaveLobby(); };
-        banda.append(texto, salir);
+        // Alterna esperar plaza para la próxima partida (`enCola`).
+        const jugar = document.createElement('button');
+        jugar.type = 'button';
+        jugar.id = 'rolPartidaBtn';
+        jugar.onclick = () => send({ type: 'set_spectator', spectate: enCola });
+        banda.append(texto, jugar, salir);
         board.prepend(banda);
+        pintarRol(false, 'playing');
     } else if (!soyEspectador && banda) {
         banda.remove();
     }

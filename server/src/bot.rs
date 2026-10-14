@@ -986,6 +986,7 @@ async fn spawn_bot_inner(state: &AppState, lobby_id: &str, difficulty: Difficult
             rating_key: None,
             taunt: None,
             seat_token: None,
+            spectate: false,
         },
         id,
         &mut current_lobby,
@@ -1006,6 +1007,12 @@ async fn spawn_bot_inner(state: &AppState, lobby_id: &str, difficulty: Difficult
             p.is_bot = true;
             p.bot_level = Some(difficulty);
             tracing::info!("🤖 {} entró en {} ({:?})", p.nickname, lobby_id, difficulty);
+        } else {
+            // La mesa se llenó entre medias: entró mirando, y un bot no mira.
+            lobby.remove_player(&id);
+            lobby.commit().await;
+            state.connections.write().await.remove(&id);
+            return None;
         }
         lobby.commit().await;
     }
