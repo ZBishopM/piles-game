@@ -124,7 +124,10 @@ const cerrar = (...cs) => cs.forEach(c => c.ws.close());
   // Ana (jugadora) pasa a mirar: su sitio es para Caro3 (cola), no para Dani3 (voluntario).
   const m0 = a.msgs.length;
   send(a, { type: 'set_spectator', spectate: true });
-  await wait(500);
+  // Se espera al lobby_update donde Ana3 ya no juega (con un servidor remoto, 500 ms fijos no bastan siempre).
+  await esperar(a, m => a.msgs.indexOf(m) >= m0 && m.type === 'lobby_update' && !m.players.some(p => p.nickname === 'Ana3'), 4000);
+  await esperar(c, m => m.type === 'seat_token', 4000);
+  await wait(200);
   const ua = ultimaDe(a, 'lobby_update');
   ok(!ua.players.some(p => p.nickname === 'Ana3') && ua.players.some(p => p.nickname === 'Caro3') && !ua.players.some(p => p.nickname === 'Dani3'),
      `Ana3 pasa a mirar; el hueco es de Caro3 y no de Dani3 (${jugadores()})`);
