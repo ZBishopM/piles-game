@@ -124,6 +124,15 @@ pub enum ClientMessage {
         nickname: String,
         keep_waiting: bool,
     },
+    /// Abrir una votación para echar de la sala de espera a otra persona sentada
+    /// (`target` es su id). Solo puede quien lleva más tiempo sentado.
+    StartKick {
+        target: String,
+    },
+    /// Voto en esa votación (`ServerMessage::KickPoll`). Un No la cancela.
+    KickVote {
+        yes: bool,
+    },
     /// Ping para mantener la conexión viva.
     ///
     /// Trae de vuelta la última ida y vuelta que midió el propio cliente: el
@@ -194,7 +203,30 @@ pub enum ServerMessage {
         /// Ids de quienes miran y se sentarán solos en cuanto haya hueco (los que
         /// miran por gusto no salen). El botón de rol del cliente lo lee.
         queue: Vec<String>,
+        /// Id de quien lleva más tiempo sentado (una persona): el único que
+        /// puede abrir una votación para echar a alguien (`StartKick`).
+        oldest: Option<String>,
     },
+    /// Hay una votación abierta para echar a `target`. Se manda al abrirla y en
+    /// cada voto; `seconds` es lo que queda. Votan `voters` (apodos; el que la
+    /// abrió ya cuenta como Sí) y `yes` son los que ya dijeron Sí.
+    KickPoll {
+        target: String,
+        nickname: String,
+        initiator: String,
+        seconds: u64,
+        voters: Vec<String>,
+        yes: Vec<String>,
+    },
+    /// Se cerró la votación por `nickname`. `result`: `expulsado`, `rechazado`
+    /// (alguien dijo No), `tiempo`, `salio` (se fue el votado) o `cancelada`
+    /// (empezó la partida o se fue quien la abrió).
+    KickPollEnded {
+        nickname: String,
+        result: String,
+    },
+    /// Te han echado de la sala: ya no estás en ella y no puedes volver en 5 min.
+    Kicked,
     /// Las cartas de la partida (id → prenda y nombre), una vez al entrar a
     /// mirar y al arrancar una partida a quien esperaba hueco. Con esto basta
     /// para dibujar cualquier mano a partir de ids. No va a los jugadores.
@@ -565,6 +597,7 @@ mod tests {
             pool: crate::elo::Pool::Fun,
             status: "waiting".to_string(),
             queue: vec![],
+            oldest: None,
         };
         let j = serde_json::to_value(&msg).unwrap();
         assert_eq!(j["type"], "lobby_update");
@@ -575,7 +608,7 @@ mod tests {
         assert!(j["players"][2]["elo"].is_null(), "sin clave de Elo no hay chip");
         let glory = serde_json::to_value(&ServerMessage::LobbyUpdate {
             players: vec![], ready_count: 0, max_players: 4, spectators: 0, pool: crate::elo::Pool::Glory,
-            status: "playing".to_string(), queue: vec![],
+            status: "playing".to_string(), queue: vec![], oldest: None,
         }).unwrap();
         assert_eq!(glory["pool"], "glory");
     }

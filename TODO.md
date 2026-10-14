@@ -40,6 +40,8 @@ los problemas de sincronización.
 
 ---
 
+- [ ] Votación para echar: no se puede votar a espectadores, y quien recarga a media votación no la ve (llega en el siguiente voto)
+
 ## 🤖 Afinar los bots
 
 Los cuatro mandos están en `Difficulty::knobs()` (`server/src/bot.rs`). Son

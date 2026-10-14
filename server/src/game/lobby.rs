@@ -39,6 +39,52 @@ pub struct Encuesta {
     pub desde: Instant,
 }
 
+/// Cuánto dura la votación para echar a alguien de la sala de espera.
+pub const KICK_PERIOD: Duration = Duration::from_secs(15);
+
+/// Tras una votación que no echó a nadie, quien la abrió no puede repetirla
+/// contra la misma persona durante este rato (para que no sirva de acoso).
+pub const KICK_COOLDOWN: Duration = Duration::from_secs(30);
+
+/// Cuánto no puede volver a esa sala quien fue echado (como jugador ni mirando).
+pub const KICK_BAN: Duration = Duration::from_secs(5 * 60);
+
+/// La votación para echar a `target` de la sala de espera. Votan todas las
+/// personas sentadas salvo él; quien la abrió cuenta como Sí. Se echa si **todos**
+/// dicen Sí; un solo No o agotar `KICK_PERIOD` la tumba.
+#[derive(Debug, Clone)]
+pub struct KickPoll {
+    pub target: Uuid,
+    pub target_nick: String,
+    pub initiator: Uuid,
+    pub initiator_nick: String,
+    pub voters: Vec<Uuid>,
+    pub yes: Vec<Uuid>,
+    /// Apodo de cada votante al abrirla: en la sala de espera quien recarga la
+    /// página deja su asiento y vuelve con otro id, y así recupera su voto.
+    pub voter_nicks: Vec<(Uuid, String)>,
+    pub desde: Instant,
+}
+
+/// Cómo acabó una votación (`result`: ver `ServerMessage::KickPollEnded`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KickEnd {
+    pub result: &'static str,
+    pub target: Uuid,
+    pub nickname: String,
+}
+
+/// Quien fue echado, con todo lo que lo identifica al volver (el id cambia en
+/// cada conexión; el apodo, la clave de Elo y el secreto del asiento no).
+#[derive(Debug, Clone)]
+pub struct Expulsado {
+    pub nickname: String,
+    pub rating_key: Option<String>,
+    pub seat_token: Option<String>,
+    /// Cuándo lo echaron: el castigo dura `KICK_BAN` desde aquí.
+    pub desde: Instant,
+}
+
 /// Lo que hace un voto.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Voto {
@@ -186,6 +232,12 @@ pub struct Lobby {
     pub countdown: Option<u64>,
     /// Contador de generaciones: cada cuenta atrás nueva toma el siguiente.
     pub countdown_seq: u64,
+    /// La votación para echar a alguien, si hay una (solo una por sala).
+    pub kick: Option<KickPoll>,
+    /// A quién se echó de esta sala: no vuelve a entrar (ni a mirar).
+    pub expulsados: Vec<Expulsado>,
+    /// (quien votó, a quién, hasta cuándo): el enfriamiento de `KICK_COOLDOWN`.
+    pub kick_enfriamiento: Vec<(String, String, Instant)>,
 }
 
 impl Lobby {
@@ -223,7 +275,133 @@ impl Lobby {
             encuestas: HashMap::new(),
             countdown: None,
             countdown_seq: 0,
+            kick: None,
+            expulsados: Vec::new(),
+            kick_enfriamiento: Vec::new(),
         }
+    }
+
+    // ── Votación para echar a alguien de la sala de espera ──
+
+    /// Quién puede abrir la votación: la persona sentada que lleva más tiempo.
+    /// `players` conserva el orden en que cada uno se sentó (un mirón que se
+    /// sienta va al final; `rebind_seat` no mueve a nadie), así que no hace
+    /// falta ningún campo de antigüedad.
+    pub fn oldest_human(&self) -> Option<Uuid> {
+        self.players.iter()
+            .find(|p| !p.is_bot && p.disconnected_at.is_none())
+            .map(|p| p.id)
+    }
+
+    /// Abre la votación de `initiator` contra `target`. Si ya la decide el
+    /// propio iniciador (no hay nadie más que vote) devuelve cómo acabó.
+    pub fn start_kick(&mut self, initiator: Uuid, target: Uuid) -> Result<Option<KickEnd>, String> {
+        if self.status != LobbyStatus::Waiting {
+            return Err("Solo se puede votar en la sala de espera".to_string());
+        }
+        if self.kick.is_some() {
+            return Err("Ya hay una votación en marcha".to_string());
+        }
+        if self.oldest_human() != Some(initiator) {
+            return Err("Solo quien lleva más tiempo sentado puede abrir la votación".to_string());
+        }
+        let Some(t) = self.players.iter().find(|p| p.id == target && !p.is_bot && p.id != initiator) else {
+            return Err("Solo se puede votar para echar a otra persona sentada".to_string());
+        };
+        let (target_nick, initiator_nick) = (
+            t.nickname.clone(),
+            self.players.iter().find(|p| p.id == initiator).map(|p| p.nickname.clone()).unwrap_or_default(),
+        );
+        let ahora = Instant::now();
+        self.kick_enfriamiento.retain(|(_, _, hasta)| *hasta > ahora);
+        if let Some((_, _, hasta)) = self.kick_enfriamiento.iter()
+            .find(|(i, t, _)| *i == initiator_nick && *t == target_nick)
+        {
+            return Err(format!("Espera {} s para volver a votar a {target_nick}", (*hasta - ahora).as_secs() + 1));
+        }
+        let voters: Vec<Uuid> = self.players.iter()
+            .filter(|p| !p.is_bot && p.disconnected_at.is_none() && p.id != target)
+            .map(|p| p.id)
+            .collect();
+        let voter_nicks = self.players.iter()
+            .filter(|p| voters.contains(&p.id)).map(|p| (p.id, p.nickname.clone())).collect();
+        self.kick = Some(KickPoll {
+            target, target_nick, initiator, initiator_nick, voters, yes: vec![initiator], voter_nicks, desde: ahora,
+        });
+        Ok(self.kick_tick())
+    }
+
+    /// El voto de `voter`. `None` si no hay votación o a él no le toca votar;
+    /// si no, `Some(Some(fin))` cuando el voto la cierra y `Some(None)` si sigue.
+    pub fn kick_vote(&mut self, voter: &Uuid, yes: bool) -> Option<Option<KickEnd>> {
+        let k = self.kick.as_mut()?;
+        if !k.voters.contains(voter) {
+            return None;
+        }
+        if !yes {
+            let k = self.kick.take()?;
+            return Some(Some(self.kick_close(k, "rechazado")));
+        }
+        if !k.yes.contains(voter) {
+            k.yes.push(*voter);
+        }
+        Some(self.kick_tick())
+    }
+
+    /// Revisa la votación contra el estado de la sala y la cierra si toca: ya
+    /// dijeron Sí todos los votantes que siguen aquí (se fue alguien: se
+    /// recalcula con los que quedan), se acabó el plazo, se fue el votado o quien
+    /// la abrió, o empezó la partida. La llama la tarea de la votación cada 250 ms
+    /// y también cada voto.
+    pub fn kick_tick(&mut self) -> Option<KickEnd> {
+        let k = self.kick.clone()?;
+        let aqui = |id: &Uuid| self.players.iter().any(|p| p.id == *id && p.disconnected_at.is_none());
+        let result = if self.status != LobbyStatus::Waiting || !aqui(&k.initiator) {
+            "cancelada"
+        } else if !self.players.iter().any(|p| p.id == k.target) {
+            "salio"
+        } else if k.voters.iter().filter(|v| aqui(v)).all(|v| k.yes.contains(v)) {
+            "expulsado"
+        } else if k.desde.elapsed() >= KICK_PERIOD {
+            "tiempo"
+        } else {
+            return None;
+        };
+        self.kick = None;
+        Some(self.kick_close(k, result))
+    }
+
+    /// Aplica el final: si se echa, fuera de la sala y apuntado para que no
+    /// vuelva; si no, enfriamiento para el mismo par (salvo que el votado se
+    /// fuera solo).
+    fn kick_close(&mut self, k: KickPoll, result: &'static str) -> KickEnd {
+        self.kick = None;
+        if result == "expulsado" {
+            if let Some(p) = self.players.iter().find(|p| p.id == k.target) {
+                self.expulsados.push(Expulsado {
+                    nickname: p.nickname.clone(),
+                    rating_key: p.rating_key.clone(),
+                    seat_token: p.seat_token.clone(),
+                    desde: Instant::now(),
+                });
+            }
+            self.remove_player(&k.target);
+        } else if result != "salio" {
+            self.kick_enfriamiento.push((k.initiator_nick, k.target_nick.clone(), Instant::now() + KICK_COOLDOWN));
+        }
+        KickEnd { result, target: k.target, nickname: k.target_nick }
+    }
+
+    /// Si lo echaron de esta sala hace menos de `KICK_BAN`, cuánto le falta.
+    /// Se le reconoce por apodo, por clave de Elo (el mismo navegador con otro
+    /// apodo) o por el secreto de su asiento. `ahora` se pasa para poder probarlo.
+    pub fn expulsion_restante(&self, nickname: &str, rating_key: Option<&str>, seat_token: Option<&str>, ahora: Instant) -> Option<Duration> {
+        self.expulsados.iter()
+            .filter(|e| e.nickname == nickname
+                || (rating_key.is_some() && e.rating_key.as_deref() == rating_key)
+                || (seat_token.is_some() && e.seat_token.as_deref() == seat_token))
+            .filter_map(|e| KICK_BAN.checked_sub(ahora.saturating_duration_since(e.desde)).filter(|d| !d.is_zero()))
+            .max()
     }
 
     /// Abre la encuesta por `caido`: votan las personas conectadas que no son
@@ -332,6 +510,19 @@ impl Lobby {
 
         let mut nuevo = nuevo;
         nuevo.seat_token = Some(new_seat_token());
+        // Con una votación abierta, quien vuelve con el apodo de un votante que
+        // se fue (una recarga) recupera su sitio en ella y su voto.
+        if let Some(k) = self.kick.as_mut() {
+            let (players, nuevo_id) = (&self.players, nuevo.id);
+            if let Some((viejo, _)) = k.voter_nicks.iter_mut()
+                .find(|(v, n)| *n == nuevo.nickname && !players.iter().any(|p| p.id == *v))
+            {
+                let old = std::mem::replace(viejo, nuevo_id);
+                for v in k.voters.iter_mut().chain(k.yes.iter_mut()) {
+                    if *v == old { *v = nuevo_id; }
+                }
+            }
+        }
         self.players.push(nuevo);
         self.empty_since = None;
         // Ya no están todos listos: si había cuenta atrás, se corta.
@@ -503,8 +694,16 @@ impl Lobby {
                 self.empty_since = Some(Instant::now());
             }
         } else if self.status == LobbyStatus::Ready {
-            // Revalidar: si alguien se fue, volver a Waiting
+            // Revalidar: si alguien se fue con la cuenta atrás abierta, se
+            // cancela (y no se reabre hasta que alguien se marque de nuevo).
             self.status = LobbyStatus::Waiting;
+        } else if self.status == LobbyStatus::Waiting
+            && self.players.len() >= 2 && self.players.iter().all(|p| p.is_ready)
+        {
+            // Se fue (o lo echaron) el único que no estaba listo: ya lo está
+            // todo. Quien llama abre la cuenta atrás (`countdown_sync`), como
+            // cuando el último pulsa «Listo».
+            self.status = LobbyStatus::Ready;
         }
 
         Some(nickname)
@@ -636,6 +835,16 @@ impl Lobby {
         // él. Si la encuesta era por él, la cierra `run_vote`: ya volvió.
         for enc in self.encuestas.values_mut() {
             for v in enc.votantes.iter_mut().chain(enc.si.iter_mut()) {
+                if *v == old_id { *v = new_id; }
+            }
+        }
+
+        // Y en la votación para echar a alguien, si es parte de ella.
+        if let Some(k) = self.kick.as_mut() {
+            for v in k.voters.iter_mut().chain(k.yes.iter_mut()).chain([&mut k.target, &mut k.initiator]) {
+                if *v == old_id { *v = new_id; }
+            }
+            for (v, _) in k.voter_nicks.iter_mut() {
                 if *v == old_id { *v = new_id; }
             }
         }
@@ -1004,6 +1213,240 @@ mod tests {
         let e = &l.encuestas[&ids["Daixi"]];
         assert!(e.votantes.contains(&nueva) && e.si.contains(&nueva));
         assert_eq!(l.votar(&nueva, "Daixi", false), Some(Voto::Cancelar), "puede seguir votando con su conexión nueva");
+    }
+
+    // ── Votación para echar a alguien ──
+
+    /// Sala en espera con estas personas por orden de llegada.
+    fn sala_de(nombres: &[&str]) -> (Lobby, HashMap<String, Uuid>) {
+        let mut l = Lobby::new("KICKKK".to_string(), 8);
+        let mut ids = HashMap::new();
+        for n in nombres {
+            let id = Uuid::new_v4();
+            l.add_player(id, n.to_string()).unwrap();
+            ids.insert(n.to_string(), id);
+        }
+        (l, ids)
+    }
+    fn con_bot(l: &mut Lobby) -> Uuid {
+        let id = Uuid::new_v4();
+        l.add_player(id, "🤖 Bot".to_string()).unwrap();
+        l.players.last_mut().unwrap().is_bot = true;
+        id
+    }
+
+    #[test]
+    fn solo_el_mas_antiguo_abre_la_votacion_y_el_bot_no_cuenta() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        let bot = con_bot(&mut l);
+        assert!(l.start_kick(ids["Beto"], ids["Caro"]).is_err(), "Beto no es el más antiguo");
+        assert!(l.start_kick(ids["Ana"], bot).is_err(), "los bots no se votan");
+        assert!(l.start_kick(ids["Ana"], ids["Ana"]).is_err(), "no se vota a uno mismo");
+        assert!(l.start_kick(ids["Ana"], Uuid::new_v4()).is_err(), "ni a un desconocido");
+        // Un bot sentado antes tampoco es «el más antiguo».
+        let (mut l2, ids2) = sala_de(&[]);
+        let b = con_bot(&mut l2);
+        let ana = Uuid::new_v4();
+        l2.add_player(ana, "Ana".into()).unwrap();
+        assert_eq!(l2.oldest_human(), Some(ana));
+        assert_ne!(l2.oldest_human(), Some(b));
+        let _ = ids2;
+        assert_eq!(l.start_kick(ids["Ana"], ids["Caro"]).unwrap(), None, "con Beto por votar sigue abierta");
+        assert!(l.start_kick(ids["Ana"], ids["Beto"]).is_err(), "una sola votación a la vez");
+    }
+
+    #[test]
+    fn un_espectador_no_se_vota_ni_vota_y_cuenta_desde_que_se_sienta() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto"]);
+        l.status = LobbyStatus::Playing;
+        let mirón = Uuid::new_v4();
+        l.add_player(mirón, "Mirón".into()).unwrap();
+        l.status = LobbyStatus::Waiting;
+        assert!(l.start_kick(ids["Ana"], mirón).is_err(), "un espectador no se vota");
+        l.promote_spectators();
+        assert_eq!(l.players.last().unwrap().id, mirón, "se sienta el último: es el más nuevo");
+        assert_eq!(l.oldest_human(), Some(ids["Ana"]));
+        // Votan Ana y Beto, no el votado (Mirón): unanimidad entre los dos.
+        l.start_kick(ids["Ana"], mirón).unwrap();
+        assert_eq!(l.kick.as_ref().unwrap().voters.len(), 2);
+        assert_eq!(l.kick_vote(&mirón, true), None, "el votado no vota");
+    }
+
+    #[test]
+    fn unanimidad_menos_el_votado_echa_y_un_no_la_cancela() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro", "Dani"]);
+        con_bot(&mut l);
+        l.start_kick(ids["Ana"], ids["Dani"]).unwrap();
+        assert_eq!(l.kick_vote(&ids["Beto"], true), Some(None), "falta Caro");
+        let fin = l.kick_vote(&ids["Caro"], true).unwrap().expect("todos Sí: se cierra");
+        assert_eq!((fin.result, fin.nickname.as_str()), ("expulsado", "Dani"));
+        assert!(l.kick.is_none() && !l.players.iter().any(|p| p.id == ids["Dani"]), "Dani ya no está");
+
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro", "Dani"]);
+        l.start_kick(ids["Ana"], ids["Dani"]).unwrap();
+        l.kick_vote(&ids["Beto"], true);
+        let fin = l.kick_vote(&ids["Caro"], false).unwrap().expect("un No la cierra");
+        assert_eq!(fin.result, "rechazado");
+        assert!(l.players.iter().any(|p| p.id == ids["Dani"]), "nadie sale");
+        assert_eq!(l.kick_vote(&ids["Beto"], true), None, "ya no hay votación");
+        assert_eq!(l.kick_vote(&Uuid::new_v4(), true), None);
+    }
+
+    #[test]
+    fn el_tiempo_sin_unanimidad_falla() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        assert_eq!(l.kick_tick(), None, "aún hay plazo");
+        l.kick.as_mut().unwrap().desde = Instant::now() - KICK_PERIOD;
+        assert_eq!(l.kick_tick().unwrap().result, "tiempo");
+        assert!(l.players.iter().any(|p| p.id == ids["Caro"]));
+    }
+
+    #[test]
+    fn con_dos_personas_el_iniciador_basta() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto"]);
+        con_bot(&mut l);
+        let fin = l.start_kick(ids["Ana"], ids["Beto"]).unwrap().expect("nadie más vota");
+        assert_eq!(fin.result, "expulsado");
+        assert_eq!(l.players.len(), 2, "quedan Ana y el bot");
+    }
+
+    #[test]
+    fn solo_en_la_sala_de_espera_y_se_cancela_al_empezar() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        // Todos listos: arranca la partida con la votación abierta.
+        for id in ids.values() { l.set_player_ready(id, true).unwrap(); }
+        // Ya en la cuenta atrás (`Ready`) se cancela, sin esperar a que reparta.
+        assert_eq!(l.clone().kick_tick().unwrap().result, "cancelada");
+        l.start_game().unwrap();
+        assert_eq!(l.kick_tick().unwrap().result, "cancelada");
+        assert!(l.players.iter().any(|p| p.id == ids["Caro"]));
+        assert!(l.start_kick(ids["Ana"], ids["Beto"]).is_err(), "con partida en curso no se abre");
+    }
+
+    #[test]
+    fn si_se_va_alguien_se_recalcula() {
+        // Se va un votante: si los que quedan ya dijeron Sí, procede.
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro", "Dani"]);
+        l.start_kick(ids["Ana"], ids["Dani"]).unwrap();
+        l.kick_vote(&ids["Beto"], true);
+        l.remove_player(&ids["Caro"]);
+        assert_eq!(l.kick_tick().unwrap().result, "expulsado");
+        // Se va el votado: se cierra sin enfriamiento.
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.remove_player(&ids["Caro"]);
+        assert_eq!(l.kick_tick().unwrap().result, "salio");
+        assert!(l.kick_enfriamiento.is_empty());
+        // Se va quien la abrió: se cancela.
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.remove_player(&ids["Ana"]);
+        assert_eq!(l.kick_tick().unwrap().result, "cancelada");
+        assert_eq!(l.oldest_human(), Some(ids["Beto"]), "ahora el más antiguo es Beto");
+        l.start_kick(ids["Beto"], ids["Caro"]).expect("Beto puede abrir la suya");
+    }
+
+    #[test]
+    fn echar_al_unico_que_no_esta_listo_abre_la_cuenta_atras() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.set_player_ready(&ids["Ana"], true).unwrap();
+        l.set_player_ready(&ids["Beto"], true).unwrap();
+        assert_eq!(l.status, LobbyStatus::Waiting, "Caro no está listo");
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.kick_vote(&ids["Beto"], true).unwrap().expect("expulsado");
+        assert_eq!(l.status, LobbyStatus::Ready, "quedan Ana y Beto, los dos listos");
+        assert!(matches!(l.countdown_sync(), CountdownChange::Opened(_)), "arranca la cuenta atrás de siempre");
+        // Y si alguien se desmarca durante la cuenta, se cancela como siempre.
+        l.set_player_ready(&ids["Beto"], false).unwrap();
+        assert_eq!(l.countdown_sync(), CountdownChange::Cancelled);
+    }
+
+    #[test]
+    fn si_tras_echar_queda_uno_solo_no_hay_cuenta_atras() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto"]);
+        l.set_player_ready(&ids["Ana"], true).unwrap();
+        l.start_kick(ids["Ana"], ids["Beto"]).unwrap().expect("expulsado");
+        assert_eq!(l.status, LobbyStatus::Waiting);
+        assert_eq!(l.countdown_sync(), CountdownChange::None);
+    }
+
+    // El caso hermano: quien se va (o el bot que se quita) era el único sin marcar.
+    #[test]
+    fn si_se_va_el_unico_sin_marcar_queda_todo_listo() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.set_player_ready(&ids["Ana"], true).unwrap();
+        l.set_player_ready(&ids["Beto"], true).unwrap();
+        l.remove_player(&ids["Caro"]);
+        assert_eq!(l.status, LobbyStatus::Ready);
+        assert!(matches!(l.countdown_sync(), CountdownChange::Opened(_)));
+    }
+
+    #[test]
+    fn la_votacion_se_ve_con_sus_segundos_y_votos_al_entrar_tarde() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.kick.as_mut().unwrap().desde = Instant::now() - Duration::from_secs(5);
+        // Beto recarga: su id cambia pero su voto y su derecho a votar siguen.
+        let token = l.players[1].seat_token.clone().unwrap();
+        let nuevo = Uuid::new_v4();
+        l.rebind_seat(&token, nuevo);
+        let k = l.kick.as_ref().unwrap();
+        assert!(k.voters.contains(&nuevo) && !k.yes.contains(&nuevo));
+        assert!(k.desde.elapsed() >= Duration::from_secs(5) && k.desde.elapsed() < KICK_PERIOD, "los segundos salen del instante de inicio");
+        assert_eq!(l.kick_vote(&nuevo, true).unwrap().unwrap().result, "expulsado");
+    }
+
+    // En la sala de espera quien recarga deja su asiento y vuelve con otro id:
+    // recupera su sitio en la votación y su voto, sin poder votar dos veces.
+    #[test]
+    fn quien_recarga_a_media_votacion_conserva_su_voto() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro", "Dani"]);
+        l.start_kick(ids["Ana"], ids["Dani"]).unwrap();
+        l.kick_vote(&ids["Beto"], true);
+        l.remove_player(&ids["Beto"]);                       // cierra la pestaña…
+        let nuevo = Uuid::new_v4();
+        l.add_player(nuevo, "Beto".into()).unwrap();          // …y vuelve
+        let k = l.kick.as_ref().expect("sigue abierta");
+        assert!(k.voters.contains(&nuevo) && k.yes.contains(&nuevo));
+        assert!(!k.voters.contains(&ids["Beto"]));
+        assert_eq!(l.kick_vote(&nuevo, true), Some(None), "votar otra vez no suma: falta Caro");
+        assert_eq!(l.kick.as_ref().unwrap().yes.len(), 2);
+        // Otro con ese apodo cuando Beto sigue sentado no hereda nada.
+        assert!(l.add_player(Uuid::new_v4(), "Beto".into()).is_err());
+    }
+
+    #[test]
+    fn el_expulsado_no_vuelve_y_el_mismo_par_espera() {
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.players[2].rating_key = Some("anon:caro".into());
+        let token = l.players[2].seat_token.clone().unwrap();
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.kick_vote(&ids["Beto"], true).unwrap().unwrap();
+        let ahora = Instant::now();
+        let falta = |l: &Lobby, n, k, t, a| l.expulsion_restante(n, k, t, a);
+        assert!(falta(&l, "Caro", None, None, ahora).is_some(), "por apodo");
+        assert!(falta(&l, "Otro", Some("anon:caro"), None, ahora).is_some(), "por clave de Elo");
+        assert!(falta(&l, "Otro", None, Some(&token), ahora).is_some(), "por el secreto de su asiento");
+        assert!(falta(&l, "Beto", Some("anon:beto"), None, ahora).is_none());
+        let a_los_4 = ahora + Duration::from_secs(4 * 60);
+        let resto = falta(&l, "Caro", None, None, a_los_4).expect("a los 4 min sigue bloqueado");
+        assert!(resto <= Duration::from_secs(60) && resto > Duration::from_secs(55), "{resto:?}");
+        assert!(falta(&l, "Caro", None, None, ahora + KICK_BAN).is_none(), "a los 5 min puede volver");
+        assert!(falta(&l, "Caro", Some("anon:caro"), Some(&token), ahora + KICK_BAN + Duration::from_secs(1)).is_none());
+        assert!(l.rebind_seat(&token, Uuid::new_v4()).is_none(), "su asiento ya no existe");
+
+        // Enfriamiento: una votación fallida bloquea repetir el mismo par.
+        let (mut l, ids) = sala_de(&["Ana", "Beto", "Caro"]);
+        l.start_kick(ids["Ana"], ids["Caro"]).unwrap();
+        l.kick_vote(&ids["Beto"], false).unwrap().unwrap();
+        let e = l.start_kick(ids["Ana"], ids["Caro"]).unwrap_err();
+        assert!(e.starts_with("Espera"), "{e}");
+        assert!(l.start_kick(ids["Ana"], ids["Beto"]).is_ok(), "otro votado sí se puede");
+        l.kick_enfriamiento[0].2 = Instant::now() - Duration::from_secs(1);
+        l.kick = None;
+        assert!(l.start_kick(ids["Ana"], ids["Caro"]).is_ok(), "pasado el enfriamiento, sí");
     }
 
     #[test]
