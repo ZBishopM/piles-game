@@ -60,7 +60,7 @@ await wait(600);
   await A.keyboard.press('Enter');
   ok((await A.locator('#botsToggle').getAttribute('aria-expanded')) === 'false', 'con el teclado se cierra');
   await wait(400);
-  ok(!(await A.getByRole('button', { name: /Añadir bot/ }).count()), 'cerrado, «Añadir bot» no está al alcance');
+  ok(!(await A.getByRole('button', { name: /\+ BOT/ }).count()), 'cerrado, «+ BOT» no está al alcance');
   await B.locator('#readyBtn').focus();
   await B.locator('#readyBtn').click();                       // listo
   await A.waitForFunction(() => document.getElementById('readyCount').textContent.startsWith('1 de'), null, { timeout: 4000 });
@@ -76,8 +76,8 @@ await wait(600);
   await wait(500);
   ok((await A.locator('#botsToggle').getAttribute('aria-expanded')) === 'false', 'lo cerrado a mano sigue cerrado cuando llega gente');
   await A.locator('#botsToggle').click();
-  await A.getByRole('button', { name: /Añadir bot/ }).waitFor({ timeout: 2000 });
-  ok(true, 'y al abrirlo aparece «Añadir bot»');
+  await A.getByRole('button', { name: /\+ BOT/ }).waitFor({ timeout: 2000 });
+  ok(true, 'y al abrirlo aparece «+ BOT»');
   await Cx.context().close();
   await wait(400);
   // Móvil: sin desborde y con el botón a mano.
@@ -146,7 +146,7 @@ await A.screenshot({ path: path.join(capturas, 'sala-glory.png') });
 
 // ── Un bot: la clasificación pasa a For fun ────────────────────────────────
 // Se vuelve a pedir la sala real al servidor añadiendo un bot.
-await A.getByRole('button', { name: /Añadir bot/ }).click();
+await A.getByRole('button', { name: /\+ BOT/ }).click();
 await A.waitForFunction(() => /For fun/.test(document.getElementById('poolNote')?.textContent ?? ''), null, { timeout: 5000 });
 const enFun = await A.locator('#playerList .ag-rank-chip').evaluateAll(es => es.map(e => ({ rango: e.dataset.rank, titulo: e.title })));
 ok(enFun.length === 4 && enFun.every(c => c.rango === 'carton' && /For fun/.test(c.titulo)), `con un bot (Normal, 1000) todos pasan a rangos de For fun: Cartón (${enFun.map(c => c.rango)})`);

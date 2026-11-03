@@ -166,7 +166,7 @@ await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
   await foto(E, 'mirando-escritorio');
   ok(await sinDesborde(E), 'sin desborde en 1280');
   // Salir de la sala la última persona sentada: la sala persiste mientras miren.
-  await E.getByRole('button', { name: /Salir de la sala/ }).click();
+  await E.locator('#lobbyScreen .back-btn').click();
   await E.locator('#homeScreen.active').waitFor({ timeout: 3000 });
   ok(true, '«Salir de la sala» sigue funcionando mirando');
 }

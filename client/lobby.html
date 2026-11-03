@@ -10,19 +10,17 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon-192.png">
     <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
-    <!-- La hoja de sprites pesa ~535 KB y no se pide hasta que se pinta la
-         primera carta, o sea justo al empezar la partida: con conexión lenta
-         el tablero salía en blanco unos segundos. Pidiéndola ya, se descarga
-         mientras el jugador está en el menú o esperando en la sala. -->
+    <!-- con conexión lenta el medio salía en blanco un tiempo. Con esto, se descarga
+    mientras el jugador está en el menú o esperando en la sala. -->
     <link rel="preload" as="image" href="cards.webp" fetchpriority="high">
-    <!-- qr-scanner 1.4.2 (nimiq, MIT), vendorizado — sin CDN ni npm.
+    <!-- qr-scanner 1.4.2 (nimiq, MIT), vendorizado.
          sha384-np0yBqru4jLMa2u0xLtxD3WvMtkLuNiMNQwxQ8GT132ygYFONACD2xc33tx1avQz
          Usa BarcodeDetector nativo cuando existe y carga su propio worker
          (qr-scanner-worker.min.js, sha384-irhTGf70Ryc7WyNLyAljPrpg7lTLXwg5Qb
          Ysw40uLuCdAa4ziKF5DVclab4C7uxc) en el resto — iOS y Firefox incluidos.
          Ambos ficheros viven en la raíz de client/ a propósito: el worker se
          carga con un import() relativo que, desde un script clásico, se
-         resuelve contra la URL del documento (/lobby.html), no la del script. -->
+         resuelve contra la URL del documento (/lobby.html) -->
     <!-- Idiomas (es / en / zh): diccionarios y t(); ver el comentario de i18n.js. -->
     <script src="/i18n.js"></script>
     <script src="/qr-scanner.umd.min.js"></script>
@@ -1727,7 +1725,7 @@
     <div class="form-group">
         <label for="nickname" data-i18n="home.name">Tu nombre</label>
         <input type="text" id="nickname" placeholder="Ej: Jugador1" maxlength="20" data-i18n-attr="placeholder:home.nameph">
-        <small id="nameHint" style="color:var(--warning)" hidden data-i18n="home.namehint">Escribe tu nombre para poder jugar.</small>
+        <small id="nameHint" style="color:var(--warning)" hidden data-i18n="home.namehint">Elige un nombre primero</small>
     </div>
 
     <div class="home-actions">
@@ -1779,10 +1777,6 @@
         <label data-i18n="lang.label">Idioma</label>
         <div class="lang-pick" data-lang-picker></div>
     </div>
-    <p style="color:var(--text-faint);font-size:0.85rem;line-height:1.5" data-i18n="profile.footnote">
-        Sin código se juega igual, con un Elo guardado en este navegador. Al
-        vincular puedes pasarlo a tu cuenta.
-    </p>
 </div>
 
 <!-- Elegir qué Elo se queda al vincular. Lo abre linkAccountElo. -->
@@ -1822,7 +1816,7 @@
     <h2 data-i18n="host.title">🎲 Nueva sala</h2>
 
     <div class="form-group">
-        <label data-i18n="host.players">¿Cuántos jugadores?</label>
+        <label data-i18n="host.players"># Jugadores</label>
         <div class="seg-group" id="maxPlayersGroup"></div>
         <!-- createLobby() sigue leyendo este input; los botones de arriba
              solo escriben en él. -->
@@ -1830,14 +1824,14 @@
     </div>
 
     <div class="form-group">
-        <label data-i18n="host.who">¿Quién puede entrar?</label>
+        <label data-i18n="host.who">Privacidad de sala:</label>
         <div class="seg-group" id="visibilityGroup">
             <button type="button" class="seg-btn active" data-public="1"
-                    onclick="setVisibility(true)" data-i18n="host.public">🌍 Cualquiera</button>
+                    onclick="setVisibility(true)" data-i18n="host.public">🌍 Pública</button>
             <button type="button" class="seg-btn" data-public="0"
-                    onclick="setVisibility(false)" data-i18n="host.private">🔒 Solo con código</button>
+                    onclick="setVisibility(false)" data-i18n="host.private">🔒 Privada</button>
         </div>
-        <small id="visibilityHint" data-i18n="host.pubhint">Sale en la lista de salas abiertas.</small>
+        <small id="visibilityHint" data-i18n="host.pubhint">Cualquiera puede entrar</small>
     </div>
 
     <button class="btn btn-primary" onclick="createLobby()" data-i18n="host.start">Empezar</button>
@@ -1851,13 +1845,13 @@
     <h2 data-i18n="join.title">🔗 Unirse a sala</h2>
 
     <div class="form-group">
-        <label for="lobbyCode" data-i18n="join.code">Código de la sala</label>
+        <label for="lobbyCode" data-i18n="join.code">Código:</label>
         <input type="text" id="lobbyCode" placeholder="ABC123" maxlength="6" style="text-transform:uppercase">
     </div>
-    <button class="btn btn-primary" onclick="joinLobby()" data-i18n="join.btn">Unirse</button>
+    <button class="btn btn-primary" onclick="joinLobby()" data-i18n="join.btn">Entrar</button>
 
     <div class="divider" data-i18n="join.or">— o —</div>
-    <button class="btn btn-secondary" id="scanBtn" onclick="toggleScanner()" data-i18n="join.scan">📷 Escanear QR</button>
+    <button class="btn btn-secondary" id="scanBtn" onclick="toggleScanner()" data-i18n="join.scan">📷 QR</button>
     <div id="scanWrap">
         <video id="scanVideo" playsinline muted autoplay></video>
     </div>
@@ -1880,9 +1874,8 @@
 
 <!-- ════ LOBBY ════ -->
 <div id="lobbyScreen" class="screen">
-    <!-- Arriba a la izquierda, como el "Atrás" de Nueva sala y Unirse. -->
     <div class="screen-top">
-        <button type="button" class="back-btn" onclick="leaveLobby()" data-i18n="lobby.leave">← Salir de la sala</button>
+        <button type="button" class="back-btn" onclick="leaveLobby()" data-i18n="lobby.leave">← Salir</button>
     </div>
     <div id="huecoBanda" role="status" hidden></div>
     <div class="lobby-code-box">
@@ -1890,51 +1883,46 @@
         <div class="lobby-code" id="lobbyCodeDisplay">------</div>
         <img class="lobby-qr" id="lobbyQr" alt="QR para unirse a la sala" hidden data-i18n-attr="alt:lobby.qralt">
         <button class="btn btn-secondary" id="copyLinkBtn" onclick="copyJoinLink()"
-                style="max-width:220px;margin:0 auto" data-i18n="lobby.copy">📋 Copiar enlace</button>
-        <small style="display:block;margin-top:8px" data-i18n="lobby.share">Escanea el QR o comparte el enlace</small>
+                style="max-width:220px;margin:0 auto" data-i18n="lobby.copy">📋 Copiar</button>
+        <small style="display:block;margin-top:8px" data-i18n="lobby.share">Escanea o Comparte</small>
     </div>
 
     <h3 style="margin:0 0 8px;color:var(--text)"><span data-i18n="lobby.players">Jugadores</span> (<span id="playerCount">0</span>/<span id="maxPlayersDisplay">0</span>)</h3>
-    <!-- De qué clasificación es el Elo de al lado: con algún bot, For fun; solo personas, For glory. -->
+    <!-- Con bots: For fun ; con personas: For glory. -->
     <p class="pool-note" id="poolNote"></p>
     <ul class="player-list" id="playerList"></ul>
     <!-- Jugar o mirar: el mismo botón sirve en los dos sentidos (ver pintarRol). -->
     <button type="button" id="rolBtn" class="btn btn-secondary" onclick="cambiarRol()" hidden></button>
     <p id="readyCount"></p>
 
-    <!-- Chat de la sala. Solo en espera: en partida no se escribe. Lo que se
-         escribe vive en el servidor mientras la sala exista, así que quien entra
-         tarde o recarga lo recibe entero. -->
-    <section id="chatBox" aria-label="Chat de la sala" data-i18n-attr="aria-label:chat.aria">
+    <!-- Chat de la sala. Solo en espera. persiste mientras la sala exista -->
+    <section id="chatBox" aria-label="Chat" data-i18n-attr="aria-label:chat.aria">
         <div id="chatLog" role="log" aria-live="polite" data-empty="Aún no hay mensajes. Escribe el primero."
              data-i18n-attr="data-empty:chat.empty"></div>
         <form id="chatForm" onsubmit="sendChat(event)">
             <input id="chatInput" type="text" maxlength="300" autocomplete="off"
-                   enterkeyhint="send" placeholder="Escribe a la sala…" aria-label="Mensaje"
+                   enterkeyhint="send" placeholder="Escribe aquí :D" aria-label="Mensaje"
                    data-i18n-attr="placeholder:chat.ph;aria-label:chat.msg">
             <button type="submit" class="btn btn-secondary" data-i18n="chat.send">Enviar</button>
         </form>
     </section>
 
-    <!-- Oferta de bots tras una partida rápida en la que no aparece nadie.
-         Se pregunta, no se rellena por su cuenta. -->
+    <!-- Se pregunta inclusion de bots tras partida rapida sin contrincantes-->
     <div id="quickBotOffer" hidden>
-        <p data-i18n="offer.alone">Nadie más por aquí ahora mismo.</p>
-        <button class="btn btn-primary" onclick="acceptBotsOffer()" data-i18n="offer.bots">🤖 Jugar contra bots</button>
-        <button class="btn btn-secondary" onclick="cancelQuickMatchOffer()" data-i18n="offer.wait">Seguir esperando</button>
+        <p data-i18n="offer.alone">No hay oponentes dignos...</p>
+        <button class="btn btn-primary" onclick="acceptBotsOffer()" data-i18n="offer.bots">🤖 VS bots</button>
+        <button class="btn btn-secondary" onclick="cancelQuickMatchOffer()" data-i18n="offer.wait">Seguir buscando</button>
     </div>
 
-    <!-- Bots, plegados: para jugar solo, o para rellenar mientras llega gente. -->
     <div id="botControls">
         <button type="button" class="bots-head" id="botsToggle" aria-expanded="false"
                 aria-controls="botsBody" onclick="toggleBots()">
-            <span data-i18n="bots.head">🤖 Jugar con bots</span>
+            <span data-i18n="bots.head">🤖 VS bots</span>
             <span class="bots-sum" id="botsSummary" data-i18n="bots.none">Ninguno</span>
             <span class="bots-chev" aria-hidden="true">▾</span>
         </button>
         <div class="bots-body" id="botsBody">
             <div class="bots-inner"><div class="bots-pad">
-                <p data-i18n="bots.note">Para jugar solo o rellenar mientras llega gente.</p>
                 <div class="seg-group" id="botDiffGroup">
                     <button type="button" class="seg-btn" data-diff="easy"
                             onclick="setBotDifficulty('easy')" data-i18n="diff.easy">Fácil</button>
@@ -1943,7 +1931,7 @@
                     <button type="button" class="seg-btn" data-diff="hard"
                             onclick="setBotDifficulty('hard')" data-i18n="diff.hard">Difícil</button>
                 </div>
-                <button class="btn btn-secondary" onclick="addBot()" data-i18n="bots.add">🤖 Añadir bot</button>
+                <button class="btn btn-secondary" onclick="addBot()" data-i18n="bots.add">🤖 + BOT</button>
             </div></div>
         </div>
     </div>
@@ -3655,7 +3643,7 @@ function onLobbyUpdate(msg) {
         const li = document.createElement('li');
         li.className = 'player-item' + (p.is_ready ? ' ready' : '');
 
-        // Con DOM y textContent, no con innerHTML: el apodo lo escribe cualquiera.
+        // Con DOM y textContent para el apodo
         const quien = document.createElement('span');
         quien.className = 'player-who';
         const nombre = document.createElement('span');

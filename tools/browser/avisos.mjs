@@ -77,8 +77,8 @@ ok(!(await oferta(q1)), 'recién entrado, la oferta no está');
 await wait(13000);
 ok(await oferta(q1), 'tras 12 s solo, la oferta de bots aparece');
 
-// b) «Seguir esperando» la cierra y no vuelve con el siguiente lobby_update.
-await q1.getByRole('button', { name: /Seguir esperando/ }).click();
+// b) «Seguir buscando» la cierra y no vuelve con el siguiente lobby_update.
+await q1.getByRole('button', { name: /Seguir buscando/ }).click();
 ok(await q1.evaluate(() => cameFromQuickMatch === false), 'descartar la oferta apaga cameFromQuickMatch');
 await q1.evaluate(() => handleMsg({ type: 'lobby_update', players: [{ id: currentPlayerId, nickname: 'Rapido' }], max_players: 4 }));
 await wait(13000);
