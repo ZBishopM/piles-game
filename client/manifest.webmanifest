@@ -1,0 +1,16 @@
+{
+  "name": "Piles!",
+  "short_name": "Piles!",
+  "description": "Juego de cartas multijugador con QTE.",
+  "start_url": "/lobby.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060606",
+  "theme_color": "#060606",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

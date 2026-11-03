@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Piles! - Lobby</title>
+    <!-- PWA: instalable. El service worker (sw.js) es red primero; ver su comentario. -->
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#060606">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icon-192.png">
+    <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
     <!-- La hoja de sprites pesa ~535 KB y no se pide hasta que se pinta la
          primera carta, o sea justo al empezar la partida: con conexión lenta
          el tablero salía en blanco unos segundos. Pidiéndola ya, se descarga
