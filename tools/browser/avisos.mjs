@@ -71,7 +71,7 @@ const oferta = q => q.evaluate(() => !document.getElementById('quickBotOffer').h
 // a) partida rápida y nadie llega: la oferta sale.
 const q1 = await pagina(await browser.newContext({ viewport: { width: 390, height: 700 } }));
 await q1.getByPlaceholder(/Jugador1/).fill('Rapido');
-await q1.getByRole('button', { name: /Partida rápida/ }).click();
+await q1.getByRole('button', { name: /Partida rápida/ }).press("Enter");
 await q1.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 ok(!(await oferta(q1)), 'recién entrado, la oferta no está');
 await wait(13000);
@@ -87,7 +87,7 @@ ok(!(await oferta(q1)), 'un lobby_update con un jugador no la reabre tras descar
 // c) salir y crear otra sala: nada de oferta.
 await q1.evaluate(() => leaveLobby());
 await q1.evaluate(() => { cameFromQuickMatch = true; });   // peor caso: bandera sucia
-await q1.getByRole('button', { name: /Crear sala/ }).click();
+await q1.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await q1.getByRole('button', { name: /Empezar/ }).click();
 await q1.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 ok(await q1.evaluate(() => cameFromQuickMatch === false), 'crear sala apaga cameFromQuickMatch');
@@ -97,14 +97,14 @@ ok(!(await oferta(q1)), 'en la sala nueva con un jugador no sale la oferta de bo
 // d) partida rápida y salir: la bandera se apaga.
 const q2 = await pagina(await browser.newContext());
 await q2.getByPlaceholder(/Jugador1/).fill('Rapido2');
-await q2.getByRole('button', { name: /Partida rápida/ }).click();
+await q2.getByRole('button', { name: /Partida rápida/ }).press("Enter");
 await q2.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 await q2.evaluate(() => leaveLobby());
 ok(await q2.evaluate(() => cameFromQuickMatch === false), 'salir de la sala apaga cameFromQuickMatch');
 
 // e) aceptar la oferta apaga la bandera y los lobby_update siguientes no la rearman.
 await q2.getByPlaceholder(/Jugador1/).fill('Rapido3');
-await q2.getByRole('button', { name: /Partida rápida/ }).click();
+await q2.getByRole('button', { name: /Partida rápida/ }).press("Enter");
 await q2.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 await q2.evaluate(() => acceptBotsOffer());
 ok(await q2.evaluate(() => cameFromQuickMatch === false), 'aceptar la oferta apaga cameFromQuickMatch');

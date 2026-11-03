@@ -92,7 +92,7 @@ async function sesion(ancho, alto, nombre) {
   // El valor viaja en el primer mensaje al servidor.
   await p.getByRole('button', { name: 'Atrás' }).click();
   await p.getByPlaceholder(/Jugador1/).fill('Burlon');
-  await p.getByRole('button', { name: /Crear sala/ }).click();
+  await p.getByRole('button', { name: /Crear sala/ }).press("Enter");
   await p.getByRole('button', { name: /Empezar/ }).click();
   await p.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
   const cl = await p.evaluate(() => window.__sent.find(m => m.type === 'create_lobby'));

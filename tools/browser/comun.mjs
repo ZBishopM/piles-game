@@ -28,7 +28,7 @@ export async function pagina(ctx) {
 /** Crea sala con un bot y espera a estar en el tablero. Devuelve el código de la sala. */
 export async function aPartida(p, nick, dificultad = null) {
   await p.getByPlaceholder(/Jugador1/).fill(nick);
-  await p.getByRole('button', { name: /Crear sala/ }).click();
+  await p.getByRole('button', { name: /Crear sala/ }).press("Enter");
   await p.getByRole('button', { name: /Empezar/ }).click();
   await p.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
   const codigo = (await p.locator('#lobbyCodeDisplay').textContent()).trim();
