@@ -32,7 +32,7 @@ const fila = (p, nick) => p.locator('#playerList li', { has: p.locator('.player-
 
 const A = await pagina(await browser.newContext({ viewport: DESK }));
 await A.getByPlaceholder(/Jugador1/).fill('Ana');
-await A.getByRole('button', { name: /Crear sala/ }).click();
+await A.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await A.getByRole('button', { name: /Empezar/ }).click();
 await A.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 const codigo = (await A.locator('#lobbyCodeDisplay').textContent()).trim();
@@ -116,7 +116,7 @@ ok(!(await B.locator('#lobbyScreen.active').count()), 'por el enlace tampoco vue
 {
   const A2 = await pagina(await browser.newContext({ viewport: DESK }));
   await A2.getByPlaceholder(/Jugador1/).fill('Ana');
-  await A2.getByRole('button', { name: /Crear sala/ }).click();
+  await A2.getByRole('button', { name: /Crear sala/ }).press("Enter");
   await A2.getByRole('button', { name: /Empezar/ }).click();
   await A2.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
   const cod2 = (await A2.locator('#lobbyCodeDisplay').textContent()).trim();

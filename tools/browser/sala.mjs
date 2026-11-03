@@ -39,7 +39,7 @@ const lineas = p => p.locator('#chatLog .chat-line');
 const ctxA = await browser.newContext({ viewport: { width: 1100, height: 900 } });
 const A = await pagina(ctxA);
 await A.getByPlaceholder(/Jugador1/).fill('Ana');
-await A.getByRole('button', { name: /Crear sala/ }).click();
+await A.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await A.getByRole('button', { name: /Empezar/ }).click();
 await A.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 const codigo = (await A.locator('#lobbyCodeDisplay').textContent()).trim();

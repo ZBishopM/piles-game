@@ -17,7 +17,7 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const p = await pagina(ctx);
 
 await p.getByPlaceholder(/Jugador1/).fill('Lola');
-await p.getByRole('button', { name: /Crear sala/ }).click();
+await p.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await p.getByRole('button', { name: /Empezar/ }).click();
 await p.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 const codigo = (await p.locator('#lobbyCodeDisplay').textContent()).trim();

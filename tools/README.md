@@ -104,6 +104,7 @@ caché). `nu tools/grab.nu` sin argumentos imprime la ayuda.
 | Script | Comprueba |
 |---|---|
 | `toques.mjs` | Con ratón, el clic cuenta al bajar (movido, mantenido, saliendo del centro); 3 toques = 1 envío |
+| `gestos.mjs` | Gestos (`client/gestos.js`, con `piles.gestos=1` para que actúen bajo Playwright): `touch-action` de cada zona, pomo de Inicio (↑ crear), un clic no pulsa y menea el pomo, a medias vuelve, deslizar un grupo de opciones elige, 👤 se mantiene, borde izquierdo = atrás, Enter sigue valiendo, mantener = confirmar; en partida ↓↓ revela (con ↑ en el segundo se cancela), ↑↑ oculta, ← cambia de set y ningún gesto suelta carta. Capturas 390x700 `gestos-*.png` |
 | `peleas.mjs` | Una pelea ajena no pisa la propia; y el empate (mensajes inyectados `qte_tiebreak` / `qte_resolved` ampliado): rótulo «¡EMPATE! Muerte súbita» con el marcador anterior, contadores a 0, clicks finales y «Desempate al azar», aviso de espectador, `aria-live`, movimiento reducido, 390 y 1280 sin desborde (capturas `empate-*.png` en `$CAPTURAS` o la carpeta temporal) |
 | `avisos.mjs` | Dos peleas ajenas a la vez: sin ids repetidos, cada aviso mueve su barra y marcadores, apodo con `<img onerror>` como texto; y la oferta de bots tras partida rápida (sale si no llega nadie; no reaparece al descartar, salir, crear sala o aceptar). Tarda ~45 s (esperas reales de 12 s) |
 | `vigilante.mjs` | Sin `pong` el cliente reabre el socket en 8–16 s y recupera su mano |

@@ -23,6 +23,9 @@
          resuelve contra la URL del documento (/lobby.html) -->
     <!-- Idiomas (es / en / zh): diccionarios y t(); ver el comentario de i18n.js. -->
     <script src="/i18n.js"></script>
+    <!-- Gestos (deslizar para desbloquear, borde = atrás, revelar con ↓↓): ver gestos.js. -->
+    <link rel="stylesheet" href="/gestos.css">
+    <script src="/gestos.js" defer></script>
     <script src="/qr-scanner.umd.min.js"></script>
     <!-- Identidad común (github.com/ZBishopM/agapornis-ui): superficies,
          tinta, acento sage, Geist. Solo la interfaz; los efectos del juego
@@ -1987,7 +1990,9 @@
          vista y no se encontraba con las prisas. -->
     <div class="section-head">
         <p class="section-label" data-i18n="game.sets">Tus Sets</p>
-        <button id="flipBtn" onclick="flipCurrentSet()"
+        <!-- Con el dedo se revela deslizando ↓↓ sobre las cartas (gestos.js); el botón
+             queda para el teclado. -->
+        <button id="flipBtn" class="solo-teclado" onclick="flipCurrentSet()"
                 title="Mostrar este set a los demás jugadores"
                 data-i18n-attr="title:game.fliptitle" data-i18n="game.flip">👁 Revelar set</button>
     </div>
@@ -2037,14 +2042,14 @@
         <!-- Sin onclick propio: quien recibe el toque es el overlay entero, que
              ocupa la pantalla. Con el botón también escuchando, un toque encima
              contaría dos veces. `pointer-events: none` lo deja de adorno. -->
-        <button id="qteClickBtn" style="display:none" data-i18n="qte.btn">¡ C L I C K !</button>
+        <button id="qteClickBtn" style="display:none" data-toque data-i18n="qte.btn">¡ C L I C K !</button>
     </div>
     <!-- Ceder la carta. Sin texto: una bandera blanca se entiende sola.
          Hay que MANTENERLA pulsada, y eso no es un capricho: durante la pelea
          toda la pantalla es el botón de pulsar, así que cualquier cosa que se
          active con un toque se dispararía sola a los dos segundos de machacar.
          Un dedo que se queda quieto no sale por accidente. -->
-    <button id="qteGiveUpBtn" type="button" hidden
+    <button id="qteGiveUpBtn" type="button" hidden data-toque
             title="Mantén pulsado para ceder la carta"
             data-i18n-attr="title:qte.giveup;aria-label:qte.giveup">🏳️<i></i></button>
 </div>
@@ -5214,7 +5219,11 @@ function toggleMute() {
 const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
 const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 
-function bindTap(container, handler, target = '?') {
+// `alSoltar`: el toque cuenta al soltar, si no se movió más de TAP_SLOP_PX. Lo usan TUS
+// cartas: sobre ellas ↓ / ↑ / ← → son gestos (revelar el set, cambiar de set, gestos.js)
+// y, contando al bajar, cada gesto soltaba la carta donde empezaba. Las del centro siguen
+// contando al bajar: ahí se pelea por milisegundos.
+function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
     if (!container) {
         // Sin esto el juego se queda mudo y sin decir por qué.
         console.error('[piles] falta el contenedor de cartas: no habrá toques');
@@ -5247,7 +5256,7 @@ function bindTap(container, handler, target = '?') {
         // acusado aunque la respuesta tarde.
         el.classList.add('tapped');
 
-        if (e.pointerType === 'mouse' || !canScroll()) {
+        if (!alSoltar && (e.pointerType === 'mouse' || !canScroll())) {
             start.fired = true;
             handler(start.tap, el);
         }
@@ -5338,7 +5347,7 @@ function refuseTap(el) {
 bindTap(document.getElementById('centerCards'),
         (v, el) => { if (!soyEspectador) onCenterCardClick(Number(v), el); }, 'center');
 bindTap(document.getElementById('yourCards'),
-        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); }, 'own');
+        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); }, 'own', { alSoltar: true });
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar

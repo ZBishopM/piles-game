@@ -23,7 +23,7 @@ async function sala(nickA, nickB, vA, vB, extra = {}) {
   const ctxA = await browser.newContext({ viewport: vA, deviceScaleFactor: 2, ...extra });
   const A = await pagina(ctxA);
   await A.getByPlaceholder(/Jugador1/).fill(nickA);
-  await A.getByRole('button', { name: /Crear sala/ }).click();
+  await A.getByRole('button', { name: /Crear sala/ }).press("Enter");
   await A.getByRole('button', { name: /Empezar/ }).click();
   await A.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
   const codigo = (await A.locator('#lobbyCodeDisplay').textContent()).trim();
