@@ -4,8 +4,8 @@ Prototipo del nuevo menú de Piles: cada opción es una carta y, de fondo, una p
 cuatro personas a cámara lenta cuya cámara cambia con cada menú. Se ve publicado en
 <https://claude.ai/artifact/FBdguCXa621gQyVxUvB1wT>.
 
-Todo lo de la sala (gente que entra, chat, Elo, bots, votos) es **simulado**. La tabla del
-final dice con qué mensaje del servidor se conecta cada cosa en `client/lobby.html`.
+En el prototipo (`mesa.html`) todo lo de la sala es **simulado**. En el juego va conectado:
+`client/mesa/` (ver «Conectado con Piles», al final).
 
 ## Archivos
 
@@ -233,11 +233,40 @@ en español (`dataset`) y se traducen al pintar; `DIC` usa el glosario de `clien
 (`piles.proto.lang`) y la primera vez se toma del navegador. No se traducen los nombres ni el
 chat ya escrito.
 
-## Conectarlo con Piles
+## Conectado con Piles (`client/mesa/`)
 
-`client/lobby.html` tiene hoy las pantallas `homeScreen`, `profileScreen`, `howToPlayScreen`,
-`hostScreen`, `joinScreen`, `lobbyScreen` y `gameScreen`. El menú en la mesa sustituye a las
-seis primeras; `gameScreen` se queda.
+El menú en la mesa sustituye en `lobby.html` a las pantallas `homeScreen`, `profileScreen`,
+`howToPlayScreen`, `hostScreen`, `joinScreen` y `lobbyScreen`. **Siguen en el DOM, ocultas**
+(`body.mesa`): su lógica —WebSocket, asiento, reconexión, Elo, chat, votos— no se ha tocado y
+escribe en ellas. `gameScreen` (la partida) no cambia.
+
+| Archivo | Qué es |
+|---|---|
+| `client/mesa/ui.part.js` | **La interfaz conectada** (se edita aquí). |
+| `client/mesa/juntar.nu` | Junta la escena de `diseno/menu-mesa/mesa.html` + `ui.part.js` + el diccionario en `mesa.js`. |
+| `client/mesa/mesa.js` | Generado: no se edita. Todo dentro de una IIFE (no choca con los globales de `lobby.html`). |
+| `client/mesa/mesa.css` | Estilos, todos bajo `#escenario` (las variables también). |
+| `client/mesa/siluetas.webp`, `brazos.webp` | Las hojas de sprites (archivos aparte, cacheables). |
+
+Cómo se engancha (sin reescribir `lobby.html`):
+
+- **Acciones**: las cartas y piezas llaman a sus funciones (`quickMatch`, `createLobby`,
+  `joinLobby`, `toggleReady`, `addBot`, `removeBot`, `setBotDifficulty`, `setVisibility`,
+  `cambiarRol`, `sendChat`, `start_kick`/`kick_vote`, `acceptBotsOffer`, `toggleScanner`,
+  `PilesI18n.setLang`…). El tambor de jugadores escribe en `#maxPlayers`; el nombre, en `#nickname`.
+- **Datos**: se envuelve `handleMsg` (después de lo suyo, se pinta aquí: `lobby_update`,
+  `lobby_list`, `chat`, `kick_poll`…), `showScreen` (cuando `lobby.html` cambia de pantalla por su
+  cuenta —entraste, te echaron, F5, fin de partida— la mesa va a la suya), `startCountdown` /
+  `closeCountdown` y `requireNickname`. La oferta de bots se lee de `#quickBotOffer` (MutationObserver).
+- **Cuenta atrás**: el servidor la manda de **5 s** (`COUNTDOWN`); la mesa la llena hacia atrás
+  desde el reparto (victoria + 3, 2, 1). Con un servidor de 3 s no hay victoria.
+- **QR**: `/api/qr/:sala/matriz` (el mismo QR que el SVG, como módulos) → cartas vistas desde arriba.
+- **Escáner**: el `qr-scanner` de siempre; su `<video>` sale de la pantalla oculta y se dibuja en la mesa.
+- `gestos.js` no toca la mesa (`data-sin-gestos`) y su borde-atrás no sale fuera de la partida.
+- Los nombres llegan con emoji (bots: «🤖 Bot 1»): en la mesa se quitan (`sinEmoji`).
+- Pruebas: `tools/browser/mesa.mjs` y `mesa-mas.mjs` (dos y tres navegadores contra el servidor).
+  **Las pruebas viejas de `tools/browser` que pulsan las pantallas de menú ya no valen para el
+  menú**; las de la partida, sí.
 
 | En el prototipo | En `lobby.html` (función → mensaje) |
 |---|---|
@@ -261,8 +290,7 @@ seis primeras; `gameScreen` se queda.
 ## Pendiente / límites
 
 - Cámara real y escaneo de QR sin probar en un móvil.
-- La votación para echar está simplificada (un voto).
 - Al mirar no hay figura fantasma tuya.
-- Sin aviso de versión ni insignia BETA (los tiene `lobby.html`).
-- El corte de conexión solo se simula con la tecla D.
-- Las burlas suenan sintetizadas.
+- Sólo hay 4 asientos dibujados (tú y los tres primeros), aunque la sala sea de hasta 8.
+- El perfil sin sala enseña nombres de ejemplo en las otras sillas (no hay endpoint del top global).
+- En el prototipo publicado todo es simulado (tecla D: corte de conexión).
