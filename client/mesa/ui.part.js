@@ -334,6 +334,7 @@ if (ofertaEl) new MutationObserver(() => {
 // Filas de 4 centradas desde ZONA (escala .56 = 72×99 px; cada 80 px de lado y 107 de alto).
 let ultimaSala = null;          // el último lobby_update
 const cartasJug = new Map();    // id del jugador → su carta
+const huecos = [];              // cartas vacías: los asientos libres
 const filasSala = () => Math.ceil((ultimaSala?.max_players ?? 4) / 4);
 function posJugador(i, max) {
     const fila = Math.floor(i / 4), enFila = Math.min(4, max - fila * 4), k = i % 4;
@@ -353,6 +354,7 @@ function sincronizarSala(llega = false) {
         ultimaSala = null;
         cartasJug.forEach(c => { pon(c, pilaX(), -260, 20, 1); setTimeout(() => c.remove(), 600); });
         cartasJug.clear();
+        huecos.splice(0).forEach(v => v.remove());
         X.ocupados = [true, true, true, true]; X.listos = [false, false, false, false]; X.nombres = null;
         X.elo = escena.ELO_TOP.map(e => ({ ...e }));
         return;
@@ -371,9 +373,10 @@ function sincronizarSala(llega = false) {
             requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = ''; pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56); }));
             if (llega && !tuyo) { decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8); }
         } else pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56);
-        ponTexto(c, 'palo', tuyo ? (soyEspectador ? 'i:ojo' : 'TÚ') : p.is_bot ? 'i:bot' : '#' + (i + 1));
+        // Nada que leer: listo = carta salvia con ✓; bot = su icono; tú = «TÚ» en bermellón
+        ponTexto(c, 'palo', tuyo ? (soyEspectador ? 'i:ojo' : 'TÚ') : p.is_ready ? 'i:check' : p.is_bot ? 'i:bot' : '');
         c.dataset.nombre = p.nickname; c.querySelector('.nombre').textContent = p.nickname;   // los apodos no se traducen
-        ponTexto(c, 'nota', p.is_ready ? 'Listo ✓' : tuyo ? '' : 'Conectado');
+        ponTexto(c, 'nota', '');
         c.classList.toggle('listo', !!p.is_ready);
         c.dataset.id = p.id;
     });
@@ -390,10 +393,14 @@ function sincronizarSala(llega = false) {
     }
     X.nombres = [0, 1, 2, 3].map(s => gente[s]?.nickname ?? '');
     X.elo = [0, 1, 2, 3].map(s => gente[s]?.elo != null ? { v: gente[s].elo, pool: m.pool === 'fun' ? 'fun' : 'glory', top3: !!gente[s].top3 } : null);
-    const n = gente.length, r = gente.filter(p => p.is_ready).length;
-    if (EN_SALA.has(pantalla) && !['cuenta', 'oferta', 'votar'].includes(pantalla))
-        estado.textContent = T('{n}/{max} en la sala · {r} de {n} listos · {pool}', { n, max: m.max_players, r,
-            pool: T(m.pool === 'fun' ? 'For fun · con bots' : 'For glory · solo personas') });
+    // Los asientos libres, como cartas vacías: cuántos sois y cuántos caben se ve sin leerlo
+    while (huecos.length > m.max_players - gente.length) { const v = huecos.pop(); v.style.opacity = '0'; setTimeout(() => v.remove(), 300); }
+    while (huecos.length < m.max_players - gente.length) {
+        const v = hacerCarta({}, 'jugador vacia'); v.disabled = true; v.setAttribute('aria-hidden', 'true');
+        v.style.opacity = '0'; zona.prepend(v); huecos.push(v);
+    }
+    huecos.forEach((v, k) => { const i = gente.length + k, [x, y] = posJugador(i, m.max_players); pon(v, x, y, (i % 2 ? 1 : -1) * 3, .56); requestAnimationFrame(() => (v.style.opacity = '')); });
+    if (EN_SALA.has(pantalla) && !['cuenta', 'oferta', 'votar'].includes(pantalla) && !aviso.t) estado.textContent = '';
     menuSala(); refrescarMano('sala');
     formas();
 }
@@ -426,7 +433,13 @@ campo.addEventListener('keydown', e => {
     else if (e.key === 'Escape') cerrarCampo();
     e.stopPropagation();
 });
-const aviso = (txt, ms = 1600) => { estado.textContent = txt; clearTimeout(aviso.t); aviso.t = setTimeout(() => { estado.textContent = ''; if (ultimaSala && EN_SALA.has(pantalla)) sincronizarSala(); }, ms); };
+// Un aviso corto encima de la mano. En la sala va al chat, como línea gris: ahí no tapa nada
+// y queda escrito.
+const aviso = (txt, ms = 1600) => {
+    if (currentLobbyId && ['sala', 'bots', 'qr', 'echar', 'votar'].includes(pantalla)) { decir('', txt, true); return; }
+    estado.textContent = txt; clearTimeout(aviso.t);
+    aviso.t = setTimeout(() => { aviso.t = 0; estado.textContent = ''; }, ms);
+};
 const salta = c => c?.animate([{ translate: '0 0' }, { translate: '0 -40px' }, { translate: '0 0' }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
 
 // ── Partida rápida sin nadie: «No hay oponentes dignos…» y la cámara por las sillas vacías ──
@@ -688,20 +701,23 @@ function formas(p = pantalla) {
         pon3(1, M, ZONA + 72 + SEP, col, 44, `<button class="grande" data-act="escanear">${ico('camara')} ${T('Escanear QR')}</button>`, 'esc');
     }
     if (enSala && currentLobbyId && !(p === 'qr' && !an)) {
-        // Entre los jugadores (arriba) y el estado (abajo) queda el hueco donde se ve la pelea por la
-        // carta: la cámara de la sala se centra en él. En estrecho, el chat va pegado abajo y más bajo.
-        const bajoJug = ZONA + filasSala() * 107 + SEP;
-        const ch = an ? Math.max(88, Math.min(300, R.libre - ZONA)) : Math.max(88, Math.min(150, R.libre - bajoJug - 140 - (p === 'bots' ? 52 : 0)));
-        const y = an ? ZONA : R.libre - ch;
+        // En la sala no hay franja de estado (se ve en las cartas y en el chip): el chat llega hasta
+        // la mano. Entre los jugadores y el chat queda el hueco donde se ve la pelea por la carta (al
+        // menos 120 px): la cámara de la sala se centra en él.
+        // (la oferta de bots sí tiene su frase: ahí el chat le deja sitio)
+        const bajoJug = ZONA + filasSala() * 107 + SEP, fondo = p === 'oferta' ? R.libre : R.estadoAbajo, PELEA = 120;
+        const ch = an ? Math.max(88, Math.min(420, fondo - ZONA)) : Math.max(88, Math.min(300, fondo - bajoJug - PELEA - (p === 'bots' ? 52 : 0)));
+        const y = an ? ZONA : fondo - ch;
         if (p === 'bots') pon3(2, M, an ? ZONA : y - 44 - SEP, col, 44, seg('dif', ['Fácil', 'Normal', 'Difícil'], Object.keys(DIFS).find(k => DIFS[k] === botDifficulty) ?? 'Normal'), 'dif');
-        const finHueco = an ? R.libre : (p === 'bots' ? y - 44 - SEP : y) - SEP;
+        const finHueco = an ? fondo : (p === 'bots' ? y - 44 - SEP : y) - SEP;
         const cyPelea = (bajoJug + finHueco) / 2 / R.h;
         escena.fijarCy('sala', cyPelea); escena.fijarCy('bots', cyPelea);
         const cx = an ? der : M, cw = an ? col : w - 2 * M;
         if (pon3(0, cx, y, cw, ch,
             `<span class="rotulo">${T('Chat de la sala')}</span><div class="log" aria-live="polite"></div><button class="escribe" data-act="chat">${T('Escribe aquí :D')}</button>`, 'chat')) pintarChat();
-        const qw = an ? col : 138;
-        if (pon3(1, w - M - qw, FILA2, qw, 40, `<button class="grande" data-act="qr" aria-label="QR"><span class="cod"></span> ${ico('qr')}</button>`, 'codsala:' + currentLobbyId))
+        // El chip de la sala: su clasificación (FUN = con bots, GLORY = solo personas), el código y el QR
+        const qw = an ? col : Math.min(162, w - 2 * M - R.cabw - SEP), pool = ultimaSala?.pool === 'fun' ? 'fun' : 'glory';
+        if (pon3(1, w - M - qw, FILA2, qw, 40, `<button class="grande" data-act="qr" aria-label="QR"><span class="pool" data-pool="${pool}" title="${T(pool === 'fun' ? 'For fun · con bots' : 'For glory · solo personas')}">${pool === 'fun' ? 'FUN' : 'GLORY'}</span><span class="cod"></span>${ico('qr')}</button>`, `codsala:${currentLobbyId}:${pool}`))
             PZ[1].querySelector('.cod').textContent = currentLobbyId;
     }
     if (p === 'perfil') {

@@ -164,7 +164,14 @@ necesita, con la misma curva que el fondo. No son decoración: cada una tiene un
 | Inicio | Perfil (icono) y «? Reglas», en la fila 2. |
 | Crear | **Tambor** de jugadores (2–8) y Pública / Privada. |
 | Unirse | Código (entra solo al escribir la 6.ª letra) y Escanear QR. |
-| Sala (y bots, QR, echar, oferta) | **El chat, siempre**, en caja oscurecida, y el código de la sala (toca → QR). En bots, la dificultad. |
+| Sala (y bots, QR, echar, oferta) | **El chat, siempre**, en caja oscurecida, y el chip de la sala: clasificación (FUN / GLORY), código y QR (toca → QR). En bots, la dificultad. |
+
+**En la sala no hay franja de texto** («2/6 en la sala · 1 de 2 listos · For fun · con bots»
+ocupaba 4 líneas en el móvil). Todo se deduce: cuántos sois y cuántos caben = cartas de
+jugador + **cartas vacías** por cada asiento libre; quién está listo = carta salvia con ✓;
+la clasificación = la etiqueta del chip. Los avisos cortos van al chat como líneas grises. Ese
+sitio es del chat (en el móvil, de 150 a ~275 px en 390×844), dejando al menos 120 px para ver
+la pelea.
 | Perfil | Los dos diales (fun / glory) y el idioma. |
 
 - **Opciones contiguas** (pública/privada, dificultad, idioma): el resalte **se desliza** de la

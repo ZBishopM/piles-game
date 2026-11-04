@@ -47,8 +47,13 @@ await B.evaluate(i => { while (mesa.mano.length && mesa.mano.indexOf(mesa.mano.f
 await tecla(B, 'ArrowUp'); await espera(2200);
 e = await est(B); ok(e.pantalla === 'sala' && e.sala === codigo, `B dentro (${e.pantalla} ${e.sala})`);
 await espera(800);
-const jugA = await A.evaluate(() => document.querySelectorAll('.carta.jugador').length);
+const jugA = await A.evaluate(() => document.querySelectorAll('.carta.jugador:not(.vacia)').length);
 ok(jugA === 2, `A ve 2 cartas de jugador (${jugA})`);
+// Sin franja de texto: los huecos son cartas vacías y el chat crece
+const sala = await A.evaluate(() => ({ vacias: document.querySelectorAll('.carta.jugador.vacia').length, estado: document.getElementById('estado').textContent,
+  chat: Math.round(document.querySelector('#escenario .pieza .log')?.closest('.pieza').getBoundingClientRect().height ?? 0),
+  pool: document.querySelector('#escenario .pieza .pool')?.textContent }));
+ok(sala.vacias === 2 && !sala.estado && sala.chat >= 200 && sala.pool === 'GLORY', `sala sin franja: 2 huecos, chat ${sala.chat}px, chip ${sala.pool} («${sala.estado}»)`);
 
 // Chat: A escribe, B lo lee
 await A.click('#escenario .pieza [data-act="chat"]'); await A.keyboard.type('hola mesa'); await A.keyboard.press('Enter'); await espera(900);
@@ -60,7 +65,7 @@ await foto(B, '05-sala-pc');
 await tecla(A, 'ArrowRight'); await tecla(A, 'ArrowUp'); await espera(1200);
 e = await est(A); ok(e.pantalla === 'bots', `A en bots (${e.pantalla})`);
 await tecla(A, 'ArrowUp'); await espera(700); await tecla(A, 'ArrowUp'); await espera(1500);
-const n = await A.evaluate(() => document.querySelectorAll('.carta.jugador').length);
+const n = await A.evaluate(() => document.querySelectorAll('.carta.jugador:not(.vacia)').length);
 ok(n === 4, `4 en la sala tras dos bots (${n})`);
 await foto(A, '06-bots');
 await tecla(A, 'ArrowDown'); await espera(1200);

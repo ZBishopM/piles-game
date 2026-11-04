@@ -47,9 +47,9 @@ e = await est(P); ok(e.pantalla === 'oferta', `oferta de bots (${e.pantalla} · 
 await foto(P, '22-oferta');
 await tecla(P, 'ArrowUp'); await espera(2500);
 e = await est(P);
-const nJ = await P.evaluate(() => document.querySelectorAll('.carta.jugador').length);
+const nJ = await P.evaluate(() => document.querySelectorAll('.carta.jugador:not(.vacia)').length);
 ok(e.pantalla === 'sala' && nJ === 4, `VS bots: sala con ${nJ}`);
-const nombres = await P.evaluate(() => [...document.querySelectorAll('.carta.jugador .nombre')].map(n => n.textContent).join(','));
+const nombres = await P.evaluate(() => [...document.querySelectorAll('.carta.jugador:not(.vacia) .nombre')].map(n => n.textContent).join(','));
 ok(!/\p{Extended_Pictographic}/u.test(nombres), `sin emoji en los nombres (${nombres})`);
 
 // 3) QR del servidor, hecho con cartas
@@ -73,7 +73,7 @@ for (const X of [B, C]) {
   e = await est(X); ok(e.pantalla === 'sala' && e.sala === cod, `entra por código (${e.pantalla} ${e.sala})`);
 }
 await espera(800);
-const cartaB = A.locator('.carta.jugador', { hasText: 'Beto' });
+const cartaB = A.locator('.carta.jugador:not(.vacia)', { hasText: 'Beto' });
 const caja = await cartaB.boundingBox();
 await A.mouse.click(caja.x + caja.width / 2, caja.y + caja.height / 2); await espera(1300);
 e = await est(A); ok(e.pantalla === 'echar', `A: echar a Beto (${e.pantalla} · ${e.mano})`);
