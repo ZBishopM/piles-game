@@ -1354,14 +1354,11 @@ function cerrarOferta() {
     sincronizar(); formas();
 }
 
-// ── Cuenta atrás: desde arriba, las cartas del centro forman 3, 2, 1, ¡YA! ──────
+// ── Cuenta atrás: desde arriba, las cartas del centro forman 3, 2, 1 ──────
 const LETRAS = {   // 5×7
     3: ['11110', '00001', '00001', '01110', '00001', '00001', '11110'],
     2: ['01110', '10001', '00001', '00110', '01000', '10000', '11111'],
     1: ['00100', '01100', '00100', '00100', '00100', '00100', '01110'],
-    Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
-    A: ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
-    '!': ['1', '1', '1', '1', '1', '0', '1'],
 };
 const matrizDe = txt => {   // texto en LETRAS, con un hueco entre letras; 1 = carta, 0 = sin carta
     const filas = Array.from({ length: 7 }, () => []);
@@ -1370,8 +1367,10 @@ const matrizDe = txt => {   // texto en LETRAS, con un hueco entre letras; 1 = c
 };
 function cuentaAtras() {
     // Primero, en la misma toma de la sala, uno de los dos de la pelea arranca la carta y la alza;
-    // luego la cámara sube y las cartas forman 3, 2, 1, ¡YA!
-    const GANA = 1800;
+    // luego la cámara sube y las cartas forman 3, 2, 1
+    // Todo cuenta hacia atrás desde el reparto (en Piles, `countdown {seconds}` del servidor, 5 s):
+    // la victoria ocupa lo que sobra de los 3 s de números. Con 3 s no hay victoria y no se rompe nada.
+    const SEGUNDOS = 5, GANA = Math.max(0, SEGUNDOS - 3) * 1000;
     sala.cuenta = { timers: [] };
     historial.push(pantalla); pantalla = 'cuenta';
     escena.ganar(); vibrar(25);
@@ -1379,8 +1378,8 @@ function cuentaAtras() {
     mano.forEach(x => pon(x, W() / 2 - 64, H() + 80, 0, .8));
     estado.textContent = T('Desmárcate (↓) para cancelar'); colocarTextos();
     sala.cuenta.timers.push(setTimeout(() => { esc.dataset.p = 'cuenta'; escena.camara('cuenta'); formas(); }, GANA));
-    ['3', '2', '1', 'YA!'].forEach((k, i) => sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(matrizDe(k), 0.13, true); vibrar(30); }, GANA + 300 + i * 950)));
-    sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(null); historial.pop(); pantalla = 'sala'; empezarPartida(); }, GANA + 300 + 4 * 950));
+    ['3', '2', '1'].forEach((k, i) => sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(matrizDe(k), 0.13, true); vibrar(30); }, GANA + i * 1000)));
+    sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(null); historial.pop(); pantalla = 'sala'; empezarPartida(); }, GANA + 3000));
 }
 function cancelarCuenta(motivo) {
     sala.cuenta.timers.forEach(clearTimeout); sala.cuenta = null;
