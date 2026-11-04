@@ -39,6 +39,9 @@
          que siguen abajo, ocultas, porque su lógica escribe en ellas. Después de dial.js. -->
     <link rel="stylesheet" href="/mesa/mesa.css">
     <script src="/mesa/mesa.js" defer></script>
+    <!-- La partida con el mismo estilo y sin franjas de texto (partida/partida.js). -->
+    <link rel="stylesheet" href="/partida/partida.css">
+    <script src="/partida/partida.js" defer></script>
     <link rel="preload" as="image" href="/mesa/siluetas.webp">
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
@@ -5506,10 +5509,8 @@ function onSwapFailed(msg) {
         renderCenterCards();
         // Burla del que se la llevó (solo si estás jugando; en pelea o aturdido ya
         // se salió arriba).
-        if (msg.taunt && !soyEspectador && playTaunt(msg.taunt)) {
-            // Sin sonido (silencio, enfriamiento, id desconocido) no hay burla visible.
-            agToast({ kind: 'info', message: t('taunt.stole', { nick: msg.by || t('someone') }), duration: 1800 });
-        }
+        // Sin texto: suena su burla y destella su franja del marcador (partida/partida.js).
+        if (msg.taunt && !soyEspectador) playTaunt(msg.taunt);
         return;
     }
     if (!msg.reason) return;

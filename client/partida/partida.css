@@ -1,0 +1,110 @@
+/* La partida con el estilo de la mesa (diseno/menu-mesa/README.md): bermellón para lo tuyo y lo
+   que se puede tocar, sombras duras, piezas angulosas y nada de franjas de texto. El orden del
+   tablero no cambia (marcador, racha, centro, tus sets). Ver partida.js. */
+#gameScreen, #qteOverlay, #verifyOverlay, #gameOverOverlay {
+    --tinta: #0e0e0e; --hueso: #e9e6da; --salvia: #a9b689; --militar: #4b5320; --acento: #e8402a; --tenue: #a9a9ae;
+    --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+    /* El acento de agapornis (salvia) pasa a bermellón dentro del tablero: tu franja, tu set,
+       lo que puedes coger mientras debes una carta. */
+    --accent: var(--acento); --accent-soft: rgb(232 64 42 / 18%);
+}
+#gameScreen.active { position: relative; isolation: isolate; font-family: var(--sans); }
+/* Un fragmento militar detrás, como en la mesa */
+#gameScreen.active::before {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .5;
+    background: radial-gradient(rgb(0 0 0 / 22%) 1.1px, transparent 1.5px) 0 0 / 8px 8px, var(--militar);
+    clip-path: polygon(0 0, 100% 0, 100% 9%, 40% 15%, 0 12%);
+}
+
+/* ── Fuera el texto: lo dicen los elementos ─────────────────────────────────── */
+#gameScreen #swapHint, #gameScreen .section-label { display: none !important; }
+#gameScreen .section-head { min-height: 0; }
+
+/* ── Marcador ─────────────────────────────────────────────────────────────── */
+#gameScreen .hud-stripe {
+    border-radius: 0; border-left: none; background: rgb(6 6 6 / 82%); color: var(--hueso);
+    box-shadow: inset 0 0 0 1px rgb(169 182 137 / 35%); filter: drop-shadow(3px 4px 0 rgb(0 0 0 / 60%));
+    clip-path: polygon(4px 0, 100% 2px, calc(100% - 4px) 100%, 0 calc(100% - 2px));
+    font: 800 .72rem var(--sans); transition: background 200ms;
+}
+#gameScreen .hud-stripe.is-me { box-shadow: inset 0 0 0 2px var(--acento); }
+#gameScreen .hud-stripe.is-me .hud-name { color: var(--acento); }
+#gameScreen .hud-count { font: 900 1rem/1 var(--sans); color: var(--hueso); }
+/* Destello: de quién vino algo (frenesí, la carta que te quitaron) */
+#gameScreen .hud-stripe.destello { animation: destello 900ms; }
+@keyframes destello { 0%, 40% { background: var(--acento); color: var(--tinta); } }
+#gameScreen .hud-stripe.mirones .ico { width: 1.1em; height: 1.1em; vertical-align: -.2em; margin-right: 3px; }
+
+/* ── Cartas: sombra dura, esquina viva ──────────────────────────────────────── */
+#gameScreen .card { border-radius: 3px; box-shadow: 4px 5px 0 rgb(0 0 0 / 60%); }
+#gameScreen .card:hover { box-shadow: 6px 9px 0 rgb(0 0 0 / 60%); }
+#gameScreen .card.card-empty, #gameScreen .card.center-gap { box-shadow: none; border-radius: 3px; }
+#gameScreen .card.card-empty { border: 2px dashed rgb(233 230 218 / 35%); }
+/* Debes una carta: tu hueco late en bermellón y el centro se enciende; lo tuyo se apaga */
+#gameScreen.owing .card.card-empty { border: 3px solid var(--acento); background: rgb(232 64 42 / 12%); animation: hueco 900ms ease-in-out infinite alternate; }
+@keyframes hueco { to { background: rgb(232 64 42 / 30%); box-shadow: 0 0 18px rgb(232 64 42 / 45%); } }
+#gameScreen.owing #centerCards .card:not(.center-gap) { outline: 3px solid var(--acento); outline-offset: 2px; }
+
+/* ── Racha y frenesí ─────────────────────────────────────────────────────── */
+#gameScreen #comboMult { font-family: var(--sans); font-weight: 900; font-style: italic; transform: skewX(-8deg); }
+#gameScreen .combo-bar { border-radius: 0; }
+#gameScreen #frenzyBtn { border-radius: 0; clip-path: polygon(6px 0, 100% 3px, calc(100% - 6px) 100%, 0 calc(100% - 3px)); font-size: 0; padding: 6px 18px; }
+#gameScreen #frenzyBtn .ico { width: 22px; height: 22px; stroke-width: 3; color: var(--tinta); }
+
+/* ── Tus sets: seis montoncitos, sin «Set 1…6» ─────────────────────────────── */
+#gameScreen .set-nav { gap: 8px; justify-content: center; }
+#gameScreen .set-btn {
+    flex: 0 0 auto; min-width: 0; width: 34px; height: 46px; min-height: 0; padding: 0; position: relative;
+    border: none; border-radius: 2px; background: var(--tinta); font-size: 0;
+    /* Dos cartas asomando por detrás (sombras desplazadas): es un montón */
+    --linea: rgb(169 182 137 / 40%);
+    box-shadow: inset 0 0 0 2px var(--linea), 3px -3px 0 var(--militar), 6px -6px 0 #2f3414, 3px 4px 0 rgb(0 0 0 / 60%);
+    transition: transform 200ms cubic-bezier(.34, 1.56, .64, 1), box-shadow 150ms;
+}
+#gameScreen .set-btn::before, #gameScreen .set-btn::after { content: none; }
+#gameScreen .set-btn .set-eye { display: none; }
+#gameScreen .set-btn .set-mini { position: absolute; inset: 3px; border-radius: 1px; background-repeat: no-repeat; background-size: 1600% 1300%; }
+#gameScreen .set-btn.flipped .set-mini { background-color: #fff; background-image: url("/cards.webp"); }
+#gameScreen .set-btn.active { transform: translateY(-6px) scale(1.12); --linea: var(--acento);
+    box-shadow: inset 0 0 0 3px var(--linea), 3px -3px 0 var(--militar), 6px -6px 0 #2f3414, 3px 7px 0 rgb(0 0 0 / 60%); }
+#gameScreen .set-btn:disabled { opacity: .45; }
+
+/* ── Botón de silencio: icono ──────────────────────────────────────────────── */
+#gameScreen #muteBtn .ico { width: 18px; height: 18px; }
+.ico { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: square; stroke-linejoin: miter; }
+
+/* ── Avisos sin frase: un icono junto a lo que falló ──────────────────────── */
+.aviso-ico {
+    position: fixed; z-index: 160; pointer-events: none; width: 40px; height: 40px; display: grid; place-items: center;
+    color: var(--hueso, #e9e6da); background: var(--acento, #e8402a); filter: drop-shadow(3px 4px 0 rgb(0 0 0 / 60%));
+    clip-path: polygon(4px 0, 100% 3px, calc(100% - 4px) 100%, 0 calc(100% - 3px));
+    animation: avisoIco 1100ms forwards;
+}
+.aviso-ico.ambar { background: #f2a33a; color: #0e0e0e; }
+.aviso-ico .ico { width: 24px; height: 24px; }
+@keyframes avisoIco { 0% { opacity: 0; transform: translate(-50%, -30%) scale(.6); } 15%, 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -70%) scale(1); } }
+#gameScreen .card-row.destello-ambar { animation: ambar 700ms; }
+@keyframes ambar { 0%, 30% { filter: drop-shadow(0 0 14px #f2a33a); } }
+
+/* ── Pelea: la carta, los dos contadores y el tiempo; sin «¡CLICK!» ─────────── */
+#qteOverlay #qteTitle, #qteOverlay #qteDesc, #qteOverlay #qteClickBtn { display: none !important; }   /* toda la pantalla es el botón */
+/* Carta en pelea: dos espadas cruzadas en bermellón en vez de «PELEADA» */
+#gameScreen .card.qte-locked::after, #gameScreen .card.qte-contested::after {
+    content: "" !important; width: 46%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 0; background: var(--acento);
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 4l16 16M20 4 4 20M3 9l6-6M15 21l6-6M21 9l-6-6M9 21l-6-6' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 4l16 16M20 4 4 20M3 9l6-6M15 21l6-6M21 9l-6-6M9 21l-6-6' fill='none' stroke='%23000' stroke-width='3'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+/* La pelea de otros: nombres, espadas, los dos números y el tiempo. Sin «PELEA» ni «clicks» */
+.qte-battle-notif:not([data-grace]) .qbn-title { display: none; }
+.qte-battle-notif:not([data-grace]) { padding: 6px 8px !important; font-family: var(--sans, Geist, sans-serif); }
+.qte-battle-notif .qbn-scores { font: 900 .95rem var(--sans, Geist, sans-serif); }
+.qte-battle-notif .ico, #verifyNotifications .qbn-title .ico { width: 1.1em; height: 1.1em; vertical-align: -.2em; color: #e8402a; }
+#qteOverlay .qte-box { border-radius: 0; clip-path: polygon(8px 0, 100% 5px, calc(100% - 8px) 100%, 0 calc(100% - 5px)); font-family: var(--sans); }
+#qteOverlay .qte-player-score.is-me, #qteOverlay .qte-player-score.is-me .qte-count { color: var(--acento); }
+#qteOverlay #qteGiveUpBtn { font-size: 0; }
+#qteOverlay #qteGiveUpBtn .ico { width: 26px; height: 26px; }
+#qteOverlay .qte-timer-bar { border-radius: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+    #gameScreen .hud-stripe.destello, .aviso-ico, #gameScreen.owing .card.card-empty, #gameScreen .card-row.destello-ambar { animation-duration: 1ms; }
+}
