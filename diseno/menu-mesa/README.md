@@ -81,6 +81,44 @@ inversa `desproy()`, cartas en la mesa con `quad()`, planos del mundo con `enPla
 | Conexión perdida | Tecla **D**: la lámpara parpadea, todo se congela sin color y vuelve al reconectar. |
 | Partida | La cámara baja a la mesa; tras alzar la carta ganada, se reparte. |
 
+### La mesa es maciza
+
+Los fragmentos del fondo iban **encima** del canvas (opacidad .55) y cruzaban la mesa: parecía
+de cristal. Ahora van **debajo**: la estela de cámara lenta borra a transparente
+(`destination-out`) en vez de pintar negro, así la mesa y las figuras tapan el fondo. La mesa
+tiene además **canto** (9 cm), que de lado se ve.
+
+### La pelea de la sala y quién gana
+
+- En la sala la cámara mira **de cerca y algo desde arriba** las dos manos sobre la carta
+  (`CAMS.sala`, `bots`). Antes se centraba a `cy 0.24`, justo debajo de la fila de jugadores.
+- Su altura en pantalla (`cy`) la fija la propia sala (`escena.fijarCy`) al **centro del hueco
+  libre** entre los jugadores y el chat/estado. En el móvil el chat baja y se acorta (≤ 150 px)
+  para dejar ese hueco.
+- **Todos listos → primero gana uno, luego la cuenta atrás.** `escena.ganar()`: la del asiento 0
+  arranca la carta (temblor, destello, chispas, onda) y la cámara se aparta hacia ella, que la
+  tiene en alto con **rayos bermellón** (cámara `ganador`; en vertical, más lejos y de frente).
+  A los 1,8 s la cámara sube y las cartas forman 3, 2, 1, ¡YA! **en bermellón**. En el móvil el
+  chat se pliega durante la victoria (taparía la carta). La partida ya no repite el arranque.
+  - **Para conectarlo:** en Piles la cuenta atrás del servidor dura 3 s; la victoria tiene que
+    caber dentro (o acortar los números).
+
+### «Tú», en bermellón
+
+| Dónde | Cómo |
+|---|---|
+| Tu figura en la mesa | Contorno bermellón más grueso y tu nombre en bermellón (`X.tu`). Pegada a la cámara no lleva contorno (se vería a través al desvanecerse). |
+| Tu carta en la sala | Borde y sombra dura bermellón (`.carta.jugador.tuya`). |
+| Tu dial de Elo | Una punta bermellón debajo, hacia tu figura. |
+| Tus mensajes del chat | Tu nombre en bermellón. |
+| A quién se vota echar | Su figura con el mismo contorno (`X.marca`): lo señalado. |
+
+### Sombras
+
+Cartas y piezas llevan **sombra dura** desplazada (sin difuminar, estilo Persona): la forma va
+en `::before` para que `drop-shadow` siga el corte. La carta elegida, sombra negra más larga; tu
+carta de la sala, sombra bermellón.
+
 ### Elo: los diales sobre cada jugador
 
 Se eligió entre «B» (encima del jugador) y «C» (en la mesa): **el dial de agapornis-ui
@@ -161,7 +199,7 @@ mínimo (88 px).
 | `--militar` | `#4b5320` | fragmentos de fondo, dorsos |
 | `--salvia` | `#a9b689` | rótulos, marcas, «listo» |
 | `--hueso` | `#e9e6da` | cartas de jugador, texto claro |
-| **`--acento`** | **`#e8402a` bermellón** | **solo lo elegido y lo que se mueve**: carta elegida, cabecera, resalte, líneas del tambor, barrido, el «!» del logo |
+| **`--acento`** | **`#e8402a` bermellón** | **lo elegido, lo que se mueve y tú**: carta elegida, cabecera, resalte, líneas del tambor, barrido, el «!» del logo, todo lo «tuyo» y quien gana la carta |
 
 **Por qué un acento y por qué este.** Persona 5 usa un único color fuerte (carmesí) y evita
 cualquier otro salvo en HP/MP para que su rojo sea inconfundible; su director de arte lo eligió

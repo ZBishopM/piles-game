@@ -33,7 +33,7 @@ body { background: var(--bg); color: var(--texto); font-family: var(--sans); ove
 #escenario { position: fixed; inset: 0; overflow: hidden; isolation: isolate; }
 
 /* ── Fondo: fragmentos que se deforman (5 vértices, se interpolan) ─────────── */
-.frag { position: absolute; inset: -6%; z-index: -3; transition: clip-path 760ms var(--golpe); }
+.frag { position: absolute; inset: -6%; z-index: -5; transition: clip-path 760ms var(--golpe); }
 .frag::after { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgb(0 0 0 / 22%) 1.1px, transparent 1.5px); background-size: 8px 8px; }
 .f1 { background: var(--militar); }
 .f2 { background: var(--salvia); }
@@ -77,7 +77,7 @@ body { background: var(--bg); color: var(--texto); font-family: var(--sans); ove
 
 /* La partida de fondo (canvas): gente jugando a cámara lenta; la cámara cambia en cada menú */
 #juego { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -4; }
-.frag { opacity: .55; }   /* dejan ver la partida de fondo */
+.frag { opacity: .55; }   /* detrás del canvas: la mesa y las figuras los tapan (la mesa no se ve transparente) */
 
 /* La mano también cambia de ángulo con cada menú (como el tablero al cambiar de set) */
 #cartas { position: absolute; inset: 0; perspective: 900px; perspective-origin: 50% calc(100% - 140px); transform-style: preserve-3d; }   /* el ojo, a la altura de la mano: inclinada no crece */
@@ -111,42 +111,47 @@ body { background: var(--bg); color: var(--texto); font-family: var(--sans); ove
 }
 
 /* ── Cartas-botón ─────────────────────────────────────────────────────────── */
+/* La forma (fondo, borde y corte) va en ::before: así la carta puede llevar sombra dura
+   (drop-shadow sigue el corte). Cada variante solo cambia --fondo, --linea, --corte y --sombra. */
 .carta {
     --x: 0px; --y: 0px; --r: 0deg; --s: 1;
+    --fondo: var(--tinta); --linea: inset 0 0 0 2px rgb(169 182 137 / 35%); --corte: polygon(4% 2%, 100% 0, 96% 98%, 0 100%);
+    --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%));
     position: absolute; left: 0; top: 0; width: var(--cw); height: var(--ch);
     transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(var(--s));
     transition: transform 520ms var(--rebote), width 520ms cubic-bezier(.2,.8,.2,1), height 520ms cubic-bezier(.2,.8,.2,1),
-        padding 520ms, clip-path 520ms, background 200ms, color 200ms, box-shadow 200ms, opacity 300ms;
-    background: var(--tinta); color: var(--texto);
-    clip-path: polygon(4% 2%, 100% 0, 96% 98%, 0 100%);
+        padding 520ms, color 200ms, opacity 300ms, filter 300ms;
+    background: none; color: var(--texto); filter: var(--sombra);
     display: flex; flex-direction: column; justify-content: space-between;
     padding: 14px 14px 12px; border: none; font: inherit; text-align: left; cursor: pointer;
-    box-shadow: inset 0 0 0 2px rgb(169 182 137 / 35%);
     will-change: transform;
 }
+.carta::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--fondo); box-shadow: var(--linea); clip-path: var(--corte);
+    transition: background 200ms, box-shadow 200ms, clip-path 520ms; }
 .carta .palo { font: 900 1.1rem/1 var(--sans); color: var(--salvia); letter-spacing: .04em; }
 .carta .nombre { font: 900 1.28rem/1.02 var(--sans); letter-spacing: -.01em; text-transform: uppercase; hyphens: auto; overflow-wrap: anywhere; }
 .carta .nota { font: 600 .72rem/1.25 var(--sans); color: var(--tenue); }
-.carta.elegida { background: var(--acento); color: var(--sobreAcento); box-shadow: inset 0 0 0 3px var(--tinta); }
+.carta.elegida { --fondo: var(--acento); --linea: inset 0 0 0 3px var(--tinta); --sombra: drop-shadow(7px 8px 0 var(--tinta)); color: var(--sobreAcento); }
 .carta.elegida .palo, .carta.elegida .nota { color: var(--sobreAcento); opacity: .78; }
-.carta:focus-visible { outline: none; box-shadow: inset 0 0 0 4px var(--hueso); }
+.carta:focus-visible { outline: none; --linea: inset 0 0 0 4px var(--hueso); }
 /* La carta jugada se vuelve el rectángulo del nombre (mismo sitio, tamaño y corte) */
 .carta.cabecera {
     --ch: 40px; z-index: 12; cursor: default; justify-content: center; padding: 8px 12px;
     --cw: var(--cabw);
-    background: var(--acento); color: var(--sobreAcento); box-shadow: inset 0 0 0 2px var(--tinta);
-    clip-path: polygon(0 6%, 100% 0, 97% 100%, 2% 94%);
-    transition: transform 520ms var(--rebote), width 520ms cubic-bezier(.2,.8,.2,1), height 520ms cubic-bezier(.2,.8,.2,1),
-        padding 520ms, clip-path 520ms, background 300ms, opacity 300ms, filter 300ms;
+    --fondo: var(--acento); --linea: inset 0 0 0 2px var(--tinta); --corte: polygon(0 6%, 100% 0, 97% 100%, 2% 94%);
+    --sombra: drop-shadow(4px 5px 0 var(--tinta)); color: var(--sobreAcento);
 }
 /* Las jugadas de antes asoman detrás de la de ahora: el camino, sin repetirlo abajo */
-.carta.cabecera.previa { filter: brightness(.42) saturate(.7); }
+.carta.cabecera.previa { --sombra: brightness(.42) saturate(.7); }
 .carta.cabecera .palo, .carta.cabecera .nota { display: none; }
 .carta.cabecera .nombre { font-size: 1.15rem; font-weight: 800; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.carta.jugador { background: var(--hueso); color: var(--tinta); cursor: default; box-shadow: inset 0 0 0 3px var(--tinta); }
+.carta.jugador { --fondo: var(--hueso); --linea: inset 0 0 0 3px var(--tinta); color: var(--tinta); cursor: default; }
 .carta.jugador .palo { color: var(--militar); }
-.carta.jugador.listo { background: var(--salvia); }
-.carta.dorso { background: var(--militar); box-shadow: inset 0 0 0 5px var(--tinta), inset 0 0 0 6px var(--salvia); }
+.carta.jugador.listo { --fondo: var(--salvia); }
+/* Tú, en la sala: contorno y sombra en bermellón (lo mismo que tu figura en la mesa) */
+.carta.jugador.tuya { --linea: inset 0 0 0 4px var(--acento); --sombra: drop-shadow(5px 6px 0 var(--acento)); }
+.carta.jugador.tuya .palo { color: var(--acento); }
+.carta.dorso { --fondo: var(--militar); --linea: inset 0 0 0 5px var(--tinta), inset 0 0 0 6px var(--salvia); }
 .carta.dorso > * { display: none; }
 
 /* La pila del centro (de donde salen los menús) */
@@ -174,12 +179,15 @@ body { background: var(--bg); color: var(--texto); font-family: var(--sans); ove
    pieza que pasa a hacer otra cosa. */
 .pieza {
     position: absolute; z-index: 13; left: 0; top: 0; width: 0; height: 0; overflow: hidden;
-    background: rgb(6 6 6 / 80%); color: var(--texto); font: 800 .8rem var(--sans);
-    box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%);
-    clip-path: polygon(6px 0, 100% 4px, calc(100% - 6px) 100%, 0 calc(100% - 4px));   /* en px: el corte no come texto en piezas anchas */
-    transition: left 620ms var(--golpe), top 620ms var(--golpe), width 620ms var(--golpe), height 620ms var(--golpe), clip-path 620ms var(--golpe), opacity 300ms, background 300ms;
+    color: var(--texto); font: 800 .8rem var(--sans);
+    filter: drop-shadow(4px 5px 0 rgb(0 0 0 / 62%));   /* sombra dura; la forma va en ::before */
+    transition: left 620ms var(--golpe), top 620ms var(--golpe), width 620ms var(--golpe), height 620ms var(--golpe), opacity 300ms;
 }
-.pieza.oculta { opacity: 0; pointer-events: none; clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%); }
+.pieza::before { content: ""; position: absolute; inset: 0; background: rgb(6 6 6 / 84%); box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%);
+    clip-path: polygon(6px 0, 100% 4px, calc(100% - 6px) 100%, 0 calc(100% - 4px));   /* en px: el corte no come texto en piezas anchas */
+    transition: clip-path 620ms var(--golpe); }
+.pieza.oculta { opacity: 0; pointer-events: none; }
+.pieza.oculta::before { clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%); }
 .pieza > .dentro { position: absolute; inset: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; animation: aparece 380ms 200ms both; }
 @keyframes aparece { from { opacity: 0; translate: 0 6px; } }
 .pieza .rotulo { font: 900 .66rem var(--sans); letter-spacing: .14em; color: var(--salvia); text-transform: uppercase; }
@@ -214,6 +222,10 @@ body { background: var(--bg); color: var(--texto); font-family: var(--sans); ove
 .pieza .diales { flex: 1; display: flex; gap: 18px; align-items: center; justify-content: center; --ag-dial-size: 26px; }
 .dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms; }
 .dialMesa .ag-dial-delta, .dialMesa .ag-dial-rank { display: none !important; }
+/* Tu dial: una punta bermellón debajo, apuntando a tu figura */
+.dialMesa.tuyo::after { content: ""; position: absolute; left: 50%; bottom: -12px; width: 14px; height: 9px; translate: -50% 0;
+    background: var(--acento); clip-path: polygon(0 0, 100% 0, 50% 100%); filter: drop-shadow(2px 2px 0 #000); }
+.pieza .log b.tuyo { color: var(--acento); }
 .dialMesa .ag-dial-label { font-size: 9px; text-shadow: 0 0 3px #000, 0 0 2px #000; }
 :root { --space-2: 6px; --font-sans: var(--sans); --font-mono: "Geist Mono", ui-monospace, Consolas, monospace; --radius-panel: 8px; --radius-ctl: 4px; --radius-pill: 999px;
     --text-muted: #a9a9ae; --accent: #a9b689; --accent-soft: rgb(169 182 137 / 18%); --accent-line: rgb(169 182 137 / 38%); --danger: #f87171;
@@ -260,8 +272,10 @@ const escena = (() => {
         inicio:  { yaw: 0.35, pitch: 0.62, dist: 3.3, cy: 0.42, roll: -0.10, mx: 0, mz: 0 },
         crear:   { yaw: 1.60, pitch: 0.18, dist: 2.3, cy: 0.40, roll: 0.22, mx: 0.3, mz: 0 },
         unirse:  { yaw: -1.25, pitch: 1.12, dist: 2.4, cy: 0.40, roll: -0.32, mx: -0.2, mz: 0.2 },
-        sala:    { yaw: 2.36, pitch: 0.34, dist: 1.75, cy: 0.24, roll: 0.16, mx: DIS.x, mz: DIS.z },   // la disputa, de cerca
-        bots:    { yaw: 2.05, pitch: 0.26, dist: 1.55, cy: 0.24, roll: -0.12, mx: DIS.x, mz: DIS.z },
+        // La disputa, de cerca y algo desde arriba (se ven las dos manos sobre la carta). cy lo ajusta
+        // la sala al hueco que dejan libre los jugadores y el chat (fijarCy).
+        sala:    { yaw: 2.25, pitch: 0.52, dist: 1.45, cy: 0.42, roll: 0.10, mx: DIS.x, mz: DIS.z, my: 0.12 },
+        bots:    { yaw: 2.0, pitch: 0.44, dist: 1.35, cy: 0.42, roll: -0.08, mx: DIS.x, mz: DIS.z, my: 0.12 },
         tutorial:   { yaw: -2.4, pitch: 0.90, dist: 2.2, cy: 0.42, roll: 0.25, mx: 0.3, mz: -0.3 },
         perfil:     { yaw: 2.9, pitch: 0.30, dist: 2.0, cy: 0.40, roll: -0.20, mx: 0, mz: -0.4 },
         burla:      { yaw: Math.PI - 0.25, pitch: 0.32, dist: 2.6, cy: 0.30, roll: 0.08, mx: 0.05, mz: 1.3, my: 0.2 },   // tu figura, de frente   // tu figura, de frente
@@ -280,11 +294,13 @@ const escena = (() => {
         idioma:     { yaw: -0.4, pitch: 1.30, dist: 2.6, cy: 0.40, roll: -0.40, mx: 0, mz: 0 },
         privacidad: { yaw: 2.0, pitch: 0.25, dist: 2.1, cy: 0.40, roll: -0.18, mx: -0.3, mz: 0 },
         codigo:     { yaw: -1.9, pitch: 0.45, dist: 1.7, cy: 0.40, roll: 0.28, mx: 0, mz: 0.2 },
+        // Todos listos: quien gana la pelea alza la carta (antes de la cuenta atrás)
+        ganador: { yaw: 2.6, pitch: 0.22, dist: 2.4, cy: 0.7, roll: 0.06, mx: -0.3, mz: 0.8, my: 0.75 },
         // Empieza la partida: contrapicado hacia quien ganó la carta (asiento 0), que la alza
         partida: { yaw: Math.PI, pitch: 0.10, dist: 2.5, cy: 0.52, roll: -0.12, mx: 0, mz: 0.6, my: 0.85 },
     };
     for (const c of Object.values(CAMS)) c.my ??= 0.2;   // altura del punto al que mira
-    let cam = { ...CAMS.inicio }, meta = { ...CAMS.inicio };
+    let cam = { ...CAMS.inicio }, meta = { ...CAMS.inicio }, actual = 'inicio';
     let t = 6, tMeta = 6, disputa = 0, disputaMeta = 0, reloj = 0;
     let gana = -1, chispas = [], anillos = [], estalló = false;
     let nuestras = [];   // cartas del menú soltadas en el centro de la mesa (las 6 últimas)   // la victoria: desde cuándo, y sus partículas
@@ -309,6 +325,7 @@ const escena = (() => {
     // Medio ancho y medio alto de una carta: a escala de las manos de las figuras (6,3 × 8,8 cm)
     const CW_M = 0.05, CH_M = 0.07;
     const lerp = (a, b, k) => a + (b - a) * k;
+    const ROJO = '#e8402a';   // el acento (--acento): tú, lo que se juega y quién gana
     const suave = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
 
     // Cámara que mira al centro de la mesa desde (yaw, pitch, dist)
@@ -340,9 +357,12 @@ const escena = (() => {
     }
 
     function dibujar(dt) {
-        // Estela: el cuadro anterior se borra a medias (cámara lenta)
-        g.fillStyle = `rgba(6, 6, 6, ${lerp(0.32, 0.8, suave(BALA, RAPIDO, vel))})`;   // más estela cuanto más lento
+        // Estela: el cuadro anterior se borra a medias (cámara lenta). Se borra a transparente,
+        // no se pinta de negro: los fragmentos del fondo quedan DETRÁS de la mesa, no encima.
+        g.globalCompositeOperation = 'destination-out';
+        g.fillStyle = `rgba(0, 0, 0, ${lerp(0.32, 0.8, suave(BALA, RAPIDO, vel))})`;   // más estela cuanto más lento
         g.fillRect(0, 0, cv.width, cv.height);
+        g.globalCompositeOperation = 'source-over';
         preparar();
         const e = gana >= 0 ? reloj - gana : -1;   // segundos desde que alguien ganó la carta
         g.save();
@@ -392,6 +412,8 @@ const escena = (() => {
         voto: null,                           // votación para echar: { a, t0 }
         mesas: null,                          // otras salas, en la misma sala oscura
         cortado: false, apagon: 1,            // sin conexión (empieza apagado: «Conectando…»)
+        tu: -1,                               // tu asiento (contorno bermellón); -1 = no estás en la mesa
+        marca: -1,                            // asiento señalado (a quién votas echar): también en bermellón
     };
     let principal = true, quietos = false;   // quietos: sala en espera, nadie lanza
     const RANGOS = {
@@ -492,7 +514,7 @@ const escena = (() => {
             const sale = M.salen ? suave(M.salen, M.salen + 0.4, reloj) : 0;
             const x = lerp(0, k.x, u) * (1 + sale * 2), z = lerp(0, k.z, u) * (1 + sale * 2);
             const lado = !M.huecos && !k.c ? s * 0.52 : s * 0.47;   // QR: las claras se solapan, sin rendijas oscuras
-            quad(x, 0.02 + Math.sin(u * Math.PI) * 0.3, z, lado, lado, (1 - u) * (3 + i % 5), k.c === !M.huecos ? '#0e0e0e' : '#e9e6da', M.huecos ? '#a9b689' : null);
+            quad(x, 0.02 + Math.sin(u * Math.PI) * 0.3, z, lado, lado, (1 - u) * (3 + i % 5), M.huecos ? ROJO : k.c ? '#0e0e0e' : '#e9e6da', M.huecos ? '#0e0e0e' : null);   // la cuenta atrás, en bermellón
         }
     }
     // Visor del escáner: cuatro esquinas de cartas y lo que ve la cámara en el centro
@@ -533,12 +555,22 @@ const escena = (() => {
         const dc = proy(0, 0, 0)[2];
         const gente = ASIENTOS.map((a, p) => estadoDe(a, p)).sort((x, y) => y.d - x.d);
         for (const q of gente) if (q.d > dc) figura(q, e);
-        // Mesa: elipse con luz de lámpara
-        const c0 = proy(0, 0, 0);
+        // Mesa maciza: canto de 9 cm (de lado se ve que tiene grosor) y tablero opaco con luz de lámpara
+        const c0 = proy(0, 0, 0), GR = 0.09;
+        const aro = (y, i) => { const a = i / 64 * Math.PI * 2; return proy(Math.cos(a) * 1.7, y, Math.sin(a) * 1.2); };
+        if (cam.pitch < 1.3) {
+            g.beginPath();
+            for (let i = 0; i <= 64; i++) { const [x, y] = aro(0, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+            for (let i = 64; i >= 0; i--) { const [x, y] = aro(-GR, i); g.lineTo(x, y); }
+            g.fillStyle = '#070806'; g.fill();
+            g.beginPath();
+            for (let i = 0; i <= 64; i++) { const [x, y] = aro(-GR, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+            g.strokeStyle = 'rgba(0, 0, 0, 0.9)'; g.lineWidth = 3 * devicePixelRatio; g.stroke();
+        }
         const grad = g.createRadialGradient(c0[0], c0[1], 0, c0[0], c0[1], cv.height * 0.5);
-        grad.addColorStop(0, '#2b3121'); grad.addColorStop(0.6, '#161a11'); grad.addColorStop(1, '#0b0c09');
+        grad.addColorStop(0, '#2b3121'); grad.addColorStop(0.6, '#181c13'); grad.addColorStop(1, '#10120d');
         g.beginPath();
-        for (let i = 0; i <= 64; i++) { const a = i / 64 * Math.PI * 2, [x, y] = proy(Math.cos(a) * 1.7, 0, Math.sin(a) * 1.2); i ? g.lineTo(x, y) : g.moveTo(x, y); }
+        for (let i = 0; i <= 64; i++) { const [x, y] = aro(0, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
         g.fillStyle = grad; g.fill();
         g.strokeStyle = 'rgba(169, 182, 137, 0.55)'; g.lineWidth = 2 * devicePixelRatio; g.stroke();
 
@@ -644,7 +676,7 @@ const escena = (() => {
         const vida = 0.4 + Math.random() * 0.7;
         chispas.push({ x, y, vx: Math.cos(an) * v, vy: Math.sin(an) * v - fuerza * 0.4 * devicePixelRatio, vida, total: vida, peso,
             ancho: (1.5 + Math.random() * 3) * devicePixelRatio,
-            color: Math.random() < 0.6 ? 'rgba(169, 182, 137, A)' : 'rgba(233, 230, 218, A)' });
+            color: Math.random() < 0.45 ? 'rgba(232, 64, 42, A)' : Math.random() < 0.6 ? 'rgba(169, 182, 137, A)' : 'rgba(233, 230, 218, A)' });
     }
 
     // «¡A JUGAR!»: dos manos agarran la misma carta y tiran, cada una hacia su lado.
@@ -730,14 +762,14 @@ const escena = (() => {
             const pulso = 0.6 + 0.4 * Math.sin(reloj * 6);
             for (let i = 0; i < 14; i++) {
                 const an = i / 14 * Math.PI * 2 + reloj * 0.8, l = h * (2.2 + (i % 3) * 0.6) * pulso;
-                g.strokeStyle = `rgba(169, 182, 137, ${0.22 * pulso})`; g.lineWidth = h * 0.08;
+                g.strokeStyle = `rgba(232, 64, 42, ${0.3 * pulso})`; g.lineWidth = h * 0.08;   // rayos bermellón: alguien ganó
                 g.beginPath(); g.moveTo(Math.cos(an) * h * 0.6, Math.sin(an) * h * 0.6); g.lineTo(Math.cos(an) * l, Math.sin(an) * l); g.stroke();
             }
             if (Math.random() < 0.4) chispa(pos[0], pos[1], 260, 0.3);
             g.globalCompositeOperation = 'source-over';
         }
         g.rotate((1 - u) ** 2 * Math.PI * 5 - cam.roll);
-        g.shadowColor = '#a9b689'; g.shadowBlur = (10 + 40 * u) * devicePixelRatio;
+        g.shadowColor = ROJO; g.shadowBlur = (10 + 40 * u) * devicePixelRatio;
         g.fillStyle = '#e9e6da';
         g.beginPath(); g.moveTo(-w / 2 + w * 0.04, -h / 2); g.lineTo(w / 2, -h / 2 - h * 0.01); g.lineTo(w / 2 - w * 0.04, h / 2); g.lineTo(-w / 2, h / 2 + h * 0.01); g.closePath();
         g.fill();
@@ -754,12 +786,14 @@ const escena = (() => {
     const MANOS = [[[87.6,242.0],[89.7,232.2],[91.5,222.5],[93.0,213.0],[94.2,203.9],[95.2,195.4],[99.0,201.3],[101.0,221.0],[106.9,229.0],[110.7,233.7],[112.7,236.2],[113.4,237.0],[109.0,231.3],[100.5,131.9],[94.4,95.5],[91.1,85.7],[89.2,82.4],[88.2,81.3],[87.8,80.9],[87.8,80.9],[109.3,239.2],[98.5,244.6],[91.3,243.7],[87.6,242.0]],[[152.4,235.6],[150.3,225.4],[148.5,215.5],[147.0,205.9],[145.8,196.8],[144.8,188.4],[141.0,192.8],[139.0,211.2],[133.1,219.4],[129.3,224.5],[127.3,227.2],[126.6,228.2],[131.0,220.5],[139.5,124.3],[145.6,92.9],[148.9,85.9],[150.8,84.2],[151.8,83.8],[152.2,83.7],[152.2,83.7],[130.7,230.3],[141.5,236.0],[148.7,236.2],[152.4,235.6]],[[160.7,241.2],[162.7,231.1],[164.0,221.1],[164.5,211.4],[164.4,202.2],[163.7,193.7],[173.1,198.5],[181.7,217.4],[180.1,225.0],[177.7,229.6],[176.0,232.1],[175.7,232.9],[187.5,226.5],[167.1,129.4],[135.5,96.2],[118.0,88.1],[108.5,85.8],[103.8,85.1],[102.1,85.0],[101.8,84.9],[175.6,235.4],[173.8,241.8],[166.9,242.0],[160.7,241.2]],[[79.3,236.0],[77.3,226.2],[76.0,216.5],[75.5,207.1],[75.6,198.1],[76.3,189.7],[66.9,195.1],[58.3,214.4],[59.9,222.9],[62.3,228.2],[64.0,230.9],[64.3,231.9],[52.5,224.7],[72.9,126.3],[104.5,92.1],[122.0,83.5],[131.5,80.9],[136.2,80.1],[137.9,79.8],[138.2,79.8],[64.4,233.7],[66.2,238.4],[73.1,237.5],[79.3,236.0]]];   // [vista][columna]: la carta entre los dedos, px de celda (siluetas.py)
     const enMano = [];
     const ALTO = 3.15, CENTRO = 0.39;   // alto del cuadro y altura de su centro, en unidades de la mesa
-    let borde = null;   // la misma hoja teñida de salvia: el borde de luz
-    SIL.onload = () => {
-        borde = document.createElement('canvas'); borde.width = SIL.width; borde.height = SIL.height;
-        const b = borde.getContext('2d'); b.drawImage(SIL, 0, 0);
-        b.globalCompositeOperation = 'source-in'; b.fillStyle = '#a9b689'; b.fillRect(0, 0, borde.width, borde.height);
+    let borde = null, bordeRojo = null;   // la misma hoja teñida: borde de luz salvia, y bermellón para ti
+    const tenir = color => {
+        const c = document.createElement('canvas'); c.width = SIL.width; c.height = SIL.height;
+        const b = c.getContext('2d'); b.drawImage(SIL, 0, 0);
+        b.globalCompositeOperation = 'source-in'; b.fillStyle = color; b.fillRect(0, 0, c.width, c.height);
+        return c;
     };
+    SIL.onload = () => { borde = tenir('#a9b689'); bordeRojo = tenir(ROJO); };
     SIL.src = '__SIL__';
     // ponytail: nombres de ejemplo; en Piles vendrán del top global (aún no hay endpoint que lo liste)
     const TOP = ['Ana', 'Beto', 'Coca', 'Dani'];
@@ -796,9 +830,12 @@ const escena = (() => {
         if (bu > 0) g.translate(0, -Math.abs(Math.sin(reloj * 14)) * hpx * 0.05 * bu);
         g.rotate(-cam.roll + 0.03 * Math.sin(vivo * 0.55) + 0.05 * alcance * haciaMesa + 0.18 * bu * Math.sin(reloj * 24));
         g.scale(voltea ? -1 : 1, 1 + 0.014 * Math.sin(vivo * 1.6));
-        const r = 1.5 * devicePixelRatio, alfa = g.globalAlpha;
-        g.globalAlpha = 0.6 * alfa;
-        g.drawImage(borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
+        // Contorno: tú (o a quien se señala), en bermellón y más grueso; los demás, luz salvia
+        // (pegada a la cámara se desvanece: ahí sin contorno, o el rojo se vería a través)
+        const rojo = principal && (p === X.tu || p === X.marca) && c[2] > 1;
+        const r = (rojo ? 3.5 : 1.5) * devicePixelRatio, alfa = g.globalAlpha;
+        g.globalAlpha = (rojo ? 1 : 0.6) * alfa;
+        g.drawImage(rojo ? bordeRojo : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
         g.globalAlpha = alfa;
         g.drawImage(SIL, col * CW, fila * CH, CW, CH, -wpx / 2, -hpx, wpx, hpx);
         g.restore();
@@ -824,7 +861,7 @@ const escena = (() => {
         const tx = proy(cu.x, 1.1, cu.z);
         g.font = `800 ${Math.max(11 * devicePixelRatio, Math.min(16 * devicePixelRatio, hpx * 0.06))}px Geist, sans-serif`;
         g.textAlign = 'center';
-        g.fillStyle = 'rgba(169, 182, 137, 0.9)';
+        g.fillStyle = p === X.tu ? ROJO : 'rgba(169, 182, 137, 0.9)';
         g.fillText(X.nombres ? X.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
     }
 
@@ -880,7 +917,7 @@ const escena = (() => {
             X.mosaico = { celdas, s, t0: reloj, huecos };
         },
         /** Solo una cámara (sin cambiar de profundidad ni de partida). */
-        camara(nombre) { meta = { ...CAMS[nombre] }; if (nombre === 'cuenta' || nombre === 'qr' || nombre === 'visor') disputaMeta = 0; },
+        camara(nombre) { actual = nombre; meta = { ...CAMS[nombre] }; if (nombre === 'cuenta' || nombre === 'qr' || nombre === 'visor') disputaMeta = 0; },
         /** De cerca a un asiento, desde el centro de la mesa (votar para echar). */
         aAsiento(p) {
             const a = ASIENTOS[p];
@@ -893,6 +930,16 @@ const escena = (() => {
             meta = m ? { yaw: Math.atan2(-m.x, -m.z), pitch: 0.5, dist: 3.3, cy: 0.42, roll: 0.06 * (i - 1), mx: m.x, mz: m.z, my: 0.2 } : { ...CAMS.unirse };
         },
         congelar(si) { velMeta = si ? 0 : BALA; },
+        /** Todos listos: uno de los dos de la disputa arranca la carta y la alza (antes de la cuenta atrás). */
+        ganar() {
+            if (disputa < 0.3) return;
+            gana = reloj; estalló = false;
+            // La cámara se aparta y sube hacia quien la ganó, que la tiene en alto
+            actual = 'ganador'; meta = { ...CAMS.ganador };
+            if (cv.width < cv.height) { meta.dist = 3.2; meta.yaw = 2.85; }   // en vertical, más lejos y de frente: la carta entra entera
+        },
+        /** Altura en pantalla (0..1) a la que se centra una cámara: la sala la ajusta al hueco libre. */
+        fijarCy(nombre, cy) { if (!CAMS[nombre]) return; CAMS[nombre].cy = cy; if (actual === nombre) meta.cy = cy; },
         /** Asomarse a otro menú sin ir: p 0..1 (el dedo); sentido 1 = adelante, -1 = atrás. null = soltar. */
         asomar(pantalla, p = 0, sentido = 1) {
             asomo = pantalla ? { cam: CAMS[pantalla] ?? CAMS.sala, p, dt: sentido * 6.5 } : { cam: null, p: 0, dt: 0 };
@@ -902,10 +949,11 @@ const escena = (() => {
         ahora: () => reloj,
         /** Otro menú: su cámara, y la partida avanza (o se rebobina) según la profundidad. */
         ir(pantalla, profundidad) {
-            meta = { ...(CAMS[pantalla] ?? CAMS.sala) };
+            actual = CAMS[pantalla] ? pantalla : 'sala'; meta = { ...CAMS[actual] };
             disputaMeta = ['sala', 'bots', 'partida'].includes(pantalla) ? 1 : 0;
             velMeta = pantalla === 'inicio' ? RAPIDO : BALA;
-            if (pantalla === 'partida') { gana = reloj; estalló = false; } else gana = -1;
+            // Quien ganó la disputa ya la alzó antes de la cuenta atrás (ganar()); la partida la mantiene
+            if (pantalla === 'partida') { if (gana < 0) { gana = reloj; estalló = false; } } else gana = -1;
             tMeta += (profundidad - prof) * 6.5;
             prof = profundidad;
         },
@@ -1189,7 +1237,7 @@ function entrarSala(o) {
     const llegar = (nom, tuyo = false) => {
         if (!sala) return;
         const i = sala.cartas.length;
-        const c = hacerCarta({ palo: tuyo ? 'TÚ' : '#' + (i + 1), nombre: nom, nota: tuyo ? '' : 'Conectado' }, 'jugador');
+        const c = hacerCarta({ palo: tuyo ? 'TÚ' : '#' + (i + 1), nombre: nom, nota: tuyo ? '' : 'Conectado' }, tuyo ? 'jugador tuya' : 'jugador');
         c.disabled = true;
         c.style.transition = 'none';
         const [x, y] = posJugador(i, max);
@@ -1230,6 +1278,7 @@ function salirSala() {
 const X = escena.X;
 let miElo = { v: 1000, pool: 'fun' };
 function sincronizar(llega = false) {
+    X.tu = sala && !sala.mira ? 0 : -1;   // tu figura (asiento 0) lleva contorno bermellón
     if (!sala) {
         X.ocupados = [true, true, true, true]; X.listos = [false, false, false, false]; X.nombres = null;
         X.elo = escena.ELO_TOP.map(e => ({ ...e }));
@@ -1320,13 +1369,18 @@ const matrizDe = txt => {   // texto en LETRAS, con un hueco entre letras; 1 = c
     return filas;
 };
 function cuentaAtras() {
+    // Primero, en la misma toma de la sala, uno de los dos de la pelea arranca la carta y la alza;
+    // luego la cámara sube y las cartas forman 3, 2, 1, ¡YA!
+    const GANA = 1800;
     sala.cuenta = { timers: [] };
-    historial.push(pantalla); pantalla = 'cuenta'; esc.dataset.p = 'cuenta';
-    escena.camara('cuenta'); formas();
+    historial.push(pantalla); pantalla = 'cuenta';
+    escena.ganar(); vibrar(25);
+    if (!ancho()) formas();   // en el móvil el chat se pliega: taparía la carta alzada
     mano.forEach(x => pon(x, W() / 2 - 64, H() + 80, 0, .8));
     estado.textContent = T('Desmárcate (↓) para cancelar'); colocarTextos();
-    ['3', '2', '1', 'YA!'].forEach((k, i) => sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(matrizDe(k), 0.13, true); vibrar(30); }, 300 + i * 950)));
-    sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(null); historial.pop(); pantalla = 'sala'; empezarPartida(); }, 300 + 4 * 950));
+    sala.cuenta.timers.push(setTimeout(() => { esc.dataset.p = 'cuenta'; escena.camara('cuenta'); formas(); }, GANA));
+    ['3', '2', '1', 'YA!'].forEach((k, i) => sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(matrizDe(k), 0.13, true); vibrar(30); }, GANA + 300 + i * 950)));
+    sala.cuenta.timers.push(setTimeout(() => { escena.mosaico(null); historial.pop(); pantalla = 'sala'; empezarPartida(); }, GANA + 300 + 4 * 950));
 }
 function cancelarCuenta(motivo) {
     sala.cuenta.timers.forEach(clearTimeout); sala.cuenta = null;
@@ -1356,8 +1410,9 @@ function preparaMenu(destino, o = {}) {
 }
 function alCambiar(antes, ahora) {
     // Tu perfil: tu figura (asiento 0) lleva tu nombre y tu Elo
-    if (PERFIL.has(ahora) && !sala) { X.nombres = [nombre.value.trim() || 'Tú', 'Beto', 'Coca', 'Dani']; X.elo[0] = { ...miElo }; }
+    if (PERFIL.has(ahora) && !sala) { X.nombres = [nombre.value.trim() || 'Tú', 'Beto', 'Coca', 'Dani']; X.elo[0] = { ...miElo }; X.tu = 0; }
     else if (!sala) sincronizar();
+    X.marca = ahora === 'echar' ? (MENUS.echar[0]?.idx ?? -1) : -1;   // a quién se vota echar, señalado en bermellón
     formas(ahora);
     if (antes === 'sm' && ahora !== 'smElo') X.placa = null;
     if (ahora === 'sm') X.placa = { txt: sm.codigo, ok: !!sm.codigo };
@@ -1600,9 +1655,16 @@ function formas(p = pantalla) {
         pon3(1, M, ZONA + 72 + SEP, col, 44, `<button class="grande" data-act="escanear">${ico('camara')} ${T('Escanear QR')}</button>`, 'esc');
     }
     if (enSala && sala && !(p === 'qr' && !an)) {
-        let y = an ? ZONA : ZONA + filasSala() * 107 + SEP;   // en estrecho: bajo los jugadores
-        if (p === 'bots') { pon3(2, M, y, col, 44, `${seg('dif', ['Fácil', 'Normal', 'Difícil'], dificultad)}`, 'dif'); if (!an) y += 44 + SEP; }
-        const cx = an ? der : M, cw = an ? col : w - 2 * M, ch = Math.max(88, Math.min(300, R.libre - y));
+        // Entre los jugadores (arriba) y el estado (abajo) queda el hueco donde se ve la pelea por la
+        // carta: la cámara de la sala se centra en él. En estrecho, el chat va pegado abajo y más bajo.
+        const bajoJug = ZONA + filasSala() * 107 + SEP;
+        const ch = an ? Math.max(88, Math.min(300, R.libre - ZONA)) : Math.max(88, Math.min(150, R.libre - bajoJug - 140 - (p === 'bots' ? 52 : 0)));
+        const y = an ? ZONA : R.libre - ch;
+        if (p === 'bots') pon3(2, M, an ? ZONA : y - 44 - SEP, col, 44, `${seg('dif', ['Fácil', 'Normal', 'Difícil'], dificultad)}`, 'dif');
+        const finHueco = an ? R.libre : (p === 'bots' ? y - 44 - SEP : y) - SEP;
+        const cyPelea = (bajoJug + finHueco) / 2 / R.h;
+        escena.fijarCy('sala', cyPelea); escena.fijarCy('bots', cyPelea);
+        const cx = an ? der : M, cw = an ? col : w - 2 * M;
         if (pon3(0, cx, y, cw, ch,
             `<span class="rotulo">${T('Chat de la sala')}</span><div class="log" aria-live="polite"></div><button class="escribe" data-act="chat">${T('Escribe aquí :D')}</button>`, 'chat')) pintarChat();
         const qw = an ? col : 138;
@@ -1637,7 +1699,7 @@ function actuar(act, b) {
         if (txt.length === 6) entrarCodigo(txt);
     });
     else if (act === 'chat' && sala) pedir(T('Escribe aquí :D'), 300, txt => {
-        decir(nombre.value.trim() || 'Tú', txt);
+        decir(nombre.value.trim() || 'Tú', txt, false, true);
         const otros = sala.gente.slice(1);
         if (otros.length) setTimeout(() => decir(otros[Math.floor(Math.random() * otros.length)].nombre, ['gg', 'jaja', 'a por ello', 'honk honk','listo cuando quieras'][Math.floor(Math.random() * 5)]), 1300);
     });
@@ -1650,8 +1712,8 @@ function entrarCodigo(cod) {
 }
 // El chat de la sala (en Piles lo guarda el servidor mientras dura la sala, nunca en las grabaciones)
 const chatLog = [];
-function decir(quien, txt, sistema = false) {
-    chatLog.push({ quien, txt, sistema });
+function decir(quien, txt, sistema = false, tuyo = false) {
+    chatLog.push({ quien, txt, sistema, tuyo });
     if (chatLog.length > 60) chatLog.shift();
     pintarChat();
 }
@@ -1661,7 +1723,7 @@ function pintarChat() {
     for (const m of chatLog.slice(-14)) {
         const d = document.createElement('div');
         if (m.sistema) { d.className = 'sis'; d.textContent = m.txt; }
-        else { const b = document.createElement('b'); b.textContent = m.quien + ' '; d.append(b, m.txt); }
+        else { const b = document.createElement('b'); b.textContent = m.quien + ' '; if (m.tuyo) b.className = 'tuyo'; d.append(b, m.txt); }
         log.append(d);
     }
 }
@@ -1692,6 +1754,7 @@ function moverDiales() {
         }
         el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${a.s * (W() < 760 ? 0.75 : 1)})`;
         el.style.opacity = chocaDial(el.getBoundingClientRect(), ocupado) ? 0 : 1;
+        el.classList.toggle('tuyo', p === X.tu);
     });
     requestAnimationFrame(moverDiales);
 }
@@ -1787,7 +1850,7 @@ function empezarPartida() {
                 }));
             }
             esc.classList.add('repartido');
-        }, 2600);   // tras alzar la carta ganada (escena: ~1,9 s)
+        }, 1000);   // la carta ya se alzó antes de la cuenta atrás: se reparte enseguida
     }, 900);
 }
 
