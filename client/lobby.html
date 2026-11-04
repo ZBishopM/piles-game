@@ -35,6 +35,11 @@
     <script src="/agapornis-ui/rank.js" defer></script>
     <script src="/agapornis-ui/rank-fx.js" defer></script>
     <script src="/agapornis-ui/dial.js" defer></script>
+    <!-- El menú en la mesa (diseno/menu-mesa/README.md): sustituye a las pantallas de menú,
+         que siguen abajo, ocultas, porque su lógica escribe en ellas. Después de dial.js. -->
+    <link rel="stylesheet" href="/mesa/mesa.css">
+    <script src="/mesa/mesa.js" defer></script>
+    <link rel="preload" as="image" href="/mesa/siluetas.webp">
     <style>
         /* Reset — venía de css/styles.css, que era el resto código muerto de
            una página de pruebas anterior. */
@@ -1716,6 +1721,21 @@
     </style>
 </head>
 <body>
+
+<!-- ════ MENÚ EN LA MESA ════ (mesa/mesa.js). El primero del body: los avisos, el diálogo del
+     Elo y el de reconexión, que van detrás en el DOM, quedan encima. -->
+<div id="escenario" data-p="inicio" data-sin-gestos>
+    <div class="frag f1"></div><div class="frag f2"></div><div class="frag f3"></div>
+    <canvas id="juego" aria-hidden="true"></canvas>
+    <div id="titulo">PILES<span>!</span></div>
+    <input id="nombre" type="text" aria-label="Tu nombre" data-i18n-attr="aria-label:home.name" maxlength="20" autocomplete="nickname">
+    <div id="diales" aria-hidden="true"><div class="dialMesa"></div><div class="dialMesa"></div><div class="dialMesa"></div><div class="dialMesa"></div></div>
+    <div id="cartas" role="listbox" aria-label="Menú"></div>
+    <div class="pieza oculta" id="p1"></div><div class="pieza oculta" id="p2"></div><div class="pieza oculta" id="p3"></div>
+    <input id="campo" type="text" autocomplete="off" aria-label="Escribe">
+    <p id="estado" role="status" aria-live="polite"></p>
+    <div id="barrido" aria-hidden="true"></div>
+</div>
 
 <!-- ════ HOME ════ -->
 <div id="homeScreen" class="screen panel active">

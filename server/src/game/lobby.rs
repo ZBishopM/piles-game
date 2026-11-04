@@ -180,7 +180,12 @@ pub const DEBT_DEADLINE: Duration = Duration::from_secs(3);
 
 /// Cuánto se espera, con todos listos, antes de repartir. Hay tiempo de
 /// desmarcarse (o de que entre alguien) antes de que arranque.
-pub const COUNTDOWN: Duration = Duration::from_secs(3);
+///
+/// 5 s: el cliente lo llena hacia atrás desde el final — los últimos 3 son el
+/// 3, 2, 1 y lo que sobra, la pelea por la carta que alguien gana y alza
+/// (menú de la mesa). Va en el mensaje `countdown`, así que el cliente no
+/// necesita saberlo de antemano.
+pub const COUNTDOWN: Duration = Duration::from_secs(5);
 
 /// Qué cambió en la cuenta atrás de una sala (ver `Lobby::countdown_sync`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

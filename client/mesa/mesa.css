@@ -1,0 +1,232 @@
+/* El menú en la mesa (ver diseno/menu-mesa/README.md). Sustituye a las pantallas de menú de
+   lobby.html (inicio, perfil, cómo jugar, crear, unirse, sala): esas siguen en el DOM, ocultas,
+   porque su lógica escribe en ellas. La partida (#gameScreen) no cambia.
+   Todo va dentro de #escenario: las variables también, para no pisar las de lobby.html. */
+body.mesa { overflow: hidden; }
+body.mesa .screen:not(#gameScreen) { display: none !important; }
+body.mesa #cuentaAtras { display: none !important; }   /* la cuenta atrás la forman las cartas de la mesa */
+body.mesa.en-partida #escenario { display: none; }
+/* El borde-atrás de gestos.js mira el «Atrás» de la pantalla activa (oculta): aquí atrás es ↓ */
+body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras { display: none !important; }
+#escenario {
+    --bg: #060606;          /* agapornis-ui */
+    --tinta: #0e0e0e;
+    --texto: #e8e8ea;
+    --tenue: #a9a9ae;
+    --salvia: #a9b689;
+    --militar: #4b5320;
+    --hueso: #e9e6da;
+    --acento: #e8402a; --sobreAcento: var(--tinta);   /* bermellón */   /* el único color de acción: lo elegido y lo que se mueve */
+    --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --rebote: cubic-bezier(.34, 1.56, .64, 1);
+    --golpe: cubic-bezier(.7, 0, .2, 1);
+    --cw: 128px; --ch: 176px;    /* carta-botón */
+    --cabw: min(190px, calc(100vw - 202px));
+    color-scheme: dark;
+    /* Sin z-index: va el primero del <body>, así los avisos, el diálogo del Elo y el de
+       reconexión de lobby.html (más abajo en el DOM) quedan encima. */
+    position: fixed; inset: 0; overflow: hidden; isolation: isolate;
+    background: var(--bg); color: var(--texto); font-family: var(--sans);
+    touch-action: none; user-select: none; -webkit-user-select: none;
+}
+/* :where() = especificidad 0: el reset no gana a #nombre, .carta.jugador… */
+:where(#escenario) :where(*, *::before, *::after) { box-sizing: border-box; margin: 0; }
+:where(#escenario) :where(button, input) { font: inherit; color: inherit; }
+
+/* ── Fondo: fragmentos que se deforman (5 vértices, se interpolan) ─────────── */
+.frag { position: absolute; inset: -6%; z-index: -5; transition: clip-path 760ms var(--golpe); }
+.frag::after { content: ""; position: absolute; inset: 0; background-image: radial-gradient(rgb(0 0 0 / 22%) 1.1px, transparent 1.5px); background-size: 8px 8px; }
+.f1 { background: var(--militar); }
+.f2 { background: var(--salvia); }
+.f3 { background: var(--hueso); }
+[data-p="inicio"] .f1 { clip-path: polygon(0 0, 70% 0, 44% 46%, 0 58%, 0 30%); }
+[data-p="inicio"] .f2 { clip-path: polygon(100% 0, 100% 22%, 78% 30%, 72% 0, 90% 0); }
+[data-p="inicio"] .f3 { clip-path: polygon(70% 0, 73% 0, 46% 47%, 43% 48%, 58% 22%); }
+[data-p="crear"] .f1, [data-p="perfil"] .f1 { clip-path: polygon(30% 0, 100% 0, 100% 40%, 60% 52%, 20% 14%); }
+[data-p="crear"] .f2, [data-p="perfil"] .f2 { clip-path: polygon(0 0, 22% 0, 10% 30%, 0 34%, 0 14%); }
+[data-p="crear"] .f3, [data-p="perfil"] .f3 { clip-path: polygon(19% 13%, 22% 12%, 62% 51%, 59% 53%, 40% 30%); }
+[data-p="unirse"] .f1, [data-p="tutorial"] .f1 { clip-path: polygon(0 12%, 100% 0, 100% 30%, 50% 40%, 0 44%); }
+[data-p="unirse"] .f2, [data-p="tutorial"] .f2 { clip-path: polygon(64% 30%, 100% 26%, 100% 40%, 80% 44%, 66% 42%); }
+[data-p="unirse"] .f3, [data-p="tutorial"] .f3 { clip-path: polygon(0 43%, 50% 39%, 100% 29%, 100% 31%, 0 45.5%); }
+[data-p="sala"] .f1, [data-p="bots"] .f1 { clip-path: polygon(0 0, 100% 0, 100% 16%, 40% 24%, 0 20%); }
+[data-p="sala"] .f2, [data-p="bots"] .f2 { clip-path: polygon(0 20%, 40% 24%, 46% 30%, 10% 34%, 0 32%); }
+[data-p="sala"] .f3, [data-p="bots"] .f3 { clip-path: polygon(0 19.5%, 40% 23.5%, 100% 15.5%, 100% 17%, 0 21%); }
+/* Submenús de segundo nivel: el mismo fragmento, girado hacia el otro lado */
+[data-p="privacidad"] .f1, [data-p="burla"] .f1 { clip-path: polygon(0 0, 60% 0, 100% 34%, 100% 48%, 0 22%); }
+[data-p="privacidad"] .f2, [data-p="burla"] .f2 { clip-path: polygon(78% 0, 100% 0, 100% 20%, 92% 26%, 80% 10%); }
+[data-p="privacidad"] .f3, [data-p="burla"] .f3 { clip-path: polygon(0 21%, 2% 20%, 100% 46%, 100% 49%, 50% 36%); }
+[data-p="idioma"] .f1, [data-p="codigo"] .f1 { clip-path: polygon(0 30%, 100% 8%, 100% 36%, 60% 44%, 0 50%); }
+[data-p="idioma"] .f2, [data-p="codigo"] .f2 { clip-path: polygon(0 0, 30% 0, 24% 20%, 0 26%, 0 10%); }
+[data-p="idioma"] .f3, [data-p="codigo"] .f3 { clip-path: polygon(0 49%, 60% 43%, 100% 35%, 100% 37.5%, 0 51.5%); }
+/* Pantallas de la escena (vistas de lado o desde arriba): reutilizan los fragmentos de su menú padre */
+[data-p="oferta"] .f1, [data-p="echar"] .f1 { clip-path: polygon(0 0, 100% 0, 100% 16%, 40% 24%, 0 20%); }
+[data-p="oferta"] .f2, [data-p="echar"] .f2 { clip-path: polygon(0 20%, 40% 24%, 46% 30%, 10% 34%, 0 32%); }
+[data-p="oferta"] .f3, [data-p="echar"] .f3 { clip-path: polygon(0 19.5%, 40% 23.5%, 100% 15.5%, 100% 17%, 0 21%); }
+[data-p="rangos"] .f1, [data-p="sm"] .f1, [data-p="smElo"] .f1 { clip-path: polygon(0 0, 60% 0, 100% 34%, 100% 48%, 0 22%); }
+[data-p="rangos"] .f2, [data-p="sm"] .f2, [data-p="smElo"] .f2 { clip-path: polygon(78% 0, 100% 0, 100% 20%, 92% 26%, 80% 10%); }
+[data-p="rangos"] .f3, [data-p="sm"] .f3, [data-p="smElo"] .f3 { clip-path: polygon(0 21%, 2% 20%, 100% 46%, 100% 49%, 50% 36%); }
+[data-p="mirar"] .f1 { clip-path: polygon(0 12%, 100% 0, 100% 30%, 50% 40%, 0 44%); }
+[data-p="mirar"] .f2 { clip-path: polygon(64% 30%, 100% 26%, 100% 40%, 80% 44%, 66% 42%); }
+[data-p="mirar"] .f3 { clip-path: polygon(0 43%, 50% 39%, 100% 29%, 100% 31%, 0 45.5%); }
+/* Desde arriba (QR, cuenta atrás, visor): los fragmentos se apartan a los bordes, que el QR se lea */
+[data-p="qr"] .f1, [data-p="cuenta"] .f1, [data-p="visor"] .f1 { clip-path: polygon(0 0, 9% 0, 4% 100%, 0 100%, 0 50%); }
+[data-p="qr"] .f2, [data-p="cuenta"] .f2, [data-p="visor"] .f2 { clip-path: polygon(93% 0, 100% 0, 100% 100%, 97% 100%, 95% 40%); }
+[data-p="qr"] .f3, [data-p="cuenta"] .f3, [data-p="visor"] .f3 { clip-path: polygon(0 99%, 100% 98%, 100% 99%, 50% 100%, 0 100%); }
+[data-p="partida"] .f1 { clip-path: polygon(0 60%, 100% 50%, 100% 100%, 50% 100%, 0 100%); }
+[data-p="partida"] .f2 { clip-path: polygon(0 0, 100% 0, 100% 6%, 50% 9%, 0 7%); }
+[data-p="partida"] .f3 { clip-path: polygon(0 59%, 100% 49%, 100% 51%, 50% 56%, 0 61%); }
+
+/* La partida de fondo (canvas): gente jugando a cámara lenta; la cámara cambia en cada menú */
+#juego { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -4; }
+.frag { opacity: .55; }   /* detrás del canvas: la mesa y las figuras los tapan (la mesa no se ve transparente) */
+
+/* La mano también cambia de ángulo con cada menú (como el tablero al cambiar de set) */
+#cartas { position: absolute; inset: 0; perspective: 900px; perspective-origin: 50% calc(100% - 140px); transform-style: preserve-3d; }   /* el ojo, a la altura de la mano: inclinada no crece */
+#cartas > .carta { transform: translate(var(--x), var(--y)) rotateY(var(--ry, 0deg)) rotateX(var(--rxm, 0deg)) rotate(var(--r)) scale(var(--s)); }
+/* La cabecera y los jugadores no se inclinan: siempre en el mismo sitio y alineados */
+#cartas > .carta.cabecera, #cartas > .carta.jugador { transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(var(--s)); }
+[data-p="inicio"] { --ry: 0deg; --rxm: 6deg; }
+[data-p="crear"] { --ry: -14deg; --rxm: 10deg; }
+[data-p="unirse"] { --ry: 14deg; --rxm: 8deg; }
+[data-p="sala"], [data-p="bots"] { --ry: -6deg; --rxm: 16deg; }
+[data-p="perfil"], [data-p="privacidad"] { --ry: 12deg; --rxm: 4deg; }
+[data-p="tutorial"], [data-p="codigo"] { --ry: -10deg; --rxm: 12deg; }
+[data-p="burla"], [data-p="idioma"] { --ry: 18deg; --rxm: 10deg; }
+/* Campo de texto que sale cuando hace falta escribir (código, chat, Session Manager) */
+#campo { position: absolute; left: 50%; z-index: 14; width: min(320px, calc(100vw - 32px)); translate: -50% 0; font: 800 1.1rem var(--sans); color: var(--tinta); background: var(--hueso); border: none; padding: 10px 14px; box-shadow: inset 0 0 0 2px var(--tinta); clip-path: polygon(0 6%, 100% 0, 97% 100%, 2% 94%); opacity: 0; pointer-events: none; transform: scale(.8); transition: opacity 250ms, transform 400ms var(--rebote); }
+#campo.abierto { opacity: 1; pointer-events: auto; transform: none; }
+#campo:focus-visible { outline: 3px solid var(--acento); }
+.escribiendo #estado { visibility: hidden; }   /* el campo ocupa su hueco mientras escribes */
+.carta.respira { animation: respira 3.2s ease-in-out infinite alternate; }
+@keyframes respira { to { translate: 0 -4px; } }
+
+
+/* Barrido del cambio: un golpe anguloso */
+#barrido { position: absolute; inset: -10%; z-index: 30; pointer-events: none; background: var(--tinta); clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); }
+#barrido::after { content: ""; position: absolute; inset: 0; background: var(--acento); clip-path: polygon(0 0, 3% 0, 1% 100%, -2% 100%); }
+#barrido.pasa { animation: barre 560ms var(--golpe); }
+@keyframes barre {
+    0% { clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); }
+    48% { clip-path: polygon(-10% 0, 75% 0, 45% 100%, -40% 100%); }
+    100% { clip-path: polygon(120% 0, 140% 0, 110% 100%, 90% 100%); }
+}
+
+/* ── Cartas-botón ─────────────────────────────────────────────────────────── */
+/* La forma (fondo, borde y corte) va en ::before: así la carta puede llevar sombra dura
+   (drop-shadow sigue el corte). Cada variante solo cambia --fondo, --linea, --corte y --sombra. */
+.carta {
+    --x: 0px; --y: 0px; --r: 0deg; --s: 1;
+    --fondo: var(--tinta); --linea: inset 0 0 0 2px rgb(169 182 137 / 35%); --corte: polygon(4% 2%, 100% 0, 96% 98%, 0 100%);
+    --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%));
+    position: absolute; left: 0; top: 0; width: var(--cw); height: var(--ch);
+    transform: translate(var(--x), var(--y)) rotate(var(--r)) scale(var(--s));
+    transition: transform 520ms var(--rebote), width 520ms cubic-bezier(.2,.8,.2,1), height 520ms cubic-bezier(.2,.8,.2,1),
+        padding 520ms, color 200ms, opacity 300ms, filter 300ms;
+    background: none; color: var(--texto); filter: var(--sombra);
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 14px 14px 12px; border: none; font: inherit; text-align: left; cursor: pointer;
+    will-change: transform;
+}
+.carta::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--fondo); box-shadow: var(--linea); clip-path: var(--corte);
+    transition: background 200ms, box-shadow 200ms, clip-path 520ms; }
+.carta .palo { font: 900 1.1rem/1 var(--sans); color: var(--salvia); letter-spacing: .04em; }
+.carta .nombre { font: 900 1.28rem/1.02 var(--sans); letter-spacing: -.01em; text-transform: uppercase; hyphens: auto; overflow-wrap: anywhere; }
+.carta .nota { font: 600 .72rem/1.25 var(--sans); color: var(--tenue); }
+.carta.elegida { --fondo: var(--acento); --linea: inset 0 0 0 3px var(--tinta); --sombra: drop-shadow(7px 8px 0 var(--tinta)); color: var(--sobreAcento); }
+.carta.elegida .palo, .carta.elegida .nota { color: var(--sobreAcento); opacity: .78; }
+.carta:focus-visible { outline: none; --linea: inset 0 0 0 4px var(--hueso); }
+/* La carta jugada se vuelve el rectángulo del nombre (mismo sitio, tamaño y corte) */
+.carta.cabecera {
+    --ch: 40px; z-index: 12; cursor: default; justify-content: center; padding: 8px 12px;
+    --cw: var(--cabw);
+    --fondo: var(--acento); --linea: inset 0 0 0 2px var(--tinta); --corte: polygon(0 6%, 100% 0, 97% 100%, 2% 94%);
+    --sombra: drop-shadow(4px 5px 0 var(--tinta)); color: var(--sobreAcento);
+}
+/* Las jugadas de antes asoman detrás de la de ahora: el camino, sin repetirlo abajo */
+.carta.cabecera.previa { --sombra: brightness(.42) saturate(.7); }
+.carta.cabecera .palo, .carta.cabecera .nota { display: none; }
+.carta.cabecera .nombre { font-size: 1.15rem; font-weight: 800; text-transform: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.carta.jugador { --fondo: var(--hueso); --linea: inset 0 0 0 3px var(--tinta); color: var(--tinta); cursor: default; }
+.carta.jugador .palo { color: var(--militar); }
+.carta.jugador.listo { --fondo: var(--salvia); }
+/* Tú, en la sala: contorno y sombra en bermellón (lo mismo que tu figura en la mesa) */
+.carta.jugador.tuya { --linea: inset 0 0 0 4px var(--acento); --sombra: drop-shadow(5px 6px 0 var(--acento)); }
+.carta.jugador.tuya .palo { color: var(--acento); }
+.carta.dorso { --fondo: var(--militar); --linea: inset 0 0 0 5px var(--tinta), inset 0 0 0 6px var(--salvia); }
+.carta.dorso > * { display: none; }
+
+/* La pila del centro (de donde salen los menús) */
+/* Al empezar la partida, la mesa de fondo es la protagonista hasta que se reparte */
+[data-p="partida"]:not(.repartido) .carta.jugador { opacity: 0; }
+[data-p="qr"] .carta.jugador, [data-p="cuenta"] .carta.jugador { opacity: 0; }
+
+/* Rejilla (la misma en todas las pantallas; los números salen de `rejilla()` en el JS):
+   margen 16 · separación 8 · fila 1 (y 16): título · fila 2 (y 64, alto 40): cabecera o nombre a la
+   izquierda, botones pequeños a la derecha · zona de piezas desde y 120 · abajo, de abajo arriba:
+   mano, estado. Lo claro lleva borde oscuro y el texto suelto, fondo oscuro. */
+#titulo { position: absolute; left: 16px; top: 16px; font: 900 1.6rem/1 var(--sans); letter-spacing: -.02em; color: var(--hueso); transform: skewX(-10deg); transition: opacity 400ms; z-index: 10; }
+#titulo span { color: var(--acento); }
+#nombre { position: absolute; left: 16px; top: 64px; height: 40px; z-index: 12; font: 800 1.15rem var(--sans); color: var(--tinta); background: var(--hueso); border: none; padding: 8px 12px; width: var(--cabw); box-shadow: inset 0 0 0 2px var(--tinta); clip-path: polygon(0 6%, 100% 0, 97% 100%, 2% 94%); transition: opacity 300ms, transform 500ms var(--rebote); }
+#nombre:focus-visible { outline: 3px solid var(--acento); }
+[data-p]:not([data-p="inicio"]) #nombre { opacity: 0; pointer-events: none; transform: translateX(-40px); }
+#estado { position: absolute; left: 50%; translate: -50% 0; width: max-content; max-width: calc(100vw - 32px); text-align: center; z-index: 12; font: 900 .95rem/1.25 var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--hueso); background: rgb(6 6 6 / 82%); padding: 4px 10px; }
+#estado:empty { display: none; }
+
+/* ── Piezas: tres figuras angulosas que se transforman en lo que cada pantalla necesita ──
+   (chat, código de la sala, número de jugadores, dificultad, diales de Elo, idioma…).
+   Cambian de sitio, tamaño y corte con la misma curva que el fondo: se ve que es la misma
+   pieza que pasa a hacer otra cosa. */
+.pieza {
+    position: absolute; z-index: 13; left: 0; top: 0; width: 0; height: 0; overflow: hidden;
+    color: var(--texto); font: 800 .8rem var(--sans);
+    filter: drop-shadow(4px 5px 0 rgb(0 0 0 / 62%));   /* sombra dura; la forma va en ::before */
+    transition: left 620ms var(--golpe), top 620ms var(--golpe), width 620ms var(--golpe), height 620ms var(--golpe), opacity 300ms;
+}
+.pieza::before { content: ""; position: absolute; inset: 0; background: rgb(6 6 6 / 84%); box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%);
+    clip-path: polygon(6px 0, 100% 4px, calc(100% - 6px) 100%, 0 calc(100% - 4px));   /* en px: el corte no come texto en piezas anchas */
+    transition: clip-path 620ms var(--golpe); }
+.pieza.oculta { opacity: 0; pointer-events: none; }
+.pieza.oculta::before { clip-path: polygon(50% 50%, 50% 50%, 50% 50%, 50% 50%); }
+.pieza > .dentro { position: absolute; inset: 0; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; animation: aparece 380ms 200ms both; }
+@keyframes aparece { from { opacity: 0; translate: 0 6px; } }
+.pieza .rotulo { font: 900 .66rem var(--sans); letter-spacing: .14em; color: var(--salvia); text-transform: uppercase; }
+.pieza button { font: 900 .85rem var(--sans); color: var(--texto); background: none; border: none; cursor: pointer; padding: 6px 8px; }
+.pieza .fila { display: flex; gap: 4px; align-items: center; justify-content: center; flex: 1; }
+/* Opciones contiguas: el resalte se desliza de la que estaba a la nueva (no salta) */
+.pieza .segs { position: relative; align-items: stretch; }
+.pieza .seg { flex: 1; position: relative; z-index: 1; background: none; box-shadow: inset 0 0 0 1px rgb(169 182 137 / 40%); transform: skewX(-10deg); transition: color 160ms 120ms; }
+.pieza .seg.si { color: var(--tinta); }
+.pieza .resalte { position: absolute; top: 0; bottom: 0; z-index: 0; background: var(--acento); transform: skewX(-10deg);
+    left: calc(var(--i) * (100% + 4px) / var(--n)); width: calc((100% - (var(--n) - 1) * 4px) / var(--n));
+    transition: left 420ms var(--golpe); }
+.pieza .num { font: 900 1.6rem var(--sans); min-width: 2ch; text-align: center; color: var(--hueso); }
+/* Tambor de números (como los diales de Elo): se ve el de antes y el de después; gira al cambiar */
+.pieza .tambor { --lin: 30px; position: relative; height: calc(var(--lin) * 3); width: 64px; overflow: hidden; cursor: ns-resize; touch-action: none;
+    background: var(--tinta); box-shadow: inset 0 0 0 1px rgb(169 182 137 / 40%);
+    mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); -webkit-mask-image: linear-gradient(transparent, #000 30%, #000 70%, transparent); }
+.pieza .tambor::after { content: ""; position: absolute; left: 0; right: 0; top: var(--lin); height: var(--lin); box-shadow: inset 0 2px 0 var(--acento), inset 0 -2px 0 var(--acento); pointer-events: none; }
+.pieza .rodillo { display: flex; flex-direction: column; transform: translateY(calc((1 - var(--v) + var(--min)) * var(--lin))); transition: transform 460ms var(--rebote); }
+.pieza .rodillo span { height: var(--lin); line-height: var(--lin); text-align: center; font: 900 1.5rem var(--sans); color: var(--tenue); font-variant-numeric: tabular-nums; }
+.pieza .rodillo span.ya { color: var(--hueso); }
+/* Iconos: trazos rectos de 2,5 px, del color del texto (nada de emoji) */
+.pieza .fila > button > .ico { width: 1.6em; height: 1.6em; }
+.ico { width: 1.15em; height: 1.15em; vertical-align: -.2em; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: square; stroke-linejoin: miter; }
+.pieza .grande { flex: 1; display: grid; grid-auto-flow: column; gap: 6px; place-content: center; align-items: center; white-space: nowrap; font: 900 1.05rem var(--sans); letter-spacing: .1em; color: var(--hueso); }
+/* El chat: siempre en la sala, en una caja oscurecida para que los mensajes se lean */
+.pieza .log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; font: 600 .82rem/1.3 var(--sans); }
+.pieza .log b { color: var(--salvia); font-weight: 900; }
+.pieza .log .sis { color: var(--tenue); font-style: italic; }
+.pieza .escribe { text-align: left; color: var(--tenue); background: rgb(255 255 255 / 6%); font-weight: 600; }
+/* Los diales (agapornis-ui): grandes en el perfil, pequeños flotando sobre la mesa */
+.pieza .diales { flex: 1; display: flex; gap: 18px; align-items: center; justify-content: center; --ag-dial-size: 26px; }
+@media (max-width: 459px) { .pieza .diales { gap: 10px; --ag-dial-size: 17px; } }
+.dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms; }
+.dialMesa .ag-dial-delta, .dialMesa .ag-dial-rank { display: none !important; }
+/* Tu dial: una punta bermellón debajo, apuntando a tu figura */
+.dialMesa.tuyo::after { content: ""; position: absolute; left: 50%; bottom: -12px; width: 14px; height: 9px; translate: -50% 0;
+    background: var(--acento); clip-path: polygon(0 0, 100% 0, 50% 100%); filter: drop-shadow(2px 2px 0 #000); }
+.pieza .log b.tuyo { color: var(--acento); }
+.dialMesa .ag-dial-label { font-size: 9px; text-shadow: 0 0 3px #000, 0 0 2px #000; }
+@media (prefers-reduced-motion: reduce) {
+    #escenario *, #escenario *::before, #escenario *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+}

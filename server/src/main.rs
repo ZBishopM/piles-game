@@ -60,6 +60,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(health_check))
         .route("/api/qr/:lobby_code", get(lobby_qr))
+        .route("/api/qr/:lobby_code/matriz", get(lobby_qr_matriz))
         // Grabaciones. Bajo `/api/` porque es lo único que nginx reenvía al
         // servidor tanto en beta como en producción; los estáticos salen de
         // disco. Y NO por `ServeDir`: el directorio queda fuera de `client/`
@@ -208,18 +209,58 @@ async fn lobby_qr(
     Path(lobby_code): Path<String>,
     headers: HeaderMap,
 ) -> Response {
-    if !is_valid_lobby_code(&lobby_code) {
-        return StatusCode::NOT_FOUND.into_response();
+    let qr = match qr_del_lobby(&state, &lobby_code, &headers).await {
+        Ok(qr) => qr,
+        Err(resp) => return resp,
+    };
+    let svg = fast_qr::convert::svg::SvgBuilder::default().to_str(&qr);
+
+    (
+        [
+            (header::CONTENT_TYPE, "image/svg+xml; charset=utf-8"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            (header::CONTENT_SECURITY_POLICY, "default-src 'none'"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        svg,
+    )
+        .into_response()
+}
+
+/// El mismo QR como matriz: `{"n": lado, "m": "0110…"}` (fila a fila, `1` =
+/// módulo oscuro). El menú de la mesa lo forma con cartas vistas desde arriba
+/// y necesita los módulos, no un dibujo.
+async fn lobby_qr_matriz(
+    State(state): State<AppState>,
+    Path(lobby_code): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let qr = match qr_del_lobby(&state, &lobby_code, &headers).await {
+        Ok(qr) => qr,
+        Err(resp) => return resp,
+    };
+    let m: String = qr.data[..qr.size * qr.size].iter().map(|c| if c.value() { '1' } else { '0' }).collect();
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        axum::Json(serde_json::json!({ "n": qr.size, "m": m })),
+    )
+        .into_response()
+}
+
+/// El QR del enlace de invitación de una sala que existe (404 si no).
+async fn qr_del_lobby(state: &AppState, lobby_code: &str, headers: &HeaderMap) -> Result<fast_qr::QRCode, Response> {
+    if !is_valid_lobby_code(lobby_code) {
+        return Err(StatusCode::NOT_FOUND.into_response());
     }
     // Mismo 404 que un código mal formado: así el endpoint no delata qué
     // códigos existen.
-    if state.lobby_manager.get_lobby(&lobby_code).await.is_none() {
-        return StatusCode::NOT_FOUND.into_response();
+    if state.lobby_manager.get_lobby(lobby_code).await.is_none() {
+        return Err(StatusCode::NOT_FOUND.into_response());
     }
 
     let host = match headers.get(header::HOST).and_then(|h| h.to_str().ok()) {
         Some(h) => h,
-        None => return StatusCode::BAD_REQUEST.into_response(),
+        None => return Err(StatusCode::BAD_REQUEST.into_response()),
     };
     // nginx aquí no reenvía X-Forwarded-Proto (solo Host y X-Real-IP), así
     // que en producción manda el valor por defecto: https. En local no hay
@@ -236,23 +277,8 @@ async fn lobby_qr(
         });
     let join_url = format!("{scheme}://{host}/lobby.html?join={lobby_code}");
 
-    let qr = match fast_qr::QRBuilder::new(join_url).build() {
-        Ok(qr) => qr,
-        Err(err) => {
-            tracing::error!("no se pudo generar el QR de {lobby_code}: {err}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-        }
-    };
-    let svg = fast_qr::convert::svg::SvgBuilder::default().to_str(&qr);
-
-    (
-        [
-            (header::CONTENT_TYPE, "image/svg+xml; charset=utf-8"),
-            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-            (header::CONTENT_SECURITY_POLICY, "default-src 'none'"),
-            (header::CACHE_CONTROL, "no-store"),
-        ],
-        svg,
-    )
-        .into_response()
+    fast_qr::QRBuilder::new(join_url).build().map_err(|err| {
+        tracing::error!("no se pudo generar el QR de {lobby_code}: {err}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
 }
