@@ -39,8 +39,8 @@
          que siguen abajo, ocultas, porque su lógica escribe en ellas. Después de dial.js. -->
     <link rel="stylesheet" href="/mesa/mesa.css">
     <script src="/mesa/mesa.js" defer></script>
-    <!-- La partida con el mismo estilo y sin franjas de texto (partida/partida.js). -->
-    <link rel="stylesheet" href="/partida/partida.css">
+    <!-- La partida con el mismo estilo y sin franjas de texto (partida/partida.js). Su CSS va
+         al final del <head>, detrás del <style> de aquí: a igual especificidad, manda el suyo. -->
     <script src="/partida/partida.js" defer></script>
     <link rel="preload" as="image" href="/mesa/siluetas.webp">
     <style>
@@ -1722,6 +1722,7 @@
             #flipBtn:not(.is-flipped):hover { background: var(--hover); color: var(--text-muted); }
         }
     </style>
+    <link rel="stylesheet" href="/partida/partida.css">
 </head>
 <body>
 

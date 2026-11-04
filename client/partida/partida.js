@@ -118,5 +118,39 @@
         if ((msg.countered || []).includes(currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
     });
 
-    window.partida = { avisoIco, destello, ico };
+    // ── Vivo aunque no juegues: fragmentos de fondo y barrido ─────────────────────
+    const tablero = document.getElementById('gameScreen');
+    for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
+    const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
+    const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
+    envolver('switchSet', barrer);
+    envolver('onGameStart', barrer);
+    envolver('onFrenzyFired', barrer);
+    // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
+    envolver('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
+
+    // ── Sin espacio muerto: las cartas del centro crecen hasta llenar la mesa ───────
+    // Para n huecos, las columnas que dan la carta más grande que cabe en el alto y el ancho.
+    const PROP = 10361 / 16000, HUECO = 12, MAX = 190;
+    function encajarCentro() {
+        const fila = document.getElementById('centerCards');
+        if (!fila || !tablero.classList.contains('active')) return;
+        const n = Math.max(1, fila.children.length), cs = getComputedStyle(fila);
+        const ancho = fila.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+        const alto = fila.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+        if (ancho <= 0 || alto <= 0) return;
+        let mejor = 0, cols = 1;
+        for (let c = 1; c <= n; c++) {
+            const r = Math.ceil(n / c);
+            const w = Math.min((ancho - (c - 1) * HUECO) / c, ((alto - (r - 1) * HUECO) / r) * PROP);
+            if (w > mejor) { mejor = w; cols = c; }
+        }
+        fila.style.setProperty('--cc', cols);
+        fila.style.setProperty('--cw', `${Math.floor(Math.min(mejor * 0.9, MAX))}px`);   // 0,9: margen para el ángulo de cada carta
+    }
+    envolver('renderCenterCards', encajarCentro);
+    envolver('onGameStart', () => requestAnimationFrame(encajarCentro));
+    addEventListener('resize', encajarCentro);
+
+    window.partida = { avisoIco, destello, ico, encajarCentro };
 })();
