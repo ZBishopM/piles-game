@@ -224,8 +224,20 @@ body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras {
 .pieza .log .sis { color: var(--tenue); font-style: italic; }
 .pieza .escribe { text-align: left; color: var(--tenue); background: rgb(255 255 255 / 6%); font-weight: 600; }
 /* Los diales (agapornis-ui): grandes en el perfil, pequeños flotando sobre la mesa */
-.pieza .diales { flex: 1; display: flex; gap: 18px; align-items: center; justify-content: center; --ag-dial-size: 26px; }
-@media (max-width: 459px) { .pieza .diales { gap: 10px; --ag-dial-size: 17px; } }
+/* Perfil: los dos Elos en vertical, separados por una línea; cada uno, su rótulo encima */
+.pieza .diales { flex: 1; display: flex; flex-direction: column; gap: 0; align-items: stretch; justify-content: space-evenly; --ag-dial-size: 24px; }
+.pieza .diales > [data-dial] { display: flex; justify-content: center; padding: 8px 0; }
+.pieza .diales > [data-dial] + [data-dial] { box-shadow: 0 -1px 0 rgb(169 182 137 / 25%); }
+/* Una sola letra en la mesa: los rótulos de los diales (la piel glory usa Georgia) como los demás rótulos */
+#escenario .ag-dial-label, #escenario .ag-dial[data-skin="glory"] .ag-dial-label { font: 900 .62rem/1 var(--sans); letter-spacing: .14em; text-transform: uppercase; }
+.dialMesa .ag-dial-label, .dialMesa .ag-dial[data-skin="glory"] .ag-dial-label { font-size: 9px; }
+#escenario #nombre.mal { outline: none; box-shadow: inset 0 0 0 3px var(--acento); }   /* tiene corte: el contorno, por dentro */
+/* Sin frase: lo que falla tiembla en rojo; lo que espera al servidor late */
+#escenario .mal { animation: mal 600ms; outline: 3px solid var(--acento); outline-offset: 2px; }
+@keyframes mal { 20%, 60% { translate: -8px 0; } 40%, 80% { translate: 8px 0; } }
+.carta.esperando { animation: late 700ms ease-in-out infinite alternate; }
+@keyframes late { to { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); } }
+#estado .ico { width: 1.4em; height: 1.4em; margin: 0 2px; vertical-align: -.3em; }
 .dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms; }
 .dialMesa .ag-dial-delta, .dialMesa .ag-dial-rank { display: none !important; }
 /* Tu dial: una punta bermellón debajo, apuntando a tu figura */

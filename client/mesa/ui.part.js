@@ -99,6 +99,7 @@ const ICONOS = {
     check: 'M4 12l5 5L20 6', cambio: 'M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4', llenar: 'M4 6h12M4 12h16M4 18h12M16 8l4 4-4 4',
     fuera: 'M14 4H4v16h10M10 12h11M17 8l4 4-4 4', persona: 'M8 4h8v8H8zM4 21v-5h16v5', camara: 'M3 7h4l2-3h6l2 3h4v13H3zM10 11h4v4h-4z',
     qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2M18 14h2v2M14 18h2v2M18 18v2h2',
+    abajo: 'M12 3v16M6 13l6 6 6-6',
 };
 const ico = n => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
 const pon = (c, x, y, r = 0, s = 1) => { c.style.setProperty('--x', x + 'px'); c.style.setProperty('--y', y + 'px'); c.style.setProperty('--r', r + 'deg'); c.style.setProperty('--s', s); };
@@ -309,7 +310,7 @@ const _requireNickname = window.requireNickname;
 window.requireNickname = () => {
     if (!document.getElementById('nickname').value.trim() && nombre.value.trim()) document.getElementById('nickname').value = nombre.value.trim();
     const n = conLobby(_requireNickname);
-    if (!n) { aviso(T('Elige un nombre primero'), 2400); nombre.focus(); }
+    if (!n) { sacude(nombre); nombre.focus(); }   // sin texto: el campo del nombre tiembla en rojo
     return n;
 };
 // Cada mensaje del servidor: primero lobby.html, luego se pinta aquí
@@ -440,6 +441,9 @@ const aviso = (txt, ms = 1600) => {
     estado.textContent = txt; clearTimeout(aviso.t);
     aviso.t = setTimeout(() => { aviso.t = 0; estado.textContent = ''; }, ms);
 };
+// En vez de una frase: lo que falla tiembla en rojo; lo que espera al servidor late
+const sacude = el => { el?.classList.remove('mal'); void el?.offsetWidth; el?.classList.add('mal'); vibrar([20, 40, 20]); setTimeout(() => el?.classList.remove('mal'), 700); };
+const espera = c => { c?.classList.add('esperando'); setTimeout(() => c?.classList.remove('esperando'), 6000); };
 const salta = c => c?.animate([{ translate: '0 0' }, { translate: '0 -40px' }, { translate: '0 0' }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
 
 // ── Partida rápida sin nadie: «No hay oponentes dignos…» y la cámara por las sillas vacías ──
@@ -447,7 +451,7 @@ function ofrecerBots() {
     if (pantalla !== 'sala') return;
     historial.push(pantalla); pantalla = 'oferta'; esc.dataset.p = 'oferta';
     escena.camara('vacias');
-    estado.textContent = T('No hay oponentes dignos...'); formas();
+    decir('', T('No hay oponentes dignos...'), true); formas();   // la frase va al chat
     retirarMano(); setTimeout(() => repartir(MENUS.oferta, 1), 160);
 }
 function cerrarOferta() {
@@ -478,7 +482,7 @@ function cuentaAtras(segundos) {
     escena.ganar(); vibrar(25);
     if (!ancho()) formas();   // en el móvil el chat se pliega: taparía la carta alzada
     mano.forEach(x => pon(x, W() / 2 - 64, H() + 80, 0, .8));
-    estado.textContent = T('Desmárcate (↓) para cancelar'); colocarTextos();
+    estado.innerHTML = `${ico('abajo')}${ico('cruz')}`; estado.setAttribute('aria-label', T('Desmárcate (↓) para cancelar')); colocarTextos();   // ↓ = cancelar, sin frase
     const tras = (ms, f) => cuenta.timers.push(setTimeout(f, ms));
     tras(GANA, () => { esc.dataset.p = 'cuenta'; escena.camara('cuenta'); formas(); });
     ['3', '2', '1'].forEach((k, i) => tras(GANA + i * 1000, () => { escena.mosaico(matrizDe(k), 0.13, true); vibrar(30); }));
@@ -697,15 +701,14 @@ function formas(p = pantalla) {
         pon3(1, M, ZONA + 126 + SEP, col, 44, seg('privacidad', ['Pública', 'Privada'], lobbyIsPublic ? 'Pública' : 'Privada'), 'priv');
     }
     if (p === 'unirse') {
-        pon3(0, M, ZONA, col, 72, `<span class="rotulo">${T('Código · entra al escribir la 6.ª letra')}</span><button class="grande" data-act="codigo"><span class="num">______</span></button>`, 'cod');
+        pon3(0, M, ZONA, col, 72, `<span class="rotulo">${T('Código')}</span><button class="grande" data-act="codigo"><span class="num">______</span></button>`, 'cod');
         pon3(1, M, ZONA + 72 + SEP, col, 44, `<button class="grande" data-act="escanear">${ico('camara')} ${T('Escanear QR')}</button>`, 'esc');
     }
     if (enSala && currentLobbyId && !(p === 'qr' && !an)) {
         // En la sala no hay franja de estado (se ve en las cartas y en el chip): el chat llega hasta
         // la mano. Entre los jugadores y el chat queda el hueco donde se ve la pelea por la carta (al
         // menos 120 px): la cámara de la sala se centra en él.
-        // (la oferta de bots sí tiene su frase: ahí el chat le deja sitio)
-        const bajoJug = ZONA + filasSala() * 107 + SEP, fondo = p === 'oferta' ? R.libre : R.estadoAbajo, PELEA = 120;
+        const bajoJug = ZONA + filasSala() * 107 + SEP, fondo = R.estadoAbajo, PELEA = 120;
         const ch = an ? Math.max(88, Math.min(420, fondo - ZONA)) : Math.max(88, Math.min(300, fondo - bajoJug - PELEA - (p === 'bots' ? 52 : 0)));
         const y = an ? ZONA : fondo - ch;
         if (p === 'bots') pon3(2, M, an ? ZONA : y - 44 - SEP, col, 44, seg('dif', ['Fácil', 'Normal', 'Difícil'], Object.keys(DIFS).find(k => DIFS[k] === botDifficulty) ?? 'Normal'), 'dif');
@@ -721,14 +724,15 @@ function formas(p = pantalla) {
             PZ[1].querySelector('.cod').textContent = currentLobbyId;
     }
     if (p === 'perfil') {
-        const dw = Math.min(480, w - 2 * M);
-        const nuevo = pon3(0, (w - dw) / 2, ZONA, dw, 160, `<span class="rotulo">${T('Tu Elo')}</span><div class="diales"><div data-dial="fun"></div><div data-dial="glory"></div></div>`, 'diales');
+        // Los dos Elos uno encima del otro, en la columna de las piezas (como crear o unirse)
+        const ALTO_ELO = 272;
+        const nuevo = pon3(0, M, ZONA, col, ALTO_ELO, `<span class="rotulo">${T('Tu Elo')}</span><div class="diales"><div data-dial="fun"></div><div data-dial="glory"></div></div>`, 'diales');
         if (nuevo && typeof agDial === 'function') {
             agDial(PZ[0].querySelector('[data-dial="fun"]'), { from: miElo.fun, to: miElo.fun, skin: 'fun', top3Before: !!miElo.top3.fun });
             agDial(PZ[0].querySelector('[data-dial="glory"]'), { from: miElo.glory, to: miElo.glory, skin: 'glory', top3Before: !!miElo.top3.glory });
         }
         const actual = Object.keys(IDIOMAS).find(k => IDIOMAS[k] === window.PilesI18n?.lang) ?? 'ES';
-        pon3(1, (w - 240) / 2, ZONA + 160 + SEP, 240, 44, seg('idioma', Object.keys(IDIOMAS), actual), 'idioma');
+        pon3(1, M, ZONA + ALTO_ELO + SEP, col, 44, seg('idioma', Object.keys(IDIOMAS), actual), 'idioma');
     }
     PZ.forEach((el, i) => { if (!usadas.has(i)) plegar(el); });
 }
@@ -742,7 +746,7 @@ function actuar(act, b) {
     if (act === 'perfil') irA('perfil', 'Perfil');
     else if (act === 'ayuda') irA('tutorial', 'Cómo jugar');
     else if (act === 'menos' || act === 'mas') AL_GIRAR.jug(girarTambor(b.parentElement.querySelector('.tambor'), crearJug + (act === 'mas' ? 1 : -1)));
-    else if (act === 'privacidad') { const pub = b.dataset.v === 'Pública'; conLobby(() => setVisibility(pub)); marca(); aviso(T(pub ? 'Cualquiera puede entrar' : 'No se anuncia: pasa el código o el QR')); }
+    else if (act === 'privacidad') { const pub = b.dataset.v === 'Pública'; conLobby(() => setVisibility(pub)); marca(); }
     else if (act === 'dif') { setBotDifficulty(DIFS[b.dataset.v] ?? 'normal'); marca(); }
     else if (act === 'idioma') { marca(); setTimeout(() => window.PilesI18n?.setLang(IDIOMAS[b.dataset.v]), 300); }
     else if (act === 'escanear') irA('visor', 'Escanear QR');
@@ -761,7 +765,7 @@ function actuar(act, b) {
 document.addEventListener('click', e => { const b = e.target.closest('#escenario .pieza [data-act]'); if (b) actuar(b.dataset.act, b); });
 function entrarCodigo(cod) {
     const code = extractLobbyCode(cod);
-    if (!code) { aviso(T('Código no válido'), 2000); return; }
+    if (!code) { sacude(PZ[0]); return; }   // el recuadro del código tiembla
     document.getElementById('lobbyCode').value = code;
     joinLobby();
 }
@@ -818,17 +822,16 @@ requestAnimationFrame(moverDiales);
 function accion(a, c, o = {}) {
     if (a === 'nada') { salta(c); return; }
     if (a === 'volver') { volver(); return; }
-    if (a === 'rapida') { salta(c); aviso(T('Buscando mesa…'), 4000); quickMatch(); return; }
-    if (a === 'abrir') { salta(c); aviso(T('Abriendo sala…'), 4000); createLobby(); return; }
+    if (a === 'rapida') { espera(c); quickMatch(); return; }
+    if (a === 'abrir') { espera(c); createLobby(); return; }
     if (a === 'entrarSala') {
-        salta(c); aviso(T('Entrando…'), 4000);
+        espera(c);
         document.getElementById('lobbyCode').value = o.id;
         joinLobby(o.mirar);
         return;
     }
     if (a === 'burla') {   // elegir (la guarda lobby.html) y volver al perfil
         try { localStorage.setItem('piles.taunt', o.id); } catch { /* modo privado */ }
-        aviso(o.id ? tl('taunt.yours', { name: o.nombre }) : tl('taunt.no'));
         salta(c); setTimeout(volver, 380);
         return;
     }
@@ -840,7 +843,7 @@ function accion(a, c, o = {}) {
         }, txt => { X.placa = { txt, ok: false }; });
         return;
     }
-    if (a === 'smBorrar') { document.getElementById('smCodeUnlink')?.click(); X.placa = { txt: '', ok: false }; aviso(T('Elo de este navegador')); salta(c); return; }
+    if (a === 'smBorrar') { document.getElementById('smCodeUnlink')?.click(); X.placa = { txt: '', ok: false }; salta(c); return; }
     if (!currentLobbyId) return;
     if (a === 'listo') { toggleReady(); vibrar(20); menuSala(); refrescarMano('sala'); return; }
     if (a === 'rol') { cambiarRol(); salta(c); return; }
@@ -857,7 +860,7 @@ function accion(a, c, o = {}) {
     if (a === 'votoSi' || a === 'votoNo') { send({ type: 'kick_vote', yes: a === 'votoSi' }); salta(c); return; }
     if (a === 'copiar') {
         const link = joinLinkFor(currentLobbyId);
-        navigator.clipboard?.writeText(link).then(() => aviso(T('{c} · enlace copiado', { c: currentLobbyId })), () => aviso(link, 4000));
+        navigator.clipboard?.writeText(link).then(() => aviso(T('Enlace copiado')), () => aviso(link, 4000));
         salta(c); return;
     }
 }
@@ -981,8 +984,7 @@ setInterval(() => {
     if (ok === conectado) return;
     conectado = ok;
     X.cortado = !ok; escena.congelar(!ok);
-    if (ok) aviso(T('Conectado al servidor'), 1800);
-    else if (!document.body.classList.contains('en-partida')) estado.textContent = T('Conectando...');
+    // Sin texto: la escena apagada y la lámpara que parpadea ya dicen «sin conexión»
 }, 400);
 
 // Arranque: el menú de inicio (o la pantalla en la que deja lobby.html: enlace ?join=, vuelta
@@ -994,7 +996,6 @@ repartir(MENUS.inicio);
 formas('inicio');
 const activa = document.querySelector('.screen.active')?.id;
 if (activa && activa !== 'homeScreen' && DE_LOBBY[activa]) saltarA(DE_LOBBY[activa]);
-if (activa === 'joinScreen' && document.getElementById('lobbyCode').value) aviso(T('Entrando…'), 4000);
 
 // Para depurar y para las pruebas con navegador
 window.mesa = { escena, X, get pantalla() { return pantalla; }, get mano() { return mano; }, jugar, volver, elegir, irA };

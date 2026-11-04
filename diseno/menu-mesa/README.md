@@ -166,6 +166,22 @@ necesita, con la misma curva que el fondo. No son decoración: cada una tiene un
 | Unirse | Código (entra solo al escribir la 6.ª letra) y Escanear QR. |
 | Sala (y bots, QR, echar, oferta) | **El chat, siempre**, en caja oscurecida, y el chip de la sala: clasificación (FUN / GLORY), código y QR (toca → QR). En bots, la dificultad. |
 
+**Ninguna pantalla tiene franja de frase.** Lo que decía cada una:
+
+| Antes | Ahora |
+|---|---|
+| «Conectando… / Conectado al servidor» | La escena apagada y la lámpara que parpadea. |
+| «Cualquiera puede entrar / No se anuncia…» | El interruptor Pública / Privada. |
+| «Tu burla: X», «Elo de este navegador» | La nota de la carta «Mi burla» y la placa del respaldo. |
+| «Elige un nombre primero», «Código no válido» | El campo tiembla en rojo (`sacude`). |
+| «Buscando mesa… / Abriendo sala… / Entrando…» | La carta jugada late en bermellón mientras responde el servidor (`espera`). |
+| «No hay oponentes dignos…» | En el chat, como línea gris. |
+| «Desmárcate (↓) para cancelar» | Dos iconos: ↓ ✕. |
+| Solo quedan, en texto, los errores de verdad: no se abre la cámara, no carga el QR. | |
+
+**Perfil:** los dos Elos en vertical, en la columna de las piezas. Los rótulos de los diales van
+con la misma letra que el resto (la piel *glory* de agapornis-ui usa Georgia; aquí se iguala).
+
 **En la sala no hay franja de texto** («2/6 en la sala · 1 de 2 listos · For fun · con bots»
 ocupaba 4 líneas en el móvil). Todo se deduce: cuántos sois y cuántos caben = cartas de
 jugador + **cartas vacías** por cada asiento libre; quién está listo = carta salvia con ✓;
