@@ -91,6 +91,7 @@ body:has(#gameScreen.active) { background: #060606; }
 #gameScreen #centerCards {
     flex: 1; min-height: 0; overflow: hidden; position: relative; margin: 6px 0 10px; padding: 14px;
     display: grid; grid-template-columns: repeat(var(--cc, 4), var(--cw, 80px)); gap: 12px;
+    grid-template-rows: repeat(var(--cf, 2), calc(var(--cw, 80px) / 0.6476));
     justify-content: center; align-content: center;
 }
 /* El tablero: fieltro oscuro con la luz de la lámpara y el canto salvia (la mesa del menú, desde arriba) */
@@ -113,6 +114,26 @@ body:has(#gameScreen.active) { background: #060606; }
 #gameScreen.owing #centerCards { --sombra: 7px 8px 0 var(--acento); }
 #gameScreen.owing #centerCards::before { box-shadow: inset 0 0 0 3px var(--acento), inset 0 0 60px rgb(232 64 42 / 25%); }
 #gameScreen.owing #centerCards .card:not(.center-gap) { outline: none; }
+
+/* ── Gravedad: la que cae pesa; las demás saltan en su sitio ──────────────────── */
+/* La recién llegada: cae desde arriba, se aplasta contra la mesa y se asienta (luego, a flotar) */
+#gameScreen .card.card-landed, #gameScreen .card.card-won {
+    animation: caer 460ms cubic-bezier(.55, 0, .85, .35), aplasta 300ms 460ms cubic-bezier(.34, 1.56, .64, 1), flota 3.4s 760ms ease-in-out infinite alternate;
+}
+@keyframes caer { from { translate: 0 -46px; scale: 1.22; } }
+@keyframes aplasta { 0% { scale: 1.08 .9; } 100% { scale: 1; } }
+/* Las demás: un saltito que se apaga con la distancia; no cambian de sitio */
+#gameScreen .card.brinca { animation: flota 3.4s ease-in-out infinite alternate, brinca 380ms var(--retraso, 0ms) ease-out; }
+@keyframes brinca { 0% { translate: 0 0; } 35% { translate: 0 calc(var(--brinco, 4px) * -1); rotate: .6deg; } 70% { translate: 0 calc(var(--brinco, 4px) * .3); } 100% { translate: 0 0; } }
+/* La mesa encaja el golpe */
+#gameScreen #centerCards.golpe::before { animation: lampara 9s ease-in-out infinite alternate, hunde 360ms ease-out; }
+#gameScreen #centerCards.golpe-fuerte::before { animation: lampara 9s ease-in-out infinite alternate, hunde 520ms ease-out; }
+@keyframes hunde { 30% { scale: .985; box-shadow: inset 0 0 0 2px rgb(169 182 137 / 70%), inset 0 0 40px rgb(0 0 0 / 60%); } }
+#gameScreen #centerCards.golpe-fuerte { animation: temblorFuerte 260ms; }
+@keyframes temblorFuerte { 25% { translate: -3px 2px; } 50% { translate: 3px -1px; } 75% { translate: -2px 1px; } }
+/* Las copias que vuelan entre la mesa y el marcador (de quién viene, a quién va) */
+#fxLayer .card.vuela { position: fixed; z-index: 120; pointer-events: none; border-radius: 0; box-shadow: none;
+    clip-path: polygon(4% 2%, 100% 0, 96% 98%, 0 100%); transform-origin: 50% 50%; }
 
 /* ── Tu mano: en abanico y respirando ──────────────────────────────────────── */
 #gameScreen #yourCards {

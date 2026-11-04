@@ -402,6 +402,12 @@ pub enum ServerMessage {
         players_progress: Vec<PlayerProgress>,
         /// Cuánta gente está mirando la partida.
         spectators: usize,
+        /// Qué movimiento produjo esta actualización y quién lo hizo: con esto el
+        /// cliente enseña de quién viene cada carta que cae al centro y a quién va
+        /// la que se llevan (y suena su burla a quien la tenía sostenida). Ausente
+        /// cuando el centro cambia por otra cosa (alguien que abandona).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        moved: Option<CardMove>,
     },
     /// QTE resuelto (broadcast a todos)
     QteResolved {
@@ -574,6 +580,21 @@ pub fn set_to_info(set: &[Option<Card>; 4]) -> Vec<Option<CardInfo>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_update_dice_quien_movio_la_carta_y_sin_movimiento_no_manda_el_campo() {
+        let con = serde_json::to_value(ServerMessage::GameUpdate {
+            center_cards: vec![], players_progress: vec![], spectators: 0,
+            moved: Some(CardMove { kind: "take", card_id: 7, by: "Ana".into(), taunt: Some("honk".into()) }),
+        }).unwrap();
+        assert_eq!(con["moved"], serde_json::json!({ "kind": "take", "card_id": 7, "by": "Ana", "taunt": "honk" }));
+        let soltar = serde_json::to_value(CardMove { kind: "drop", card_id: 3, by: "Beto".into(), taunt: None }).unwrap();
+        assert!(soltar.get("taunt").is_none(), "soltar no lleva burla");
+        let sin = serde_json::to_value(ServerMessage::GameUpdate {
+            center_cards: vec![], players_progress: vec![], spectators: 0, moved: None,
+        }).unwrap();
+        assert!(sin.get("moved").is_none(), "una pestaña vieja no ve un campo nuevo vacío");
+    }
 
     #[test]
     fn qte_resolved_stays_compatible_and_carries_the_tiebreak_data() {
@@ -868,6 +889,20 @@ pub struct SpectatorPlayer {
 pub struct SpectatorQte {
     pub card: u32,
     pub players: Vec<String>,
+}
+
+/// Un movimiento de carta entre un jugador y el centro (ver `GameUpdate::moved`).
+#[derive(Debug, Clone, Serialize)]
+pub struct CardMove {
+    /// `"drop"` (la soltó al centro), `"take"` (la cogió), `"forced"` (se le
+    /// asignó al vencer el plazo) o `"fight"` (la ganó en una pelea).
+    pub kind: &'static str,
+    pub card_id: u32,
+    /// Apodo de quien la movió.
+    pub by: String,
+    /// Su burla, solo al llevársela.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub taunt: Option<String>,
 }
 
 /// Progreso de un jugador

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 use crate::game::{
     LobbyManager, ClientMessage, ServerMessage, Fail, PlayerInfo, LobbyInfo, CardInfo,
-    LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info,
+    LobbyStatus, PlayerProgress, Card, RankingEntry, STUN_DURATION, set_to_info, CardMove,
     COMBO_WINDOW, COMBO_BASE_X100, COMBO_GAIN_FIGHT_WON_X100, COMBO_GAIN_SET_DONE_X100,
     FRENZY_STUN,
     get_clothing_name,
@@ -1486,15 +1486,16 @@ pub(crate) async fn handle_client_message(
                                 player.owed_since = Some(Instant::now());
                                 // Para saber luego si vuelve a coger justo ésta.
                                 player.note_drop(card.clothing_type);
+                                let movido = CardMove { kind: "drop", card_id: card.id, by: player.nickname.clone(), taunt: None };
                                 game_state.center_cards.push(card);
-                                Ok((set_index, set_to_info(&game_state.players[idx].sets[set_index])))
+                                Ok((set_index, set_to_info(&game_state.players[idx].sets[set_index]), movido))
                             }
                         }
                     }
                 }
             };
 
-            let (set_index, new_set) = match result {
+            let (set_index, new_set, movido) = match result {
                 Ok(v) => v,
                 Err((code, reason, kind)) => {
                     state.send_to_player(&player_id, ServerMessage::swap_failed(code, reason, kind)).await;
@@ -1525,6 +1526,7 @@ pub(crate) async fn handle_client_message(
                 center_cards: new_center,
                 players_progress,
                 spectators: mirones,
+                moved: Some(movido),
             }).await;
 
             tokio::spawn(run_debt_deadline(state.clone(), lobby_id, player_id));
@@ -2184,6 +2186,7 @@ async fn execute_delayed_take(
     };
 
     note_take(&state, &lobby, &lobby_id, card_id, player_id);
+    let movido = movimiento(&lobby, "take", card_id, player_id);
     // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
     let (new_center, players_progress, mirones) = snapshot(&lobby);
     // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
@@ -2201,7 +2204,15 @@ async fn execute_delayed_take(
         center_cards: new_center,
         players_progress,
         spectators: mirones,
+        moved: movido,
     }).await;
+}
+
+/// El `moved` de un `GameUpdate`: quién movió la carta (y su burla si se la llevó).
+fn movimiento(lobby: &crate::game::Lobby, kind: &'static str, card_id: u32, player_id: Uuid) -> Option<CardMove> {
+    let p = lobby.players.iter().find(|p| p.id == player_id)?;
+    let taunt = if kind == "drop" { None } else { p.taunt.clone() };
+    Some(CardMove { kind, card_id, by: p.nickname.clone(), taunt })
 }
 
 /// Apunta que `player_id` acaba de coger `card_id` (con su burla, si tiene).
@@ -2409,6 +2420,7 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
         };
 
         let (new_center, players_progress, mirones) = snapshot(&lobby);
+        let movido = movimiento(&lobby, "forced", card.id, player_id);
         let nickname = lobby.players.iter()
             .find(|p| p.id == player_id)
             .map(|p| p.nickname.clone())
@@ -2435,6 +2447,7 @@ async fn run_debt_deadline(state: AppState, lobby_id: String, player_id: Uuid) {
             center_cards: new_center,
             players_progress,
             spectators: mirones,
+            moved: movido,
         }).await;
         return;
     }
@@ -2723,6 +2736,7 @@ async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, vo
         center_cards: new_center,
         players_progress,
         spectators: mirones,
+        moved: None,
     }).await;
 }
 
@@ -3155,6 +3169,7 @@ async fn run_qte(
         }
         let mirones = lobby.spectators.len();
         if awarded.is_some() { note_take(&state, &lobby, &lobby_id, card_id, winner.player_id); }
+        let movido = if awarded.is_some() { movimiento(&lobby, "fight", card_id, winner.player_id) } else { None };
         // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
         lobby.save().await;
 
@@ -3200,6 +3215,7 @@ async fn run_qte(
             center_cards: new_center,
             players_progress,
             spectators: mirones,
+            moved: movido,
         }).await;
     }
 }

@@ -130,27 +130,141 @@
     envolver('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
 
     // ── Sin espacio muerto: las cartas del centro crecen hasta llenar la mesa ───────
-    // Para n huecos, las columnas que dan la carta más grande que cabe en el alto y el ancho.
+    // Pero una carta que entra NO recoloca a las demás: la mesa reserva sus casillas
+    // (columnas × las filas que caben) y solo se vuelve a repartir si ya no caben, o si
+    // cambia el tamaño de la pantalla. Cada hueco del centro es fijo (syncCenterSlots).
     const PROP = 10361 / 16000, HUECO = 12, MAX = 190;
-    function encajarCentro() {
+    let casillas = 0, medida = '';
+    function encajarCentro(forzar = false) {
         const fila = document.getElementById('centerCards');
         if (!fila || !tablero.classList.contains('active')) return;
         const n = Math.max(1, fila.children.length), cs = getComputedStyle(fila);
         const ancho = fila.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
         const alto = fila.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
         if (ancho <= 0 || alto <= 0) return;
+        const ahora = `${ancho}x${alto}`;
+        if (!forzar && ahora === medida && n <= casillas) return;   // cabe: nada se mueve
+        medida = ahora;
+        const objetivo = n + 2;   // holgura: las dos siguientes caen sin repartir de nuevo
         let mejor = 0, cols = 1;
-        for (let c = 1; c <= n; c++) {
-            const r = Math.ceil(n / c);
+        for (let c = 1; c <= objetivo; c++) {
+            const r = Math.ceil(objetivo / c);
             const w = Math.min((ancho - (c - 1) * HUECO) / c, ((alto - (r - 1) * HUECO) / r) * PROP);
             if (w > mejor) { mejor = w; cols = c; }
         }
+        const w = Math.floor(Math.min(mejor * 0.9, MAX));   // 0,9: margen para el ángulo de cada carta
+        // Filas reservadas: la rejilla tiene siempre las mismas, así que no se recentra al
+        // aparecer o vaciarse una (antes subía todo 80 px de golpe)
+        const filas = Math.max(Math.ceil(n / cols), Math.floor((alto + HUECO) / (w / PROP + HUECO)));
+        casillas = cols * filas;
         fila.style.setProperty('--cc', cols);
-        fila.style.setProperty('--cw', `${Math.floor(Math.min(mejor * 0.9, MAX))}px`);   // 0,9: margen para el ángulo de cada carta
+        fila.style.setProperty('--cf', filas);
+        fila.style.setProperty('--cw', `${w}px`);
     }
-    envolver('renderCenterCards', encajarCentro);
-    envolver('onGameStart', () => requestAnimationFrame(encajarCentro));
-    addEventListener('resize', encajarCentro);
+    // Cada hueco del centro (fijo, ver syncCenterSlots) va a una casilla fija, de la mitad de la
+    // mesa hacia fuera: las primeras cartas quedan en medio, no amontonadas en una esquina.
+    function colocarCasillas() {
+        const fila = document.getElementById('centerCards');
+        const cols = +fila?.style.getPropertyValue('--cc') || 0, filas = +fila?.style.getPropertyValue('--cf') || 0;
+        if (!cols || !filas) return;
+        const cx = (cols - 1) / 2, cy = (filas - 1) / 2, orden = [];
+        for (let r = 0; r < filas; r++) for (let c = 0; c < cols; c++) orden.push([r, c, Math.hypot((c - cx) * 1.15, r - cy) + (r * cols + c) * 1e-3]);
+        orden.sort((a, b) => a[2] - b[2]);
+        [...fila.children].forEach((e, i) => { const o = orden[i]; e.style.gridArea = o ? `${o[0] + 1} / ${o[1] + 1}` : ''; });
+    }
+    envolver('renderCenterCards', () => { encajarCentro(); colocarCasillas(); });
+    envolver('onGameStart', () => { casillas = 0; requestAnimationFrame(() => { encajarCentro(true); colocarCasillas(); }); });
+    addEventListener('resize', () => { encajarCentro(true); colocarCasillas(); });
+
+    // ── Gravedad: la carta que cae pesa; las demás saltan en su sitio, no se mueven ──
+    // `markLanded` (lobby.html) marca la carta y llama a `shakeBoard`, que sacudía las filas
+    // enteras. Aquí el golpe es en la mesa: se hunde un poco, la carta se aplasta al caer y
+    // las demás dan un saltito que se apaga con la distancia.
+    let aterriza = null, sinAterrizar = new Set();
+    const markLandedBase = window.markLanded;
+    window.markLanded = (rowId, index, won = false) => {
+        const el = document.getElementById(rowId)?.children[index];
+        if (el && sinAterrizar.has(Number(el.dataset.cardId))) return;   // la que viene volando lo hará al llegar
+        aterriza = { rowId, el, won };
+        return markLandedBase(rowId, index, won);
+    };
+    window.shakeBoard = (fuerte = false) => {
+        if (REDUCED_MOTION?.matches || !aterriza?.el) return;
+        const { rowId, el } = aterriza; aterriza = null;
+        const fila = document.getElementById(rowId); if (!fila) return;
+        const r0 = el.getBoundingClientRect(), c0 = [r0.left + r0.width / 2, r0.top + r0.height / 2];
+        fila.classList.remove('golpe', 'golpe-fuerte'); void fila.offsetWidth; fila.classList.add(fuerte ? 'golpe-fuerte' : 'golpe');
+        setTimeout(() => fila.classList.remove('golpe', 'golpe-fuerte'), 500);
+        for (const c of fila.children) {
+            if (c === el || c.classList.contains('center-gap') || c.classList.contains('card-empty')) continue;
+            const r = c.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - c0[0], r.top + r.height / 2 - c0[1]);
+            c.style.setProperty('--brinco', `${Math.max(1, (fuerte ? 9 : 6) - d / 60).toFixed(1)}px`);
+            c.style.setProperty('--retraso', `${Math.round(d / 4)}ms`);
+            c.classList.remove('brinca'); void c.offsetWidth; c.classList.add('brinca');
+            setTimeout(() => c.classList.remove('brinca'), 600);
+        }
+    };
+
+    // ── Quién se lleva cada carta y de quién viene la que cae ─────────────────────
+    // `game_update` trae `moved {kind, card_id, by, taunt}`. Si lo hizo otro: la que se lleva
+    // vuela de la mesa a su franja del marcador; la que suelta sale de su franja y cae en la
+    // mesa con todo su peso. Lo tuyo ya tiene sus vuelos (flyCard).
+    const franja = nick => [...document.querySelectorAll('#hud .hud-stripe')].find(x => x.querySelector('.hud-name')?.dataset.nick === nick);
+    function copia(card, r) {
+        const e = document.createElement('div');
+        e.className = 'card vuela'; applyCardSprite(e, card);
+        Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+        document.getElementById('fxLayer').append(e);
+        return e;
+    }
+    function seLaLleva(m) {
+        const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`), dest = franja(m.by);
+        if (!el || !dest) { destello(m.by); return; }
+        const card = centerCards.find(c => c.id === m.card_id) ?? { id: m.card_id, clothing_type: 0 };
+        const a = el.getBoundingClientRect(), b = dest.getBoundingClientRect();
+        const e = copia(card, a), s = Math.max(.15, b.height / a.height);
+        const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
+        e.animate([
+            { transform: 'translate(0, 0) rotate(0) scale(1)' },
+            { transform: `translate(${dx * .35}px, ${dy * .35 + 18}px) rotate(-8deg) scale(1.12)`, offset: .3 },   // la arranca: sube un poco y se tuerce
+            { transform: `translate(${dx}px, ${dy}px) rotate(14deg) scale(${s})`, opacity: .3 },
+        ], { duration: 480, easing: 'cubic-bezier(.5, 0, .25, 1)' }).finished.finally(() => { e.remove(); destello(m.by); });
+    }
+    function laSuelta(m) {
+        const orig = franja(m.by)?.getBoundingClientRect();
+        if (!orig) return;
+        sinAterrizar.add(m.card_id);
+        requestAnimationFrame(() => {   // ya redibujado el centro: la carta nueva tiene su hueco
+            const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
+            const card = centerCards.find(c => c.id === m.card_id);
+            if (!el || !card) { sinAterrizar.delete(m.card_id); return; }
+            const b = el.getBoundingClientRect(), a = { left: orig.left + orig.width / 2 - b.width * .2, top: orig.top, width: b.width * .4, height: b.height * .4 };
+            const e = copia(card, b);
+            el.style.visibility = 'hidden';
+            const dx = a.left + a.width / 2 - (b.left + b.width / 2), dy = a.top + a.height / 2 - (b.top + b.height / 2);
+            e.animate([
+                { transform: `translate(${dx}px, ${dy}px) rotate(-20deg) scale(.4)`, opacity: .4 },
+                { transform: `translate(${dx * .4}px, ${dy * .4 - 50}px) rotate(-6deg) scale(1.25)`, opacity: 1, offset: .45 },   // la lanza: sube
+                { transform: 'translate(0, 0) rotate(0) scale(1)' },   // y cae a plomo
+            ], { duration: 520, easing: 'cubic-bezier(.55, 0, .85, .35)' }).finished.finally(() => {
+                e.remove(); sinAterrizar.delete(m.card_id);
+                // El centro puede haberse redibujado durante el vuelo: el nodo de ahora
+                const ya = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
+                if (!ya) return;
+                ya.style.visibility = '';
+                const i = [...ya.parentElement.children].indexOf(ya);
+                if (i >= 0) window.markLanded('centerCards', i);
+            });
+        });
+    }
+    const handleMsgPartida = window.handleMsg;
+    window.handleMsg = msg => {
+        const m = msg?.type === 'game_update' ? msg.moved : null;
+        const otro = m && (m.by !== currentNickname || soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
+        if (otro && otro.kind !== 'drop') { try { seLaLleva(otro); } catch (e) { console.error('partida', e); } }   // antes de que desaparezca
+        if (otro && otro.kind === 'drop') { try { laSuelta(otro); } catch (e) { console.error('partida', e); } }
+        return handleMsgPartida(msg);
+    };
 
     window.partida = { avisoIco, destello, ico, encajarCentro };
 })();
