@@ -242,10 +242,12 @@ body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras {
                 radial-gradient(ellipse 70% 60% at 50% 70%, rgb(0 0 0 / 15%) 0%, rgb(0 0 0 / 72%) 100%); }
 /* Las cartas de la mano que no son la elegida, en penumbra (la elegida es la luz) */
 #cartas > .carta:not(.elegida):not(.cabecera):not(.jugador) { --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%)) brightness(.55) saturate(.6); }
-.carta.esperando { animation: late 700ms ease-in-out infinite alternate; }
 /* Una acción deslizada ↑ más allá del punto: soltar ya la hace */
 .carta.arma { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); }
-@keyframes late { to { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); } }
+/* Acción jugada, esperando al servidor: sube y se desvanece (vuelve con la respuesta) */
+#cartas > .carta.ida { animation: none; opacity: 0; translate: 0 -90px; pointer-events: none; transition: opacity 240ms, translate 240ms var(--golpe), transform 520ms var(--rebote); }
+/* Apagada: ahora no se puede (mesa llena, sin bots) */
+#cartas > .carta[disabled]:not(.cabecera):not(.jugador):not(.ida) { --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%)) brightness(.6) saturate(0); opacity: .38; cursor: default; }
 #estado .ico { width: 1.4em; height: 1.4em; margin: 0 2px; vertical-align: -.3em; }
 .dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms;
     will-change: transform, opacity; }   /* se mueve cada cuadro: su propia capa, sin repintar lo de alrededor */

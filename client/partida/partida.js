@@ -308,15 +308,22 @@
     }
     // ── Las cartas, con el dedo o el ratón ────────────────────────────────────────
     // Sostener = dudar: la carta se levanta y sigue al dedo, sin mandar nada.
-    // Se juega AL SOLTAR: tu carta, soltada dentro del recuadro del centro; una del centro,
-    // soltada fuera de él. Mientras está donde contaría, se ilumina (.casi). Un toque corto
+    // Se juega AL SOLTAR: tu carta, con más de la mitad dentro del recuadro del centro; una del
+    // centro, con más de la mitad fuera. Mientras está donde contaría, se ilumina (.casi). Un toque corto
     // hace lo de siempre. Sobre tu set: ← → cambia de set; ↓ es el revelado de gestos.js.
     // Escucha en las filas, en captura, y no deja pasar el evento: bindTap (lobby.html) cogía
     // al bajar el dedo y gestosSet (gestos.js) leía el mismo gesto; aquí manda uno solo.
     const TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
     let sostenida = null;   // { fila, el, valor, x, y, t, id, hecho, zona }
-    const enZona = (e, z) => e.clientX >= z.left && e.clientX <= z.right && e.clientY >= z.top && e.clientY <= z.bottom;
-    const cuenta = (s, e) => s.el && (s.fila === 'yourCards') === enZona(e, s.zona);   // ¿soltarla aquí la juega?
+    // Más de la mitad de la carta dentro del recuadro = dentro. Con el rectángulo medido al pulsar
+    // más lo arrastrado (sin leer el layout en cada movimiento).
+    const enZona = (s, e) => {
+        const r = s.r0, z = s.zona, dx = e.clientX - s.x, dy = e.clientY - s.y;
+        const w = Math.max(0, Math.min(r.right + dx, z.right) - Math.max(r.left + dx, z.left));
+        const h = Math.max(0, Math.min(r.bottom + dy, z.bottom) - Math.max(r.top + dy, z.top));
+        return w * h > r.width * r.height / 2;
+    };
+    const cuenta = (s, e) => s.el && (s.fila === 'yourCards') === enZona(s, e);   // ¿soltarla aquí la juega?
     function aSuSitio(s, rebote = true) {
         s.el.classList.remove('sostenida', 'casi', 'soltada');
         document.getElementById(s.fila)?.classList.remove('arrastrando');
@@ -349,7 +356,7 @@
             const valida = el && row.contains(el) && !el.classList.contains('card-empty');
             // El recuadro del centro se mide una vez, al pulsar (no en cada movimiento)
             const zona = document.getElementById('centerCards').getBoundingClientRect();
-            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona };
+            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: valida ? el.getBoundingClientRect() : null };
             try { row.setPointerCapture(e.pointerId); } catch { /* */ }
             if (valida && !soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
         }, true);

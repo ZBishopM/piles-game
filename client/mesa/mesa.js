@@ -868,6 +868,7 @@ function repartir(opciones, dir = 0, elegida = 0) {
         setTimeout(() => { c.style.transitionDelay = ''; c.classList.add('respira'); c.style.animationDelay = `${i * -0.7}s`; }, 650 + i * 55);
     })));
     requestAnimationFrame(() => requestAnimationFrame(() => colocarMano()));
+    estadoBots();
 }
 /** La mano de un menú que cambió solo (salas, roles): mismos textos en sitio, o se reparte de nuevo. */
 function refrescarMano(p) {
@@ -906,6 +907,7 @@ function elegir(d) {
 // Jugar la carta elegida: si lleva a otro menú, vuela arriba en bermellón y queda como cabecera.
 function jugar() {
     const c = mano[sel]; if (!c) return;
+    if (c.disabled) { c.animate([{ translate: '0 0' }, { translate: '8px 0' }, { translate: '-6px 0' }, { translate: '0 0' }], { duration: 260 }); return; }   // apagada o esperando al servidor
     const o = MENUS[pantalla][sel];
     if (!o) return;
     if (o.accion !== undefined) { accion(o.accion, c, o); return; }
@@ -1068,7 +1070,10 @@ function sincronizarSala(llega = false) {
         X.elo = escena.ELO_TOP.map(e => ({ ...e }));
         return;
     }
-    mano.forEach(c => c.classList.remove('esperando'));   // llegó la respuesta: lo pedido ya está
+    // Llegó la respuesta: vuelve lo que se fue, salvo los bots que aún no han llegado todos
+    if (esperaBots && m.players.length === esperaBots.n) esperaBots = null;
+    // (fuera de la sala, la que se fue es la de entrar: se va con el menú al cambiar)
+    if (EN_SALA.has(pantalla)) mano.forEach(c => { if (c.classList.contains('ida') && c !== esperaBots?.c) vuelve(c); });
     const gente = ordenSala(), vistos = new Set();
     gente.forEach((p, i) => {
         vistos.add(p.id);
@@ -1115,7 +1120,7 @@ function sincronizarSala(llega = false) {
     }
     huecos.forEach((v, k) => { const i = gente.length + k, [x, y] = posJugador(i, m.max_players); pon(v, x, y, (i % 2 ? 1 : -1) * 3, .56); requestAnimationFrame(() => (v.style.opacity = '')); });
     if (EN_SALA.has(pantalla) && !['cuenta', 'oferta', 'votar'].includes(pantalla) && !aviso.t) estado.textContent = '';
-    menuSala(); refrescarMano('sala');
+    menuSala(); refrescarMano('sala'); estadoBots();
     formas();
 }
 /** Las cartas de la sala: jugador (listo, bots si cabe alguien, mirar) o espectador (jugar / cola). */
@@ -1156,7 +1161,35 @@ const aviso = (txt, ms = 1600) => {
 };
 // En vez de una frase: lo que falla tiembla en rojo; lo que espera al servidor late
 const sacude = el => { el?.classList.remove('mal'); void el?.offsetWidth; el?.classList.add('mal'); vibrar([20, 40, 20]); setTimeout(() => el?.classList.remove('mal'), 700); };
-const espera = c => { c?.classList.add('esperando'); setTimeout(() => c?.classList.remove('esperando'), 6000); };
+// Carta de acción jugada: se va (sube y se desvanece) y no se puede volver a jugar hasta que
+// contesta el servidor. Devolverla a la mano al instante parecía que no se había elegido.
+// Si cambia el menú, se va con él; si no hay respuesta en 6 s, vuelve.
+const seVa = c => {
+    if (!c) return;
+    c.classList.add('ida'); c.disabled = true;
+    clearTimeout(c._vuelve); c._vuelve = setTimeout(() => vuelve(c), 6000);
+};
+function vuelve(c) {
+    if (!c) return;
+    clearTimeout(c._vuelve);
+    if (!mano.includes(c)) return;   // el menú cambió: se fue con él
+    c.classList.remove('ida'); c.disabled = false;
+    estadoBots();
+}
+// Bots: la carta vuelve cuando la sala llega al número de jugadores pedido (lobby_update)
+let esperaBots = null;   // { c, n }
+const pideBots = (c, n) => { seVa(c); vibrar(15); esperaBots = { c, n }; };
+/** En el menú de bots: añadir y llenar, apagadas con la mesa llena; quitar, sin bots. */
+function estadoBots() {
+    const m = ultimaSala;
+    if (pantalla !== 'bots' || !m) return;
+    const llena = m.players.length >= m.max_players, sinBots = !m.players.some(p => p.is_bot);
+    mano.forEach((c, i) => {
+        if (c.classList.contains('ida')) return;
+        const a = MENUS.bots[i]?.accion;
+        c.disabled = a === 'bot' || a === 'llenar' ? llena : a === 'quitarBot' ? sinBots : false;
+    });
+}
 const salta = c => c?.animate([{ translate: '0 0' }, { translate: '0 -40px' }, { translate: '0 0' }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
 
 // ── Partida rápida sin nadie: «No hay oponentes dignos…» y la cámara por las sillas vacías ──
@@ -1625,10 +1658,10 @@ requestAnimationFrame(moverDiales);
 function accion(a, c, o = {}) {
     if (a === 'nada') { salta(c); return; }
     if (a === 'volver') { volver(); return; }
-    if (a === 'rapida') { espera(c); quickMatch(); return; }
-    if (a === 'abrir') { espera(c); createLobby(); return; }
+    if (a === 'rapida') { seVa(c); quickMatch(); return; }
+    if (a === 'abrir') { seVa(c); createLobby(); return; }
     if (a === 'entrarSala') {
-        espera(c);
+        seVa(c);
         document.getElementById('lobbyCode').value = o.id;
         joinLobby(o.mirar);
         return;
@@ -1649,19 +1682,20 @@ function accion(a, c, o = {}) {
     if (a === 'smBorrar') { document.getElementById('smCodeUnlink')?.click(); X.placa = { txt: '', ok: false }; salta(c); return; }
     if (!currentLobbyId) return;
     if (a === 'listo') { toggleReady(); vibrar(20); menuSala(); refrescarMano('sala'); return; }
-    if (a === 'rol') { cambiarRol(); salta(c); return; }
+    if (a === 'rol') { cambiarRol(); seVa(c); return; }
     if (a === 'ofertaBots') { acceptBotsOffer(); cerrarOferta(); return; }
     if (a === 'seguir') { cancelQuickMatchOffer(true); cerrarOferta(); return; }
-    // Bots: la carta late (espera) hasta que el servidor confirma con lobby_update (sincronizarSala)
-    if (a === 'bot') { addBot(); salta(c); espera(c); vibrar(15); return; }
-    if (a === 'llenar') { const m = ultimaSala; for (let k = m ? m.players.length : 0; k < (m?.max_players ?? 0); k++) addBot(); salta(c); espera(c); vibrar(15); return; }
+    // Bots: la carta se va hasta que la sala llega a los jugadores pedidos (sincronizarSala)
+    const m = ultimaSala, n = m?.players.length ?? 0;
+    if (a === 'bot') { if (n < m.max_players) { addBot(); pideBots(c, n + 1); } return; }
+    if (a === 'llenar') { for (let k = n; k < m.max_players; k++) addBot(); if (n < m.max_players) pideBots(c, m.max_players); return; }
     if (a === 'quitarBot') {
-        const bot = [...(ultimaSala?.players ?? [])].reverse().find(p => p.is_bot);
-        if (bot) { removeBot(bot.id); espera(c); vibrar(15); } else aviso(T('No hay bots'));
-        salta(c); return;
+        const bot = [...(m?.players ?? [])].reverse().find(p => p.is_bot);
+        if (bot) { removeBot(bot.id); pideBots(c, n - 1); } else aviso(T('No hay bots'));
+        return;
     }
     if (a === 'echar') { send({ type: 'start_kick', target: o.id }); salta(c); deshacer(); return; }   // llega kick_poll: a votar
-    if (a === 'votoSi' || a === 'votoNo') { send({ type: 'kick_vote', yes: a === 'votoSi' }); salta(c); return; }
+    if (a === 'votoSi' || a === 'votoNo') { send({ type: 'kick_vote', yes: a === 'votoSi' }); seVa(c); return; }
     if (a === 'copiar') {
         const link = joinLinkFor(currentLobbyId);
         navigator.clipboard?.writeText(link).then(() => aviso(T('Enlace copiado')), () => aviso(link, 4000));
@@ -1684,7 +1718,7 @@ function arrastrarV(dy) {
         // no el amago. Antes se guardaba el amago (≤ 0,3 < 0,45) y una acción deslizada sin prisa
         // no se hacía nunca. Pasado el punto, la carta se enciende: soltar ya la juega.
         const destino = o?.ir, q = destino ? p : Math.min(p, 0.3);
-        if (!destino) c.classList.toggle('arma', p >= 0.45);
+        if (!destino) c.classList.toggle('arma', p >= 0.45 && !c.disabled);
         sinTransicion(mano); sinTransicion([h]);
         const { x, y, s } = ini.base;
         pon(c, x + (M - x) * q * 0.55, y + (FILA2 - y) * q, -6 * q, s + (0.62 - s) * q);
