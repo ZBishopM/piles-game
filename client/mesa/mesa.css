@@ -235,6 +235,13 @@ body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras {
 /* Sin frase: lo que falla tiembla en rojo; lo que espera al servidor late */
 #escenario .mal { animation: mal 600ms; outline: 3px solid var(--acento); outline-offset: 2px; }
 @keyframes mal { 20%, 60% { translate: -8px 0; } 40%, 80% { translate: 8px 0; } }
+/* Una sola luz, sobre donde actúas (la mano): el fondo se apaga hacia los bordes y deja
+   de competir con lo que se toca. Capa fija entre el canvas y la UI, sin filtros: no cuesta. */
+#escenario > .velo { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 55% 45% at 50% 82%, rgb(0 0 0 / 5%), transparent 70%),
+                radial-gradient(ellipse 70% 60% at 50% 70%, rgb(0 0 0 / 15%) 0%, rgb(0 0 0 / 72%) 100%); }
+/* Las cartas de la mano que no son la elegida, en penumbra (la elegida es la luz) */
+#cartas > .carta:not(.elegida):not(.cabecera):not(.jugador) { --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%)) brightness(.55) saturate(.6); }
 .carta.esperando { animation: late 700ms ease-in-out infinite alternate; }
 /* Una acción deslizada ↑ más allá del punto: soltar ya la hace */
 .carta.arma { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); }

@@ -65,6 +65,9 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 .pluz.paso { background: linear-gradient(90deg, transparent 22%, rgb(0 0 0 / 40%) 38%, rgb(0 0 0 / 50%) 46%, rgb(0 0 0 / 40%) 54%, transparent 70%);
     transform: skewX(-8deg); translate: -100% 0; animation: paso 17s ease-in-out infinite; animation-delay: -6s; }
 @keyframes paso { 0%, 80% { translate: -100% 0; } 100% { translate: 110% 0; } }
+/* Una sola luz sobre la mesa: los bordes (fragmentos, faros) se apagan y no compiten. Va
+   encima de las otras luces (es la última) y debajo del tablero. Fija, sin filtros. */
+.pluz.velo { will-change: auto; background: radial-gradient(ellipse 60% 42% at 50% 46%, rgb(0 0 0 / 0%) 0%, rgb(0 0 0 / 25%) 55%, rgb(0 0 0 / 75%) 100%); }
 
 @keyframes pbarre { 0% { clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); } 48% { clip-path: polygon(-10% 0, 40% 0, 10% 100%, -40% 100%); } 100% { clip-path: polygon(120% 0, 140% 0, 110% 100%, 90% 100%); } }
 
@@ -165,6 +168,7 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
    touch-action: none o el navegador se queda el arrastre para hacer scroll; sin menú de
    mantener pulsado (iOS) ni selección de texto. */
 #gameScreen #yourCards, #gameScreen #centerCards { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+#gameScreen .card.soltada { animation: none !important; z-index: 3; }   /* esperando al servidor donde la soltaste */
 #gameScreen .card.sostenida { animation: none !important; scale: 1.1; z-index: 3; transition: scale 120ms var(--rebote); }
 #gameScreen #yourCards > .card.sostenida { --lift: -12px; }
 /* Donde soltarla la juega: se enciende (tu carta dentro del recuadro, la del centro fuera) */

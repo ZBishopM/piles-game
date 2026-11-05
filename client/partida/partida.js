@@ -123,7 +123,7 @@
     for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
     const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
     const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
-    for (const l of ['lampara', 'neon', 'faros', 'paso']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
+    for (const l of ['lampara', 'neon', 'faros', 'paso', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
     envolver('switchSet', barrer);
     envolver('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
@@ -318,7 +318,7 @@
     const enZona = (e, z) => e.clientX >= z.left && e.clientX <= z.right && e.clientY >= z.top && e.clientY <= z.bottom;
     const cuenta = (s, e) => s.el && (s.fila === 'yourCards') === enZona(e, s.zona);   // ¿soltarla aquí la juega?
     function aSuSitio(s, rebote = true) {
-        s.el.classList.remove('sostenida', 'casi');
+        s.el.classList.remove('sostenida', 'casi', 'soltada');
         document.getElementById(s.fila)?.classList.remove('arrastrando');
         const ida = s.el.style.translate;
         s.el.style.translate = '';
@@ -328,6 +328,17 @@
         if (soyEspectador || valor == null) return;
         if (fila === 'yourCards') onPlayerCardClick(valor, el); else onCenterCardClick(valor, el);
     };
+    // Soltada donde cuenta: se queda ahí hasta que contesta el servidor, y el vuelo sale de ahí
+    // (lobby.html mide el origen con cardRectAt al llegar la respuesta, translate incluido; el
+    // redibujado de la fila la sustituye). Si no se mandó (rechazada, otra en vuelo), vuelve.
+    function dejarAlli(s) {
+        s.el.classList.remove('sostenida', 'casi');
+        s.el.classList.add('soltada');
+        jugar(s.fila, s.valor, s.el);
+        const mia = s.fila === 'yourCards' ? pendingDrop?.index === s.valor : pendingTake?.card.id === s.valor;
+        if (!mia) return aSuSitio(s);
+        setTimeout(() => { if (s.el.isConnected && s.el.classList.contains('soltada')) aSuSitio(s); }, 2500);   // sin respuesta
+    }
     for (const fila of ['yourCards', 'centerCards']) {
         const row = document.getElementById(fila);
         if (!row) continue;
@@ -356,7 +367,7 @@
             if (s.hecho) return;
             const dx = e.clientX - s.x, dy = e.clientY - s.y;
             const toque = Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS;
-            if (e.type !== 'pointercancel' && !toque && cuenta(s, e)) { aSuSitio(s, false); return jugar(fila, s.valor, s.el); }
+            if (e.type !== 'pointercancel' && !toque && cuenta(s, e)) return dejarAlli(s);
             if (s.el) aSuSitio(s);
             if (e.type === 'pointercancel') return;
             if (toque) return jugar(fila, s.valor, s.el);
