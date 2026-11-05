@@ -123,8 +123,8 @@
     for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
     const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
     const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
+    for (const l of ['lampara', 'neon', 'faros', 'paso']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
     envolver('switchSet', barrer);
-    envolver('onGameStart', barrer);
     envolver('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
     envolver('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
@@ -180,30 +180,79 @@
     // `markLanded` (lobby.html) marca la carta y llama a `shakeBoard`, que sacudía las filas
     // enteras. Aquí el golpe es en la mesa: se hunde un poco, la carta se aplasta al caer y
     // las demás dan un saltito que se apaga con la distancia.
-    let aterriza = null, sinAterrizar = new Set();
+    // El golpe va al TOCAR la mesa (tras `CAIDA`), no al empezar a caer. Los golpes seguidos
+    // se suman: `energia` crece con cada uno y se apaga en ~1 s, y las animaciones son
+    // aditivas (composite: 'add'), así que un salto encima de otro sube más.
+    const CAIDA = 360;
+    let aterriza = null, sinAterrizar = new Set(), trasVuelo = new Set(), energia = 0, ultimo = 0;
+    const flyCardBase = window.flyCard;
+    window.flyCard = (cardData, from, ...resto) => { if (cardData && from) trasVuelo.add(cardData.id); return flyCardBase(cardData, from, ...resto); };
     const markLandedBase = window.markLanded;
     window.markLanded = (rowId, index, won = false) => {
         const el = document.getElementById(rowId)?.children[index];
-        if (el && sinAterrizar.has(Number(el.dataset.cardId))) return;   // la que viene volando lo hará al llegar
-        aterriza = { rowId, el, won };
+        const id = Number(el?.dataset.cardId);
+        if (el && sinAterrizar.has(id)) return;   // la que viene volando lo hará al llegar
+        const volo = trasVuelo.delete(id);       // ya cayó volando: solo se estrella, golpe ya
+        el?.classList.toggle('solo-aplasta', volo);
+        aterriza = { rowId, el, retraso: volo ? 0 : CAIDA };
         return markLandedBase(rowId, index, won);
     };
     window.shakeBoard = (fuerte = false) => {
         if (REDUCED_MOTION?.matches || !aterriza?.el) return;
-        const { rowId, el } = aterriza; aterriza = null;
-        const fila = document.getElementById(rowId); if (!fila) return;
-        const r0 = el.getBoundingClientRect(), c0 = [r0.left + r0.width / 2, r0.top + r0.height / 2];
-        fila.classList.remove('golpe', 'golpe-fuerte'); void fila.offsetWidth; fila.classList.add(fuerte ? 'golpe-fuerte' : 'golpe');
-        setTimeout(() => fila.classList.remove('golpe', 'golpe-fuerte'), 500);
+        const { rowId, el, retraso } = aterriza; aterriza = null;
+        setTimeout(() => golpe(rowId, el, fuerte), retraso);
+    };
+    const ADD = { composite: 'add' };
+    function golpe(rowId, el, fuerte) {
+        const fila = document.getElementById(rowId);
+        if (!fila || !el.isConnected) return;
+        const t = performance.now();
+        energia = Math.min(3.5, energia * Math.exp(-(t - ultimo) / 900) + (fuerte ? 1.8 : 1)); ultimo = t;
+        const E = energia, r0 = el.getBoundingClientRect(), w = r0.width;
+        const cx = r0.left + w / 2, cy = r0.top + r0.height / 2;
+        // La mesa se hunde y rebota; marcador y la otra fila notan el temblor
+        fila.animate([{ translate: '0 0' }, { translate: `0 ${4 * E}px`, offset: .15 }, { translate: `0 ${-.9 * E}px`, offset: .45 }, { translate: '0 0' }],
+            { duration: 420, easing: 'ease-out', ...ADD });
+        if (rowId === 'centerCards') fila.animate([{ filter: 'brightness(1)' }, { filter: `brightness(${1 - .1 * E})`, offset: .2 }, { filter: 'brightness(1)' }],
+            { duration: 460, pseudoElement: '::before' });
+        for (const otro of ['hud', rowId === 'centerCards' ? 'yourCards' : 'centerCards'])
+            document.getElementById(otro)?.animate([{ translate: '0 0' }, { translate: `0 ${2 * E}px`, offset: .3 }, { translate: '0 0' }], { duration: 320, delay: 50, ...ADD });
+        // Las demás saltan en su sitio: la onda llega antes a las cercanas y les pega más
         for (const c of fila.children) {
             if (c === el || c.classList.contains('center-gap') || c.classList.contains('card-empty')) continue;
-            const r = c.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - c0[0], r.top + r.height / 2 - c0[1]);
-            c.style.setProperty('--brinco', `${Math.max(1, (fuerte ? 9 : 6) - d / 60).toFixed(1)}px`);
-            c.style.setProperty('--retraso', `${Math.round(d / 4)}ms`);
-            c.classList.remove('brinca'); void c.offsetWidth; c.classList.add('brinca');
-            setTimeout(() => c.classList.remove('brinca'), 600);
+            const r = c.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
+            const A = E * (fuerte ? 24 : 16) * Math.exp(-d / (w * 2.5));
+            if (A < .6) continue;
+            const g = (Math.random() < .5 ? -1 : 1) * A * .35;
+            c.animate([
+                { translate: '0 0', rotate: '0deg' },
+                { translate: `0 ${-A}px`, rotate: `${g}deg`, offset: .3 },
+                { translate: `0 ${A * .3}px`, rotate: `${-g * .4}deg`, offset: .6 },
+                { translate: `0 ${-A * .1}px`, rotate: '0deg', offset: .8 },
+                { translate: '0 0', rotate: '0deg' },
+            ], { duration: 560, delay: d / 1.1, easing: 'ease-out', ...ADD });
         }
-    };
+        // Onda y esquirlas desde el borde de abajo de la que cayó
+        const fx = document.getElementById('fxLayer'); if (!fx) return;
+        const onda = document.createElement('div');
+        onda.className = 'onda' + (fuerte ? ' fuerte' : '');
+        Object.assign(onda.style, { left: `${cx}px`, top: `${r0.bottom - 8}px`, width: `${w * 1.5}px` });
+        fx.append(onda);
+        onda.animate([{ scale: '.3', opacity: .9 }, { scale: `${1 + .5 * E} ${.7 + .3 * E}`, opacity: 0 }],
+            { duration: 420 + 60 * E, easing: 'cubic-bezier(.2, .7, .3, 1)' }).finished.finally(() => onda.remove());
+        for (let i = 0, n = Math.round(4 + 2 * E); i < n; i++) {
+            const s = document.createElement('i');
+            s.className = 'esquirla' + (fuerte || i % 3 === 0 ? ' roja' : '');
+            Object.assign(s.style, { left: `${cx + (Math.random() - .5) * w}px`, top: `${r0.bottom - 6}px` });
+            fx.append(s);
+            const lado = Math.random() < .5 ? -1 : 1, vx = lado * (20 + Math.random() * 40) * (.7 + .3 * E), up = 16 + Math.random() * 26 * E;
+            s.animate([
+                { translate: '0 0', rotate: '0deg', opacity: 1 },
+                { translate: `${vx * .6}px ${-up}px`, rotate: `${lado * 140}deg`, offset: .4 },
+                { translate: `${vx}px ${up * .5}px`, rotate: `${lado * 280}deg`, opacity: 0 },
+            ], { duration: 560, easing: 'cubic-bezier(.3, .6, .5, 1)' }).finished.finally(() => s.remove());
+        }
+    }
 
     // ── Quién se lleva cada carta y de quién viene la que cae ─────────────────────
     // `game_update` trae `moved {kind, card_id, by, taunt}`. Si lo hizo otro: la que se lleva
@@ -253,7 +302,7 @@
                 if (!ya) return;
                 ya.style.visibility = '';
                 const i = [...ya.parentElement.children].indexOf(ya);
-                if (i >= 0) window.markLanded('centerCards', i);
+                if (i >= 0) { trasVuelo.add(m.card_id); window.markLanded('centerCards', i); }
             });
         });
     }
@@ -265,6 +314,36 @@
         if (otro && otro.kind === 'drop') { try { laSuelta(otro); } catch (e) { console.error('partida', e); } }
         return handleMsgPartida(msg);
     };
+
+    // ── Del menú a la partida ──────────────────────────────────────────────────────
+    // La cuenta atrás termina con la cámara de la mesa en picado sobre el centro. De ahí la
+    // cámara se lanza hacia el centro, se tuerce y se quema en luz; el barrido corta y el
+    // tablero cae en su sitio por partes (la mesa desde arriba, marcador y mano desde fuera).
+    // Envuelve por fuera de todo: tiene que saber si venías del menú ANTES de que showScreen cambie.
+    const onGameStartBase = window.onGameStart;
+    window.onGameStart = msg => {
+        const venia = document.body.classList.contains('mesa') && !document.body.classList.contains('en-partida');
+        const r = onGameStartBase(msg);
+        if (venia && !REDUCED_MOTION?.matches) entrar(); else barrer();
+        return r;
+    };
+    function entrar() {
+        const esc = document.getElementById('escenario');
+        if (!esc) return barrer();
+        document.body.classList.add('entrando');
+        const ojo = (rx, rz, s) => `perspective(900px) rotateX(${rx}deg) rotate(${rz}deg) scale(${s})`;
+        esc.animate([
+            { transform: ojo(0, 0, 1), filter: 'brightness(1) blur(0)' },
+            { transform: ojo(34, -12, 3.6), filter: 'brightness(1.5) blur(2px)', opacity: 1, offset: .8 },
+            { transform: ojo(44, -18, 5.5), filter: 'brightness(2.4) blur(8px)', opacity: 0 },
+        ], { duration: 640, easing: 'cubic-bezier(.6, 0, .9, .45)' }).finished.finally(() => document.body.classList.remove('entrando'));
+        setTimeout(barrer, 420);
+        const cae = (id, kf, delay, duration = 520) => document.getElementById(id)?.animate(kf, { duration, delay, easing: 'cubic-bezier(.2, 1.35, .4, 1)', fill: 'backwards' });
+        cae('gameScreen', [{ opacity: 0, transform: ojo(-22, 5, .88) }, { opacity: 1, transform: ojo(0, 0, 1) }], 500, 480);
+        cae('centerCards', [{ scale: 1.6, rotate: '-7deg' }, { scale: 1, rotate: '0deg' }], 500, 600);
+        cae('hud', [{ translate: '0 -90px', rotate: '-3deg' }, { translate: '0 0', rotate: '0deg' }], 640);
+        cae('yourCards', [{ translate: '0 160px', rotate: '4deg' }, { translate: '0 0', rotate: '0deg' }], 700, 560);
+    }
 
     window.partida = { avisoIco, destello, ico, encajarCentro };
 })();

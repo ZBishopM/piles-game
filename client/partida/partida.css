@@ -44,6 +44,26 @@ body:has(#gameScreen.active) { background: #060606; }
     clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); }
 .pbarrido::after { content: ""; position: absolute; inset: 0; background: var(--acento, #e8402a); clip-path: polygon(0 0, 3% 0, 1% 100%, -2% 100%); }
 .pbarrido.pasa { animation: pbarre 520ms var(--golpe, cubic-bezier(.7, 0, .2, 1)); }
+/* Del menú a la partida: la escena sigue a la vista mientras la cámara se lanza al centro (partida.js) */
+body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inset: 0; z-index: 30; pointer-events: none; transform-origin: 50% 36%; }
+
+/* ── Luces de fuera de cámara: una lámpara que se mece, el neón de al lado que parpadea, faros que
+   cruzan y alguien que pasa delante de la luz. Encima de todo, sin tapar: solo aclaran u oscurecen. */
+.pluz { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.pluz.lampara { background: linear-gradient(115deg, rgb(233 230 218 / 26%), rgb(233 230 218 / 0) 55%);
+    clip-path: polygon(0 -10%, 38% -10%, 95% 110%, 10% 110%); mix-blend-mode: soft-light; filter: blur(14px);
+    transform-origin: 18% -20%; animation: mece 9s ease-in-out infinite alternate; }
+@keyframes mece { from { rotate: -7deg; opacity: .7; } to { rotate: 6deg; opacity: 1; } }
+.pluz.neon { background: linear-gradient(270deg, rgb(232 64 42 / 34%), transparent 38%); mix-blend-mode: screen;
+    animation: neon 7.3s steps(1) infinite; }
+@keyframes neon { 0%, 61%, 64%, 66%, 100% { opacity: .55; } 62%, 65% { opacity: .1; } 63% { opacity: .9; } 88% { opacity: .35; } }
+.pluz.faros { background: linear-gradient(90deg, transparent, rgb(169 182 137 / 30%) 45%, rgb(233 230 218 / 40%) 50%, transparent 58%);
+    mix-blend-mode: screen; filter: blur(10px); transform: skewX(-22deg); translate: -120% 0; animation: faros 13s cubic-bezier(.5, 0, .5, 1) infinite; }
+@keyframes faros { 0%, 72% { translate: -120% 0; } 100% { translate: 130% 0; } }
+.pluz.paso { background: rgb(0 0 0 / 55%); clip-path: polygon(40% 0, 62% 0, 55% 100%, 30% 100%); mix-blend-mode: multiply; filter: blur(18px);
+    translate: -100% 0; animation: paso 17s ease-in-out infinite; animation-delay: -6s; }
+@keyframes paso { 0%, 80% { translate: -100% 0; } 100% { translate: 110% 0; } }
+
 @keyframes pbarre { 0% { clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); } 48% { clip-path: polygon(-10% 0, 40% 0, 10% 100%, -40% 100%); } 100% { clip-path: polygon(120% 0, 140% 0, 110% 100%, 90% 100%); } }
 
 /* ── Fuera el texto: lo dicen los elementos ─────────────────────────────────── */
@@ -117,20 +137,25 @@ body:has(#gameScreen.active) { background: #060606; }
 
 /* ── Gravedad: la que cae pesa; las demás saltan en su sitio ──────────────────── */
 /* La recién llegada: cae desde arriba, se aplasta contra la mesa y se asienta (luego, a flotar) */
+/* Vista desde arriba: «caer» es venir desde la cámara, grande, acelerando, y estrellarse.
+   El golpe (mesa, saltos, onda, esquirlas) lo pone partida.js justo al tocar, no antes. */
 #gameScreen .card.card-landed, #gameScreen .card.card-won {
-    animation: caer 460ms cubic-bezier(.55, 0, .85, .35), aplasta 300ms 460ms cubic-bezier(.34, 1.56, .64, 1), flota 3.4s 760ms ease-in-out infinite alternate;
+    animation: caer 360ms cubic-bezier(.7, 0, 1, .55), aplasta 480ms 360ms cubic-bezier(.3, 1.6, .5, 1), flota 3.4s 840ms ease-in-out infinite alternate;
 }
-@keyframes caer { from { translate: 0 -46px; scale: 1.22; } }
-@keyframes aplasta { 0% { scale: 1.08 .9; } 100% { scale: 1; } }
-/* Las demás: un saltito que se apaga con la distancia; no cambian de sitio */
-#gameScreen .card.brinca { animation: flota 3.4s ease-in-out infinite alternate, brinca 380ms var(--retraso, 0ms) ease-out; }
-@keyframes brinca { 0% { translate: 0 0; } 35% { translate: 0 calc(var(--brinco, 4px) * -1); rotate: .6deg; } 70% { translate: 0 calc(var(--brinco, 4px) * .3); } 100% { translate: 0 0; } }
-/* La mesa encaja el golpe */
-#gameScreen #centerCards.golpe::before { animation: lampara 9s ease-in-out infinite alternate, hunde 360ms ease-out; }
-#gameScreen #centerCards.golpe-fuerte::before { animation: lampara 9s ease-in-out infinite alternate, hunde 520ms ease-out; }
-@keyframes hunde { 30% { scale: .985; box-shadow: inset 0 0 0 2px rgb(169 182 137 / 70%), inset 0 0 40px rgb(0 0 0 / 60%); } }
-#gameScreen #centerCards.golpe-fuerte { animation: temblorFuerte 260ms; }
-@keyframes temblorFuerte { 25% { translate: -3px 2px; } 50% { translate: 3px -1px; } 75% { translate: -2px 1px; } }
+/* La que ya llegó volando (tu jugada, o la que suelta otro): solo se estrella */
+#gameScreen .card.solo-aplasta.card-landed, #gameScreen .card.solo-aplasta.card-won {
+    animation: aplasta 480ms cubic-bezier(.3, 1.6, .5, 1), flota 3.4s 480ms ease-in-out infinite alternate;
+}
+#gameScreen #centerCards .card { transform-origin: 50% 90%; }
+@keyframes caer { from { translate: 0 -28px; scale: 1.75; rotate: -6deg; opacity: .5; } 70% { opacity: 1; } }
+@keyframes aplasta { 0% { scale: 1.18 .78; } 35% { scale: .94 1.08; } 65% { scale: 1.03 .97; } 100% { scale: 1; } }
+/* La onda del golpe (un marco sesgado que se abre) y las esquirlas */
+#fxLayer .onda { position: fixed; z-index: 119; pointer-events: none; aspect-ratio: 5 / 1; translate: -50% -50%;
+    border: 4px solid #e9e6da; transform: skewX(-14deg); }
+#fxLayer .onda.fuerte { border-color: #e8402a; }
+#fxLayer .esquirla { position: fixed; z-index: 121; pointer-events: none; width: 13px; height: 17px; margin: -8px 0 0 -6px;
+    background: #e9e6da; clip-path: polygon(50% 0, 100% 100%, 0 70%); }
+#fxLayer .esquirla.roja { background: #e8402a; }
 /* Las copias que vuelan entre la mesa y el marcador (de quién viene, a quién va) */
 #fxLayer .card.vuela { position: fixed; z-index: 120; pointer-events: none; border-radius: 0; box-shadow: none;
     clip-path: polygon(4% 2%, 100% 0, 96% 98%, 0 100%); transform-origin: 50% 50%; }
@@ -212,6 +237,6 @@ body:has(#gameScreen.active) #verifyNotifications { top: 78px !important; }
 .qte-battle-notif .ico, #verifyNotifications .qbn-title .ico { width: 1.1em; height: 1.1em; vertical-align: -.2em; color: #e8402a; }
 
 @media (prefers-reduced-motion: reduce) {
-    .pfrag, #gameScreen .card, #gameScreen .hud-stripe, #gameScreen #frenzyBtn, #gameScreen #centerCards::before,
+    .pfrag, .pluz, #gameScreen .card, #gameScreen .hud-stripe, #gameScreen #frenzyBtn, #gameScreen #centerCards::before,
     .aviso-ico, .pbarrido.pasa, #qteOverlay .qte-card-slot .card { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
