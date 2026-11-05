@@ -300,9 +300,14 @@
             cartas.classList.add('volteando');
             estado('fuera revelando', t('gest.revealing'));
             vibrar(20);
-            plazo = setTimeout(() => { recoger(); flipCurrentSet(); }, REVELA_MS);
+            const set = currentSetIndex;   // el que pediste, aunque cambies de set durante la espera
+            plazo = setTimeout(() => { recoger(); flipCurrentSet(set); }, REVELA_MS);
         }
 
+        // partida.js se queda los gestos sobre las cartas (sostener, ↑ soltar, ← → set) y pasa
+        // aquí el ↓ de revelar, hasta que el revelado sea un solo ↓ (paso 3).
+        window.gestoSet = gesto;
+        window.recogerSet = recoger;
         let ini = null;
         // Con captura: el gesto acaba fuera de las cartas y el pointerup tiene que llegar aquí.
         cartas.addEventListener('pointerdown', e => {

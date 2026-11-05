@@ -81,6 +81,11 @@
     const frame = document.createElement('div');
     frame.className = 'ag-dial-frame';
     frame.setAttribute('aria-hidden', 'true');
+    // El halo que respira (rangos altos de glory): su propia capa, que solo cambia de opacidad.
+    // Animar el box-shadow del marco repintaba el dial en cada cuadro (rank.css, ag-breathe).
+    const glow = document.createElement('i');
+    glow.className = 'ag-dial-glow';
+    frame.appendChild(glow);
     const cols = [];
     for (let i = 0; i < digits; i++) {
       const win = document.createElement('div');

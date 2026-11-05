@@ -48,20 +48,22 @@ body:has(#gameScreen.active) { background: #060606; }
 body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inset: 0; z-index: 30; pointer-events: none; transform-origin: 50% 36%; }
 
 /* ── Luces de fuera de cámara: una lámpara que se mece, el neón de al lado que parpadea, faros que
-   cruzan y alguien que pasa delante de la luz. Encima de todo, sin tapar: solo aclaran u oscurecen. */
-.pluz { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
-.pluz.lampara { background: linear-gradient(115deg, rgb(233 230 218 / 26%), rgb(233 230 218 / 0) 55%);
-    clip-path: polygon(0 -10%, 38% -10%, 95% 110%, 10% 110%); mix-blend-mode: soft-light; filter: blur(14px);
+   cruzan y alguien que pasa delante de la luz. DETRÁS del juego (z −1: sobre los fragmentos,
+   bajo mesa, marcador y cartas); el tapete es algo translúcido y se intuyen sobre la mesa.
+   Sin blur ni mix-blend: el borde suave lo da el gradiente, y solo se animan transform y
+   opacity (en la GPU, sin repintar). */
+.pluz { position: fixed; inset: 0; z-index: -1; pointer-events: none; will-change: transform, opacity; }
+.pluz.lampara { background: linear-gradient(115deg, rgb(233 230 218 / 22%), rgb(233 230 218 / 8%) 30%, transparent 55%);
     transform-origin: 18% -20%; animation: mece 9s ease-in-out infinite alternate; }
 @keyframes mece { from { rotate: -7deg; opacity: .7; } to { rotate: 6deg; opacity: 1; } }
-.pluz.neon { background: linear-gradient(270deg, rgb(232 64 42 / 34%), transparent 38%); mix-blend-mode: screen;
+.pluz.neon { background: linear-gradient(270deg, rgb(232 64 42 / 30%), rgb(232 64 42 / 8%) 18%, transparent 38%);
     animation: neon 7.3s steps(1) infinite; }
 @keyframes neon { 0%, 61%, 64%, 66%, 100% { opacity: .55; } 62%, 65% { opacity: .1; } 63% { opacity: .9; } 88% { opacity: .35; } }
-.pluz.faros { background: linear-gradient(90deg, transparent, rgb(169 182 137 / 30%) 45%, rgb(233 230 218 / 40%) 50%, transparent 58%);
-    mix-blend-mode: screen; filter: blur(10px); transform: skewX(-22deg); translate: -120% 0; animation: faros 13s cubic-bezier(.5, 0, .5, 1) infinite; }
+.pluz.faros { background: linear-gradient(90deg, transparent 30%, rgb(169 182 137 / 18%) 42%, rgb(233 230 218 / 30%) 50%, rgb(169 182 137 / 18%) 56%, transparent 66%);
+    transform: skewX(-22deg); translate: -120% 0; animation: faros 13s cubic-bezier(.5, 0, .5, 1) infinite; }
 @keyframes faros { 0%, 72% { translate: -120% 0; } 100% { translate: 130% 0; } }
-.pluz.paso { background: rgb(0 0 0 / 55%); clip-path: polygon(40% 0, 62% 0, 55% 100%, 30% 100%); mix-blend-mode: multiply; filter: blur(18px);
-    translate: -100% 0; animation: paso 17s ease-in-out infinite; animation-delay: -6s; }
+.pluz.paso { background: linear-gradient(90deg, transparent 22%, rgb(0 0 0 / 40%) 38%, rgb(0 0 0 / 50%) 46%, rgb(0 0 0 / 40%) 54%, transparent 70%);
+    transform: skewX(-8deg); translate: -100% 0; animation: paso 17s ease-in-out infinite; animation-delay: -6s; }
 @keyframes paso { 0%, 80% { translate: -100% 0; } 100% { translate: 110% 0; } }
 
 @keyframes pbarre { 0% { clip-path: polygon(-30% 0, -10% 0, -40% 100%, -60% 100%); } 48% { clip-path: polygon(-10% 0, 40% 0, 10% 100%, -40% 100%); } 100% { clip-path: polygon(120% 0, 140% 0, 110% 100%, 90% 100%); } }
@@ -117,13 +119,12 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 /* El tablero: fieltro oscuro con la luz de la lámpara y el canto salvia (la mesa del menú, desde arriba) */
 #gameScreen #centerCards::before {
     content: ""; position: absolute; inset: 0; z-index: -1;
-    background: radial-gradient(ellipse at var(--luz, 50%) 40%, #2b3121, #161a11 60%, #0b0c09);
+    /* Algo translúcido: la lámpara y los faros de fuera (.pluz, detrás) se intuyen sobre la
+       mesa. Antes la luz era un --luz animado en el gradiente: repintaba el tapete cada cuadro. */
+    background: radial-gradient(ellipse at 50% 40%, rgb(43 49 33 / 86%), rgb(22 26 17 / 88%) 60%, rgb(11 12 9 / 92%));
     box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%);
     clip-path: polygon(2% 3%, 98% 0, 100% 96%, 1% 100%);
-    animation: lampara 9s ease-in-out infinite alternate;
 }
-@property --luz { syntax: '<percentage>'; inherits: false; initial-value: 50%; }
-@keyframes lampara { from { --luz: 35%; } to { --luz: 65%; } }
 #gameScreen #centerCards > .card { width: var(--cw, 80px); }
 /* Flotan, cada una a su ritmo */
 #gameScreen #centerCards > .card:not(.center-gap) { animation: flota 3.4s ease-in-out infinite alternate; }
@@ -159,6 +160,15 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 /* Las copias que vuelan entre la mesa y el marcador (de quién viene, a quién va) */
 #fxLayer .card.vuela { position: fixed; z-index: 120; pointer-events: none; border-radius: 0; box-shadow: none;
     clip-path: polygon(4% 2%, 100% 0, 96% 98%, 0 100%); transform-origin: 50% 50%; }
+
+/* ── Sostener una carta (partida.js): se levanta, deja de flotar y sigue al dedo ─────
+   touch-action: none o el navegador se queda el arrastre para hacer scroll; sin menú de
+   mantener pulsado (iOS) ni selección de texto. */
+#gameScreen #yourCards, #gameScreen #centerCards { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+#gameScreen .card.sostenida { animation: none !important; scale: 1.1; z-index: 3; transition: scale 120ms var(--rebote); }
+#gameScreen #yourCards > .card.sostenida { --lift: -12px; }
+/* Casi en el umbral: se enciende (la próxima es la jugada) */
+#gameScreen .card.sostenida.casi { filter: brightness(1.25) saturate(1.2); scale: 1.16; }
 
 /* ── Tu mano: en abanico y respirando ──────────────────────────────────────── */
 #gameScreen #yourCards {

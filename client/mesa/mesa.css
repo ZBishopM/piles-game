@@ -238,7 +238,8 @@ body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras {
 .carta.esperando { animation: late 700ms ease-in-out infinite alternate; }
 @keyframes late { to { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); } }
 #estado .ico { width: 1.4em; height: 1.4em; margin: 0 2px; vertical-align: -.3em; }
-.dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms; }
+.dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms;
+    will-change: transform, opacity; }   /* se mueve cada cuadro: su propia capa, sin repintar lo de alrededor */
 .dialMesa .ag-dial-delta, .dialMesa .ag-dial-rank { display: none !important; }
 /* Tu dial: una punta bermellón debajo, apuntando a tu figura */
 .dialMesa.tuyo::after { content: ""; position: absolute; left: 50%; bottom: -12px; width: 14px; height: 9px; translate: -50% 0;

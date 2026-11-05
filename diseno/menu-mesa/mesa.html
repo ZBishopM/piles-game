@@ -584,6 +584,7 @@ const escena = (() => {
         // Y las nuestras: las cartas del menú que caen al centro, encima de las demás
         if (principal) for (const q of nuestras) quad(q.x, 0.012, q.z, CW_M, CH_M, q.rot, q.dorso ? '#4b5320' : '#0e0e0e', '#a9b689');
         // Delante de cada jugador, sus 6 sets de 4 cartas boca abajo; el que mira, en salvia
+        // Una a una a propósito: juntarlas en un solo trazo (no convexo) era más lento en la GPU.
         for (const [p, a] of ASIENTOS.entries()) {
             const m = Math.hypot(a.x, a.z), tg = [-a.z / m, a.x / m];
             const actual = Math.floor(t / 7 + p * 2) % 6;
@@ -881,7 +882,10 @@ const escena = (() => {
         tAsomo += dA; t += dA;
         disputa += (disputaMeta - disputa) * Math.min(1, dt * 1.2);
         reloj = ms / 1000;
-        dibujar(dt);
+        // En Piles, durante la partida la escena está oculta: no se dibuja (era ~20 % del hilo
+        // principal sin que nadie lo viera). En la entrada a la partida sí, que se ve.
+        const cl = document.body.classList;
+        if (!cl.contains('en-partida') || cl.contains('entrando')) dibujar(dt);
         requestAnimationFrame(cuadro);
     }
     function medir() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }

@@ -801,6 +801,7 @@ function moverDiales() {
     const ocupado = [...document.querySelectorAll(OCUPA)]
         .filter(e => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3)
         .map(e => e.getBoundingClientRect());
+    const tam = dialesMesa.map(el => [el.offsetWidth, el.offsetHeight]);   // todas las lecturas antes de escribir
     X.anclas.forEach((a, p) => {
         const el = dialesMesa[p], e = X.elo?.[p];
         const ok = a.ok && e;
@@ -812,8 +813,12 @@ function moverDiales() {
             claveDial[p] = k;
             agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
         }
-        el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${a.s * (W() < 760 ? 0.75 : 1)})`;
-        el.style.opacity = chocaDial(el.getBoundingClientRect(), ocupado) ? 0 : 1;
+        const s = a.s * (W() < 760 ? 0.75 : 1);
+        el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${s})`;
+        // Su caja, calculada (origen abajo al centro): leer getBoundingClientRect justo después de
+        // escribir el transform forzaba a recalcular estilos 4 veces por cuadro.
+        const [w, h] = tam[p];
+        el.style.opacity = chocaDial({ left: a.x - w * s / 2, right: a.x + w * s / 2, top: a.y - h * s, bottom: a.y }, ocupado) ? 0 : 1;
         el.classList.toggle('tuyo', p === X.tu);
     });
 }

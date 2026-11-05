@@ -5602,8 +5602,10 @@ function switchSet(index) {
 }
 
 // ─── Voltear sets ─────────────────────────────────────────────────────────
-function flipCurrentSet() {
-    send({ type: 'flip_set', set_index: currentSetIndex });
+// `i`: el set fijado al empezar el gesto. El revelado espera 1 s; si en ese rato
+// cambiabas de set, se volteaba el nuevo en vez del que pediste.
+function flipCurrentSet(i = currentSetIndex) {
+    send({ type: 'flip_set', set_index: i });
 }
 
 function updateFlipBtn() {

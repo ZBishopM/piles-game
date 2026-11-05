@@ -89,11 +89,17 @@ const escena = (() => {
         const sx = px / d * foco, sy = py / d * foco, cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);   // roll: plano holandés
         return [cv.width / 2 + sx * cr - sy * sr, cv.height * cam.cy - (sx * sr + sy * cr), d];
     }
-    function quad(cx, y, cz, w, h, rot, relleno, borde) {   // una carta tumbada en la mesa
+    /** Añade una carta tumbada al trazo en curso, sin pintarla (para pintar muchas de una vez). */
+    function trazoQuad(cx, y, cz, w, h, rot) {
         const c = Math.cos(rot), sn = Math.sin(rot);
         const p = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([a, b]) => proy(cx + a * c - b * sn, y, cz + a * sn + b * c));
-        if (p.some(q => q[2] < 0.08)) return;   // detrás de la cámara
-        g.beginPath(); p.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
+        if (p.some(q => q[2] < 0.08)) return false;   // detrás de la cámara
+        p.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
+        return true;
+    }
+    function quad(cx, y, cz, w, h, rot, relleno, borde) {   // una carta tumbada en la mesa
+        g.beginPath();
+        if (!trazoQuad(cx, y, cz, w, h, rot)) return;
         g.fillStyle = relleno; g.fill();
         if (borde) { g.strokeStyle = borde; g.lineWidth = 1.2 * devicePixelRatio; g.stroke(); }
     }
@@ -326,13 +332,23 @@ const escena = (() => {
         // Y las nuestras: las cartas del menú que caen al centro, encima de las demás
         if (principal) for (const q of nuestras) quad(q.x, 0.012, q.z, CW_M, CH_M, q.rot, q.dorso ? '#4b5320' : '#0e0e0e', '#a9b689');
         // Delante de cada jugador, sus 6 sets de 4 cartas boca abajo; el que mira, en salvia
-        for (const [p, a] of ASIENTOS.entries()) {
-            const m = Math.hypot(a.x, a.z), tg = [-a.z / m, a.x / m];
-            const actual = Math.floor(t / 7 + p * 2) % 6;
-            for (let j = 0; j < 6; j++) {
-                const o = (j - 2.5) * 0.19, x = a.x * 0.66 + tg[0] * o, z = a.z * 0.66 + tg[1] * o;
-                for (let c = 0; c < 4; c++) quad(x, 0.004 + c * 0.008, z, 0.04, 0.056, a.a + Math.PI / 2 + (c - 1.5) * 0.06, j === actual && c === 3 ? '#a9b689' : '#4b5320', 'rgba(14,14,14,0.9)');
+        // Por capas (la carta c de todos los sets a la vez): un relleno y un borde por capa en vez
+        // de 96 de cada, que era lo que más ocupaba la GPU. Dentro de una capa no se tocan.
+        for (let c = 0; c < 4; c++) {
+            g.beginPath();
+            const salvia = [];
+            for (const [p, a] of ASIENTOS.entries()) {
+                const m = Math.hypot(a.x, a.z), tg = [-a.z / m, a.x / m];
+                const actual = Math.floor(t / 7 + p * 2) % 6;
+                for (let j = 0; j < 6; j++) {
+                    const o = (j - 2.5) * 0.19, x = a.x * 0.66 + tg[0] * o, z = a.z * 0.66 + tg[1] * o;
+                    const q = [x, 0.004 + c * 0.008, z, 0.04, 0.056, a.a + Math.PI / 2 + (c - 1.5) * 0.06];
+                    if (j === actual && c === 3) salvia.push(q); else if (window.__porCarta) quad(...q, '#4b5320', 'rgba(14,14,14,0.9)'); else trazoQuad(...q);
+                }
             }
+            g.fillStyle = '#4b5320'; g.fill();
+            g.strokeStyle = 'rgba(14,14,14,0.9)'; g.lineWidth = 1.2 * devicePixelRatio; g.stroke();
+            for (const q of salvia) quad(...q, '#a9b689', 'rgba(14,14,14,0.9)');
         }
 
         if (principal) {
@@ -623,7 +639,10 @@ const escena = (() => {
         tAsomo += dA; t += dA;
         disputa += (disputaMeta - disputa) * Math.min(1, dt * 1.2);
         reloj = ms / 1000;
-        dibujar(dt);
+        // En Piles, durante la partida la escena está oculta: no se dibuja (era ~20 % del hilo
+        // principal sin que nadie lo viera). En la entrada a la partida sí, que se ve.
+        const cl = document.body.classList;
+        if (!cl.contains('en-partida') || cl.contains('entrando')) dibujar(dt);
         requestAnimationFrame(cuadro);
     }
     function medir() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }
@@ -1590,6 +1609,7 @@ function moverDiales() {
     const ocupado = [...document.querySelectorAll(OCUPA)]
         .filter(e => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3)
         .map(e => e.getBoundingClientRect());
+    const tam = dialesMesa.map(el => [el.offsetWidth, el.offsetHeight]);   // todas las lecturas antes de escribir
     X.anclas.forEach((a, p) => {
         const el = dialesMesa[p], e = X.elo?.[p];
         const ok = a.ok && e;
@@ -1601,8 +1621,12 @@ function moverDiales() {
             claveDial[p] = k;
             agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
         }
-        el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${a.s * (W() < 760 ? 0.75 : 1)})`;
-        el.style.opacity = chocaDial(el.getBoundingClientRect(), ocupado) ? 0 : 1;
+        const s = a.s * (W() < 760 ? 0.75 : 1);
+        el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${s})`;
+        // Su caja, calculada (origen abajo al centro): leer getBoundingClientRect justo después de
+        // escribir el transform forzaba a recalcular estilos 4 veces por cuadro.
+        const [w, h] = tam[p];
+        el.style.opacity = chocaDial({ left: a.x - w * s / 2, right: a.x + w * s / 2, top: a.y - h * s, bottom: a.y }, ocupado) ? 0 : 1;
         el.classList.toggle('tuyo', p === X.tu);
     });
 }

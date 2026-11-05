@@ -26,7 +26,7 @@
   background: var(--rk-frame-bg, var(--card));
   border: 1px solid var(--rk-border, var(--border-strong));
   box-shadow: var(--rk-shadow, none);
-  animation: var(--rk-glow-anim, none);
+  isolation: isolate;   /* el halo (.ag-dial-glow, z −1) queda detrás del contenido pero dentro del marco */
 }
 
 .ag-dial-window {

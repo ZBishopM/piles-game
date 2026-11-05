@@ -306,10 +306,80 @@
             });
         });
     }
+    // ── Las cartas, con el dedo o el ratón ────────────────────────────────────────
+    // Sostener = dudar: la carta se levanta y sigue al dedo, sin mandar nada.
+    // Tu carta ↑ = la sueltas; carta del centro ↓ = la coges. Se juega AL CRUZAR el umbral,
+    // sin esperar a soltar (es una carrera). Un toque corto hace lo de siempre.
+    // Sobre tu set: ← → cambia de set; ↓ es el revelado de gestos.js (hasta el paso 3).
+    // Escucha en las filas, en captura, y no deja pasar el evento: bindTap (lobby.html) cogía
+    // al bajar el dedo y gestosSet (gestos.js) leía el mismo gesto; aquí manda uno solo.
+    const UMBRAL = 40, TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
+    let sostenida = null;   // { fila, el, valor, x, y, t, id, hecho }
+    function aSuSitio(s, rebote = true) {
+        s.el.classList.remove('sostenida', 'casi');
+        const ida = s.el.style.translate;
+        s.el.style.translate = '';
+        if (rebote && ida) s.el.animate([{ translate: ida }, { translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
+    }
+    const jugar = (fila, valor, el) => {
+        if (soyEspectador || valor == null) return;
+        if (fila === 'yourCards') onPlayerCardClick(valor, el); else onCenterCardClick(valor, el);
+    };
+    for (const fila of ['yourCards', 'centerCards']) {
+        const row = document.getElementById(fila);
+        if (!row) continue;
+        const haciaJugar = fila === 'yourCards' ? -1 : 1;   // ↑ para soltar la tuya, ↓ para coger
+        row.addEventListener('pointerdown', e => {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.stopPropagation();
+            const el = e.target.closest('[data-tap]');
+            const valida = el && row.contains(el) && !el.classList.contains('card-empty');
+            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false };
+            try { row.setPointerCapture(e.pointerId); } catch { /* */ }
+            if (valida && !soyEspectador) el.classList.add('sostenida');
+        }, true);
+        row.addEventListener('pointermove', e => {
+            const s = sostenida;
+            if (!s || s.id !== e.pointerId || s.hecho || !s.el) return;
+            const dx = e.clientX - s.x, dy = e.clientY - s.y, avance = dy * haciaJugar;
+            // Hacia donde se juega la sigue casi entera; hacia el otro lado, con resistencia
+            s.el.style.translate = `${dx * .12}px ${dy * (avance > 0 ? .85 : .2)}px`;
+            s.el.classList.toggle('casi', avance > UMBRAL * .6);
+            if (avance >= UMBRAL && Math.abs(dy) > Math.abs(dx)) {
+                s.hecho = true;
+                aSuSitio(s, false);
+                jugar(fila, s.valor, s.el);
+            }
+        }, true);
+        const fin = e => {
+            const s = sostenida;
+            if (!s || s.id !== e.pointerId) return;
+            e.stopPropagation();
+            sostenida = null;
+            if (s.hecho) return;
+            if (s.el) aSuSitio(s);
+            if (e.type === 'pointercancel') return;
+            const dx = e.clientX - s.x, dy = e.clientY - s.y;
+            if (Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS) return jugar(fila, s.valor, s.el);
+            if (fila !== 'yourCards') return;
+            if (Math.abs(dx) >= LADO && Math.abs(dx) > Math.abs(dy) * 1.3) {
+                const i = currentSetIndex - Math.sign(dx);
+                if (i >= 0 && i < allSets.length) { window.recogerSet?.(); switchSet(i); }
+            } else if (dy >= LADO && dy > Math.abs(dx) * 1.3) window.gestoSet?.(1);
+        };
+        row.addEventListener('pointerup', fin, true);
+        row.addEventListener('pointercancel', fin, true);
+    }
+
     const handleMsgPartida = window.handleMsg;
     window.handleMsg = msg => {
         const m = msg?.type === 'game_update' ? msg.moved : null;
         const otro = m && (m.by !== currentNickname || soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
+        // Te la quitan de la mano: la que sostenías en el centro se la lleva otro → su burla
+        if (otro && otro.kind === 'take' && sostenida?.fila === 'centerCards' && sostenida.valor === otro.card_id) {
+            sostenida.hecho = true; aSuSitio(sostenida, false);
+            if (otro.taunt) playTaunt(otro.taunt);
+        }
         if (otro && otro.kind !== 'drop') { try { seLaLleva(otro); } catch (e) { console.error('partida', e); } }   // antes de que desaparezca
         if (otro && otro.kind === 'drop') { try { laSuelta(otro); } catch (e) { console.error('partida', e); } }
         return handleMsgPartida(msg);
