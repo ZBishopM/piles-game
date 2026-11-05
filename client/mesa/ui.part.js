@@ -360,6 +360,7 @@ function sincronizarSala(llega = false) {
         X.elo = escena.ELO_TOP.map(e => ({ ...e }));
         return;
     }
+    mano.forEach(c => c.classList.remove('esperando'));   // llegó la respuesta: lo pedido ya está
     const gente = ordenSala(), vistos = new Set();
     gente.forEach((p, i) => {
         vistos.add(p.id);
@@ -372,7 +373,11 @@ function sincronizarSala(llega = false) {
             pon(c, x + (Math.random() - .5) * 200, -220, (Math.random() - .5) * 60, 1.2);
             zona.prepend(c); cartasJug.set(p.id, c);
             requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = ''; pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56); }));
-            if (llega && !tuyo) { decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8); }
+            if (llega && !tuyo) {
+                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8);
+                // Al caer en su asiento, un golpe: se ve que ya está, no solo que llega algo
+                c.animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], { duration: 420, delay: 480, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+            }
         } else pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56);
         // Nada que leer: listo = carta salvia con ✓; bot = su icono; tú = «TÚ» en bermellón
         ponTexto(c, 'palo', tuyo ? (soyEspectador ? 'i:ojo' : 'TÚ') : p.is_ready ? 'i:check' : p.is_bot ? 'i:bot' : '');
@@ -854,11 +859,12 @@ function accion(a, c, o = {}) {
     if (a === 'rol') { cambiarRol(); salta(c); return; }
     if (a === 'ofertaBots') { acceptBotsOffer(); cerrarOferta(); return; }
     if (a === 'seguir') { cancelQuickMatchOffer(true); cerrarOferta(); return; }
-    if (a === 'bot') { addBot(); salta(c); return; }
-    if (a === 'llenar') { const m = ultimaSala; for (let k = m ? m.players.length : 0; k < (m?.max_players ?? 0); k++) addBot(); salta(c); return; }
+    // Bots: la carta late (espera) hasta que el servidor confirma con lobby_update (sincronizarSala)
+    if (a === 'bot') { addBot(); salta(c); espera(c); vibrar(15); return; }
+    if (a === 'llenar') { const m = ultimaSala; for (let k = m ? m.players.length : 0; k < (m?.max_players ?? 0); k++) addBot(); salta(c); espera(c); vibrar(15); return; }
     if (a === 'quitarBot') {
         const bot = [...(ultimaSala?.players ?? [])].reverse().find(p => p.is_bot);
-        if (bot) removeBot(bot.id); else aviso(T('No hay bots'));
+        if (bot) { removeBot(bot.id); espera(c); vibrar(15); } else aviso(T('No hay bots'));
         salta(c); return;
     }
     if (a === 'echar') { send({ type: 'start_kick', target: o.id }); salta(c); deshacer(); return; }   // llega kick_poll: a votar
@@ -881,14 +887,18 @@ function arrastrarV(dy) {
     const sube = dy < 0, p = Math.min(1, Math.abs(dy) / RECORRIDO);
     const c = mano[sel], o = MENUS[pantalla]?.[sel], h = cabeceras.at(-1), prev = cabeceras.at(-2);
     if (sube && c) {
-        const destino = o?.ir, q = destino ? p : Math.min(p, 0.3);   // una acción solo amaga
+        // Una acción solo amaga (no cambia de menú), pero cuenta igual: ini.p es el recorrido real,
+        // no el amago. Antes se guardaba el amago (≤ 0,3 < 0,45) y una acción deslizada sin prisa
+        // no se hacía nunca. Pasado el punto, la carta se enciende: soltar ya la juega.
+        const destino = o?.ir, q = destino ? p : Math.min(p, 0.3);
+        if (!destino) c.classList.toggle('arma', p >= 0.45);
         sinTransicion(mano); sinTransicion([h]);
         const { x, y, s } = ini.base;
         pon(c, x + (M - x) * q * 0.55, y + (FILA2 - y) * q, -6 * q, s + (0.62 - s) * q);
         mano.forEach((x2, i) => { if (i !== sel) { const k = i - sel; pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + Math.sign(k) * 60 * q, ini.base.y + 30 + 90 * q, k * 5 + Math.sign(k) * 10 * q, .9 * rejilla().es); x2.style.opacity = 1 - 0.7 * q; } });
         if (h) h.style.filter = `brightness(${1 - 0.58 * q})`;
         escena.asomar(destino ?? null, q, 1);
-        ini.p = q; ini.sentido = 1;
+        ini.p = p; ini.sentido = 1;
     } else if (!sube && h && historial.length && pantalla !== 'cuenta') {
         sinTransicion([h]); sinTransicion(mano);
         h.style.zIndex = 20;   // la cabecera que baja va por encima de las piezas
@@ -900,7 +910,7 @@ function arrastrarV(dy) {
     } else { ini.p = 0; escena.asomar(null); }
 }
 function soltarTodo() {   // quita lo fijado al dedo; lo siguiente que se coloque vuelve a animarse
-    [...mano, ...cabeceras].forEach(c => { c.style.transition = ''; c.style.filter = ''; if (mano.includes(c)) c.style.opacity = ''; });
+    [...mano, ...cabeceras].forEach(c => { c.style.transition = ''; c.style.filter = ''; c.classList.remove('arma'); if (mano.includes(c)) c.style.opacity = ''; });
 }
 esc.addEventListener('pointerdown', e => {
     if (e.target === nombre || e.target === campo || e.target.closest('.pieza')) return;

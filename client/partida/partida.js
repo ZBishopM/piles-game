@@ -308,15 +308,18 @@
     }
     // ── Las cartas, con el dedo o el ratón ────────────────────────────────────────
     // Sostener = dudar: la carta se levanta y sigue al dedo, sin mandar nada.
-    // Tu carta ↑ = la sueltas; carta del centro ↓ = la coges. Se juega AL CRUZAR el umbral,
-    // sin esperar a soltar (es una carrera). Un toque corto hace lo de siempre.
-    // Sobre tu set: ← → cambia de set; ↓ es el revelado de gestos.js (hasta el paso 3).
+    // Se juega AL SOLTAR: tu carta, soltada dentro del recuadro del centro; una del centro,
+    // soltada fuera de él. Mientras está donde contaría, se ilumina (.casi). Un toque corto
+    // hace lo de siempre. Sobre tu set: ← → cambia de set; ↓ es el revelado de gestos.js.
     // Escucha en las filas, en captura, y no deja pasar el evento: bindTap (lobby.html) cogía
     // al bajar el dedo y gestosSet (gestos.js) leía el mismo gesto; aquí manda uno solo.
-    const UMBRAL = 40, TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
-    let sostenida = null;   // { fila, el, valor, x, y, t, id, hecho }
+    const TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
+    let sostenida = null;   // { fila, el, valor, x, y, t, id, hecho, zona }
+    const enZona = (e, z) => e.clientX >= z.left && e.clientX <= z.right && e.clientY >= z.top && e.clientY <= z.bottom;
+    const cuenta = (s, e) => s.el && (s.fila === 'yourCards') === enZona(e, s.zona);   // ¿soltarla aquí la juega?
     function aSuSitio(s, rebote = true) {
         s.el.classList.remove('sostenida', 'casi');
+        document.getElementById(s.fila)?.classList.remove('arrastrando');
         const ida = s.el.style.translate;
         s.el.style.translate = '';
         if (rebote && ida) s.el.animate([{ translate: ida }, { translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
@@ -328,28 +331,22 @@
     for (const fila of ['yourCards', 'centerCards']) {
         const row = document.getElementById(fila);
         if (!row) continue;
-        const haciaJugar = fila === 'yourCards' ? -1 : 1;   // ↑ para soltar la tuya, ↓ para coger
         row.addEventListener('pointerdown', e => {
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.stopPropagation();
             const el = e.target.closest('[data-tap]');
             const valida = el && row.contains(el) && !el.classList.contains('card-empty');
-            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false };
+            // El recuadro del centro se mide una vez, al pulsar (no en cada movimiento)
+            const zona = document.getElementById('centerCards').getBoundingClientRect();
+            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona };
             try { row.setPointerCapture(e.pointerId); } catch { /* */ }
-            if (valida && !soyEspectador) el.classList.add('sostenida');
+            if (valida && !soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
         }, true);
         row.addEventListener('pointermove', e => {
             const s = sostenida;
-            if (!s || s.id !== e.pointerId || s.hecho || !s.el) return;
-            const dx = e.clientX - s.x, dy = e.clientY - s.y, avance = dy * haciaJugar;
-            // Hacia donde se juega la sigue casi entera; hacia el otro lado, con resistencia
-            s.el.style.translate = `${dx * .12}px ${dy * (avance > 0 ? .85 : .2)}px`;
-            s.el.classList.toggle('casi', avance > UMBRAL * .6);
-            if (avance >= UMBRAL && Math.abs(dy) > Math.abs(dx)) {
-                s.hecho = true;
-                aSuSitio(s, false);
-                jugar(fila, s.valor, s.el);
-            }
+            if (!s || s.id !== e.pointerId || s.hecho || !s.el || soyEspectador) return;
+            s.el.style.translate = `${e.clientX - s.x}px ${e.clientY - s.y}px`;   // sigue al dedo, entera
+            s.el.classList.toggle('casi', cuenta(s, e));
         }, true);
         const fin = e => {
             const s = sostenida;
@@ -357,10 +354,12 @@
             e.stopPropagation();
             sostenida = null;
             if (s.hecho) return;
+            const dx = e.clientX - s.x, dy = e.clientY - s.y;
+            const toque = Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS;
+            if (e.type !== 'pointercancel' && !toque && cuenta(s, e)) { aSuSitio(s, false); return jugar(fila, s.valor, s.el); }
             if (s.el) aSuSitio(s);
             if (e.type === 'pointercancel') return;
-            const dx = e.clientX - s.x, dy = e.clientY - s.y;
-            if (Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS) return jugar(fila, s.valor, s.el);
+            if (toque) return jugar(fila, s.valor, s.el);
             if (fila !== 'yourCards') return;
             if (Math.abs(dx) >= LADO && Math.abs(dx) > Math.abs(dy) * 1.3) {
                 const i = currentSetIndex - Math.sign(dx);

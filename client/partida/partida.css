@@ -167,8 +167,11 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 #gameScreen #yourCards, #gameScreen #centerCards { touch-action: none; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
 #gameScreen .card.sostenida { animation: none !important; scale: 1.1; z-index: 3; transition: scale 120ms var(--rebote); }
 #gameScreen #yourCards > .card.sostenida { --lift: -12px; }
-/* Casi en el umbral: se enciende (la próxima es la jugada) */
+/* Donde soltarla la juega: se enciende (tu carta dentro del recuadro, la del centro fuera) */
 #gameScreen .card.sostenida.casi { filter: brightness(1.25) saturate(1.2); scale: 1.16; }
+/* La fila que arrastra va por encima de la otra; el recuadro marca dónde cae tu carta */
+#gameScreen .arrastrando { position: relative; z-index: 20; }
+#gameScreen:has(#yourCards .sostenida.casi) #centerCards::before { box-shadow: inset 0 0 0 3px var(--acento); }
 
 /* ── Tu mano: en abanico y respirando ──────────────────────────────────────── */
 #gameScreen #yourCards {

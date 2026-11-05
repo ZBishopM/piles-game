@@ -89,17 +89,11 @@ const escena = (() => {
         const sx = px / d * foco, sy = py / d * foco, cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);   // roll: plano holandés
         return [cv.width / 2 + sx * cr - sy * sr, cv.height * cam.cy - (sx * sr + sy * cr), d];
     }
-    /** Añade una carta tumbada al trazo en curso, sin pintarla (para pintar muchas de una vez). */
-    function trazoQuad(cx, y, cz, w, h, rot) {
+    function quad(cx, y, cz, w, h, rot, relleno, borde) {   // una carta tumbada en la mesa
         const c = Math.cos(rot), sn = Math.sin(rot);
         const p = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([a, b]) => proy(cx + a * c - b * sn, y, cz + a * sn + b * c));
-        if (p.some(q => q[2] < 0.08)) return false;   // detrás de la cámara
-        p.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
-        return true;
-    }
-    function quad(cx, y, cz, w, h, rot, relleno, borde) {   // una carta tumbada en la mesa
-        g.beginPath();
-        if (!trazoQuad(cx, y, cz, w, h, rot)) return;
+        if (p.some(q => q[2] < 0.08)) return;   // detrás de la cámara
+        g.beginPath(); p.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
         g.fillStyle = relleno; g.fill();
         if (borde) { g.strokeStyle = borde; g.lineWidth = 1.2 * devicePixelRatio; g.stroke(); }
     }
@@ -332,23 +326,14 @@ const escena = (() => {
         // Y las nuestras: las cartas del menú que caen al centro, encima de las demás
         if (principal) for (const q of nuestras) quad(q.x, 0.012, q.z, CW_M, CH_M, q.rot, q.dorso ? '#4b5320' : '#0e0e0e', '#a9b689');
         // Delante de cada jugador, sus 6 sets de 4 cartas boca abajo; el que mira, en salvia
-        // Por capas (la carta c de todos los sets a la vez): un relleno y un borde por capa en vez
-        // de 96 de cada, que era lo que más ocupaba la GPU. Dentro de una capa no se tocan.
-        for (let c = 0; c < 4; c++) {
-            g.beginPath();
-            const salvia = [];
-            for (const [p, a] of ASIENTOS.entries()) {
-                const m = Math.hypot(a.x, a.z), tg = [-a.z / m, a.x / m];
-                const actual = Math.floor(t / 7 + p * 2) % 6;
-                for (let j = 0; j < 6; j++) {
-                    const o = (j - 2.5) * 0.19, x = a.x * 0.66 + tg[0] * o, z = a.z * 0.66 + tg[1] * o;
-                    const q = [x, 0.004 + c * 0.008, z, 0.04, 0.056, a.a + Math.PI / 2 + (c - 1.5) * 0.06];
-                    if (j === actual && c === 3) salvia.push(q); else if (window.__porCarta) quad(...q, '#4b5320', 'rgba(14,14,14,0.9)'); else trazoQuad(...q);
-                }
+        // Una a una a propósito: juntarlas en un solo trazo (no convexo) era más lento en la GPU.
+        for (const [p, a] of ASIENTOS.entries()) {
+            const m = Math.hypot(a.x, a.z), tg = [-a.z / m, a.x / m];
+            const actual = Math.floor(t / 7 + p * 2) % 6;
+            for (let j = 0; j < 6; j++) {
+                const o = (j - 2.5) * 0.19, x = a.x * 0.66 + tg[0] * o, z = a.z * 0.66 + tg[1] * o;
+                for (let c = 0; c < 4; c++) quad(x, 0.004 + c * 0.008, z, 0.04, 0.056, a.a + Math.PI / 2 + (c - 1.5) * 0.06, j === actual && c === 3 ? '#a9b689' : '#4b5320', 'rgba(14,14,14,0.9)');
             }
-            g.fillStyle = '#4b5320'; g.fill();
-            g.strokeStyle = 'rgba(14,14,14,0.9)'; g.lineWidth = 1.2 * devicePixelRatio; g.stroke();
-            for (const q of salvia) quad(...q, '#a9b689', 'rgba(14,14,14,0.9)');
         }
 
         if (principal) {
@@ -1083,6 +1068,7 @@ function sincronizarSala(llega = false) {
         X.elo = escena.ELO_TOP.map(e => ({ ...e }));
         return;
     }
+    mano.forEach(c => c.classList.remove('esperando'));   // llegó la respuesta: lo pedido ya está
     const gente = ordenSala(), vistos = new Set();
     gente.forEach((p, i) => {
         vistos.add(p.id);
@@ -1095,7 +1081,11 @@ function sincronizarSala(llega = false) {
             pon(c, x + (Math.random() - .5) * 200, -220, (Math.random() - .5) * 60, 1.2);
             zona.prepend(c); cartasJug.set(p.id, c);
             requestAnimationFrame(() => requestAnimationFrame(() => { c.style.transition = ''; pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56); }));
-            if (llega && !tuyo) { decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8); }
+            if (llega && !tuyo) {
+                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8);
+                // Al caer en su asiento, un golpe: se ve que ya está, no solo que llega algo
+                c.animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], { duration: 420, delay: 480, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+            }
         } else pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56);
         // Nada que leer: listo = carta salvia con ✓; bot = su icono; tú = «TÚ» en bermellón
         ponTexto(c, 'palo', tuyo ? (soyEspectador ? 'i:ojo' : 'TÚ') : p.is_ready ? 'i:check' : p.is_bot ? 'i:bot' : '');
@@ -1662,11 +1652,12 @@ function accion(a, c, o = {}) {
     if (a === 'rol') { cambiarRol(); salta(c); return; }
     if (a === 'ofertaBots') { acceptBotsOffer(); cerrarOferta(); return; }
     if (a === 'seguir') { cancelQuickMatchOffer(true); cerrarOferta(); return; }
-    if (a === 'bot') { addBot(); salta(c); return; }
-    if (a === 'llenar') { const m = ultimaSala; for (let k = m ? m.players.length : 0; k < (m?.max_players ?? 0); k++) addBot(); salta(c); return; }
+    // Bots: la carta late (espera) hasta que el servidor confirma con lobby_update (sincronizarSala)
+    if (a === 'bot') { addBot(); salta(c); espera(c); vibrar(15); return; }
+    if (a === 'llenar') { const m = ultimaSala; for (let k = m ? m.players.length : 0; k < (m?.max_players ?? 0); k++) addBot(); salta(c); espera(c); vibrar(15); return; }
     if (a === 'quitarBot') {
         const bot = [...(ultimaSala?.players ?? [])].reverse().find(p => p.is_bot);
-        if (bot) removeBot(bot.id); else aviso(T('No hay bots'));
+        if (bot) { removeBot(bot.id); espera(c); vibrar(15); } else aviso(T('No hay bots'));
         salta(c); return;
     }
     if (a === 'echar') { send({ type: 'start_kick', target: o.id }); salta(c); deshacer(); return; }   // llega kick_poll: a votar
@@ -1689,14 +1680,18 @@ function arrastrarV(dy) {
     const sube = dy < 0, p = Math.min(1, Math.abs(dy) / RECORRIDO);
     const c = mano[sel], o = MENUS[pantalla]?.[sel], h = cabeceras.at(-1), prev = cabeceras.at(-2);
     if (sube && c) {
-        const destino = o?.ir, q = destino ? p : Math.min(p, 0.3);   // una acción solo amaga
+        // Una acción solo amaga (no cambia de menú), pero cuenta igual: ini.p es el recorrido real,
+        // no el amago. Antes se guardaba el amago (≤ 0,3 < 0,45) y una acción deslizada sin prisa
+        // no se hacía nunca. Pasado el punto, la carta se enciende: soltar ya la juega.
+        const destino = o?.ir, q = destino ? p : Math.min(p, 0.3);
+        if (!destino) c.classList.toggle('arma', p >= 0.45);
         sinTransicion(mano); sinTransicion([h]);
         const { x, y, s } = ini.base;
         pon(c, x + (M - x) * q * 0.55, y + (FILA2 - y) * q, -6 * q, s + (0.62 - s) * q);
         mano.forEach((x2, i) => { if (i !== sel) { const k = i - sel; pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + Math.sign(k) * 60 * q, ini.base.y + 30 + 90 * q, k * 5 + Math.sign(k) * 10 * q, .9 * rejilla().es); x2.style.opacity = 1 - 0.7 * q; } });
         if (h) h.style.filter = `brightness(${1 - 0.58 * q})`;
         escena.asomar(destino ?? null, q, 1);
-        ini.p = q; ini.sentido = 1;
+        ini.p = p; ini.sentido = 1;
     } else if (!sube && h && historial.length && pantalla !== 'cuenta') {
         sinTransicion([h]); sinTransicion(mano);
         h.style.zIndex = 20;   // la cabecera que baja va por encima de las piezas
@@ -1708,7 +1703,7 @@ function arrastrarV(dy) {
     } else { ini.p = 0; escena.asomar(null); }
 }
 function soltarTodo() {   // quita lo fijado al dedo; lo siguiente que se coloque vuelve a animarse
-    [...mano, ...cabeceras].forEach(c => { c.style.transition = ''; c.style.filter = ''; if (mano.includes(c)) c.style.opacity = ''; });
+    [...mano, ...cabeceras].forEach(c => { c.style.transition = ''; c.style.filter = ''; c.classList.remove('arma'); if (mano.includes(c)) c.style.opacity = ''; });
 }
 esc.addEventListener('pointerdown', e => {
     if (e.target === nombre || e.target === campo || e.target.closest('.pieza')) return;

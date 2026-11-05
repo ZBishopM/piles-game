@@ -236,6 +236,8 @@ body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras {
 #escenario .mal { animation: mal 600ms; outline: 3px solid var(--acento); outline-offset: 2px; }
 @keyframes mal { 20%, 60% { translate: -8px 0; } 40%, 80% { translate: 8px 0; } }
 .carta.esperando { animation: late 700ms ease-in-out infinite alternate; }
+/* Una acción deslizada ↑ más allá del punto: soltar ya la hace */
+.carta.arma { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); }
 @keyframes late { to { filter: brightness(1.35) drop-shadow(0 0 10px var(--acento)); } }
 #estado .ico { width: 1.4em; height: 1.4em; margin: 0 2px; vertical-align: -.3em; }
 .dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms;
