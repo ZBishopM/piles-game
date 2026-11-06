@@ -882,6 +882,16 @@ impl Lobby {
     }
 
     /// Cuántos siguen con conexión. Por debajo de 2 no hay partida posible.
+    /// ¿Se acabó la partida? La regla de siempre (`GameState::is_finished`: el 1.º
+    /// con dos jugadores, el 2.º con más) y además cuando ya no queda ninguna persona
+    /// por terminar. Sin esto, 1 persona contra 3 bots que ganaba seguía esperando a
+    /// que un bot cerrara el 2.º puesto (a veces nunca), sin poder volver a la sala.
+    pub fn partida_terminada(&self) -> bool {
+        let Some(gs) = self.game_state.as_ref() else { return false };
+        let bot = |id: &Uuid| self.players.iter().any(|p| p.id == *id && p.is_bot);
+        gs.is_finished() || !gs.players.iter().any(|p| p.finished_position.is_none() && !bot(&p.id))
+    }
+
     /// ¿Hay alguna persona, aparte de `player_id`, sentada y conectada?
     pub fn otra_persona_conectada(&self, player_id: &Uuid) -> bool {
         self.players.iter().any(|p| !p.is_bot && p.id != *player_id && p.disconnected_at.is_none())
@@ -1192,6 +1202,39 @@ impl LobbyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn la_partida_acaba_cuando_no_queda_ninguna_persona_por_terminar() {
+        let mut l = Lobby::new("BOTS".to_string(), 4);
+        let ana = Uuid::new_v4();
+        l.add_player(ana, "Ana".to_string()).unwrap();
+        for i in 1..=3 {
+            l.add_player(Uuid::new_v4(), format!("🤖 Bot {i}")).unwrap();
+            l.players.last_mut().unwrap().is_bot = true;
+        }
+        l.status = LobbyStatus::Ready;
+        l.start_game().unwrap();
+        assert!(!l.partida_terminada(), "recién empezada");
+        let gs = l.game_state.as_mut().unwrap();
+        gs.find_player_mut(&ana).unwrap().finished_position = Some(1);
+        gs.rankings.push(ana);
+        assert!(!gs.is_finished(), "con 4 jugadores la regla de siempre pide el 2.º puesto");
+        assert!(l.partida_terminada(), "pero ya no queda ninguna persona por terminar");
+
+        // Con otra persona aún jugando, sigue.
+        let mut l = Lobby::new("DOS".to_string(), 4);
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        l.add_player(a, "Ana".to_string()).unwrap();
+        l.add_player(b, "Beto".to_string()).unwrap();
+        l.add_player(Uuid::new_v4(), "🤖 Bot 1".to_string()).unwrap();
+        l.players.last_mut().unwrap().is_bot = true;
+        l.status = LobbyStatus::Ready;
+        l.start_game().unwrap();
+        let gs = l.game_state.as_mut().unwrap();
+        gs.find_player_mut(&a).unwrap().finished_position = Some(1);
+        gs.rankings.push(a);
+        assert!(!l.partida_terminada(), "Beto sigue jugando");
+    }
 
     /// Una sala con estas personas (y un bot), con `caido` desconectado.
     fn sala_con_caido(nombres: &[&str], caido: &str) -> (Lobby, HashMap<String, Uuid>) {

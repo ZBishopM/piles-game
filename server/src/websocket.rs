@@ -2057,7 +2057,6 @@ async fn run_verification(
                 }
                 game_state.rankings.push(player_id);
 
-                let game_over = game_state.is_finished();
                 let rankings_snapshot: Vec<(Uuid, String, u32, u32, u32)> = game_state.rankings.iter()
                     .filter_map(|pid| {
                         game_state.players.iter().find(|p| p.id == *pid)
@@ -2065,6 +2064,8 @@ async fn run_verification(
                                       p.best_mult_x100))
                     })
                     .collect();
+                // Con la regla de siempre, o porque ya no queda ninguna persona por terminar.
+                let game_over = lobby.partida_terminada();
 
                 // El Elo se liquida aquí, con el estado aún vivo: hace falta
                 // saber también cómo iban quienes no terminaron.
