@@ -5480,7 +5480,7 @@
     }, jugar, volver, elegir, irA };
   })();
 
-  // ../client/partida/partida.js
+  // ../client/partida/partida.ts
   (() => {
     const ICONOS = {
       altavoz: "M3 9v6h4l6 5V4L7 9zM16 9l2 3-2 3M19 6l3 6-3 6",
@@ -5498,7 +5498,6 @@
       fuera: "M14 4H4v16h10M10 12h11M17 8l4 4-4 4"
     };
     const ico = (n) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
-    const sinEmoji2 = (s) => String(s ?? "").replace(/\p{Extended_Pictographic}️?/gu, "").replace(/\s+/g, " ").trim();
     function avisoIco(nombre, cerca, ambar = false) {
       const r = cerca?.getBoundingClientRect?.();
       if (!r) return;
@@ -5510,8 +5509,9 @@
       document.body.append(e);
       setTimeout(() => e.remove(), 1200);
     }
+    const franja = (nick) => [...document.querySelectorAll("#hud .hud-stripe")].find((x) => x.querySelector(".hud-name")?.dataset.nick === nick);
     function destello(nick) {
-      const s = [...document.querySelectorAll("#hud .hud-stripe")].find((x) => x.querySelector(".hud-name")?.dataset.nick === nick);
+      const s = franja(nick);
       if (!s) return;
       s.classList.remove("destello");
       void s.offsetWidth;
@@ -5550,25 +5550,26 @@
     if (rendirse) rendirse.innerHTML = `${ico("bandera")}<i></i>`;
     al("onSwapConflict", (players, cardId) => {
       if (players.includes(est.currentNickname)) {
-        document.querySelectorAll("#qteScores .qte-name").forEach((n2) => n2.textContent = sinEmoji2(n2.closest(".is-me") ? est.currentNickname : n2.textContent));
+        document.querySelectorAll("#qteScores .qte-name").forEach((n2) => n2.textContent = sinEmoji(n2.closest(".is-me") ? est.currentNickname : n2.textContent));
         return;
       }
       const n = qteNotifs.get(cardId);
       if (!n) return;
-      n.querySelectorAll(".qbn-player").forEach((p) => p.textContent = sinEmoji2(p.textContent));
+      n.querySelectorAll(".qbn-player").forEach((p) => p.textContent = sinEmoji(p.textContent));
       const vs = n.querySelector(".qbn-vs");
       if (vs) vs.innerHTML = ico("cruz");
       n.querySelectorAll(".qbn-scores [data-nick]").forEach((s) => s.textContent = "0");
     });
     al("onQteUpdate", (clicks) => {
       for (const n of qteNotifs.values()) n.querySelectorAll(".qbn-scores [data-nick]").forEach((s) => {
-        if (s.dataset.nick in clicks) s.textContent = clicks[s.dataset.nick];
+        const k = s.dataset.nick;
+        if (k in clicks) s.textContent = String(clicks[k]);
       });
     });
     al("renderPlayersProgress", () => {
       document.querySelectorAll("#hud .hud-name").forEach((n) => {
-        n.dataset.nick = n.textContent;
-        n.textContent = sinEmoji2(n.textContent);
+        n.dataset.nick = n.textContent ?? "";
+        n.textContent = sinEmoji(n.textContent);
       });
       const chip = document.querySelector("#hud .hud-stripe.mirones");
       if (chip) chip.innerHTML = `${ico("ojo")}${est.mirones}`;
@@ -5577,7 +5578,7 @@
       const icono = /🔌/.test(titulo) ? "enchufe" : /🚪/.test(titulo) ? "fuera" : /✅/.test(titulo) ? "check" : null;
       const tit = el?.querySelector(".qbn-title");
       if (!tit) return;
-      tit.textContent = sinEmoji2(titulo) || nick;
+      tit.textContent = sinEmoji(titulo) || nick;
       if (icono) tit.insertAdjacentHTML("afterbegin", ico(icono) + " ");
     });
     const MOTIVO = {
@@ -5596,8 +5597,9 @@
         return;
       }
       if (!msg.reason || est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
-      const fila = ["owe_card", "verifying"].includes(msg.code) ? "yourCards" : "centerCards";
-      avisoIco(MOTIVO[msg.code] ?? "cruz", document.getElementById(fila));
+      const code = msg.code ?? "";
+      const fila = ["owe_card", "verifying"].includes(code) ? "yourCards" : "centerCards";
+      avisoIco(MOTIVO[code] ?? "cruz", document.getElementById(fila));
     });
     al("onDebtForced", () => {
       const fila = document.getElementById("yourCards");
@@ -5618,8 +5620,9 @@
     const qte = document.getElementById("qteOverlay"), bandera = document.getElementById("qteGiveUpBtn"), hueco = document.getElementById("qteCard");
     let cede = null;
     const copiaCede = () => {
-      const c = hueco.querySelector(".card"), r = c?.getBoundingClientRect();
-      if (!r) return null;
+      const c = hueco.querySelector(".card");
+      if (!c) return null;
+      const r = c.getBoundingClientRect();
       const e = c.cloneNode(true);
       e.classList.add("cede");
       Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
@@ -5735,7 +5738,7 @@
         }
       }, true);
     }
-    const tablero = document.getElementById("gameScreen");
+    const tablero = porId("gameScreen");
     for (const f of ["f1", "f2", "f3"]) {
       const d = document.createElement("div");
       d.className = `pfrag ${f}`;
@@ -5793,13 +5796,14 @@
       const w = Math.floor(Math.min(mejor * 0.9, MAX));
       const filas = Math.max(Math.ceil(n / cols), Math.floor((alto + HUECO) / (w / PROP + HUECO)));
       casillas = cols * filas;
-      fila.style.setProperty("--cc", cols);
-      fila.style.setProperty("--cf", filas);
+      fila.style.setProperty("--cc", String(cols));
+      fila.style.setProperty("--cf", String(filas));
       fila.style.setProperty("--cw", `${w}px`);
     }
     function colocarCasillas() {
       const fila = document.getElementById("centerCards");
-      const cols = +fila?.style.getPropertyValue("--cc") || 0, filas = +fila?.style.getPropertyValue("--cf") || 0;
+      if (!fila) return;
+      const cols = +fila.style.getPropertyValue("--cc") || 0, filas = +fila.style.getPropertyValue("--cf") || 0;
       if (!cols || !filas) return;
       const cx = (cols - 1) / 2, cy = (filas - 1) / 2, orden = [];
       for (let r = 0; r < filas; r++) for (let c = 0; c < cols; c++) orden.push([r, c, Math.hypot((c - cx) * 1.15, r - cy) + (r * cols + c) * 1e-3]);
@@ -5825,7 +5829,9 @@
       colocarCasillas();
     });
     const CAIDA = 360;
-    let aterriza = null, sinAterrizar = /* @__PURE__ */ new Set(), trasVuelo = /* @__PURE__ */ new Set(), energia = 0, ultimo = 0;
+    let aterriza = null;
+    const sinAterrizar = /* @__PURE__ */ new Set(), trasVuelo = /* @__PURE__ */ new Set();
+    let energia = 0, ultimo = 0;
     al("vuela", (cardData, from) => {
       if (cardData && from) trasVuelo.add(cardData.id);
     });
@@ -5838,8 +5844,9 @@
       aterriza = { rowId, el, retraso: volo ? 0 : CAIDA };
     });
     al("golpe", (fuerte = false) => {
-      if (REDUCED_MOTION?.matches || !aterriza?.el) return;
-      const { rowId, el, retraso } = aterriza;
+      const a = aterriza;
+      if (REDUCED_MOTION?.matches || !a?.el) return;
+      const { rowId, retraso } = a, el = a.el;
       aterriza = null;
       setTimeout(() => golpe(rowId, el, fuerte), retraso);
     });
@@ -5899,13 +5906,12 @@
         ], { duration: 560, easing: "cubic-bezier(.3, .6, .5, 1)" }).finished.finally(() => s.remove());
       }
     }
-    const franja = (nick) => [...document.querySelectorAll("#hud .hud-stripe")].find((x) => x.querySelector(".hud-name")?.dataset.nick === nick);
     function copia(card, r) {
       const e = document.createElement("div");
       e.className = "card vuela";
       applyCardSprite(e, card);
       Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-      document.getElementById("fxLayer").append(e);
+      porId("fxLayer").append(e);
       return e;
     }
     function seLaLleva(m) {
@@ -5971,13 +5977,15 @@
       const h = Math.max(0, Math.min(r.bottom + dy, z.bottom) - Math.max(r.top + dy, z.top));
       return w * h > r.width * r.height / 2;
     };
-    const cuenta = (s, e) => s.el && s.fila === "yourCards" === enZona(s, e);
+    const cuenta = (s, e) => !!s.el && s.fila === "yourCards" === enZona(s, e);
     function aSuSitio(s, rebote = true) {
-      s.el.classList.remove("sostenida", "casi", "soltada");
+      const el = s.el;
+      if (!el) return;
+      el.classList.remove("sostenida", "casi", "soltada");
       document.getElementById(s.fila)?.classList.remove("arrastrando");
-      const ida = s.el.style.translate;
-      s.el.style.translate = "";
-      if (rebote && ida) s.el.animate([{ translate: ida }, { translate: "0 0" }], { duration: 280, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
+      const ida = el.style.translate;
+      el.style.translate = "";
+      if (rebote && ida) el.animate([{ translate: ida }, { translate: "0 0" }], { duration: 280, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
     }
     const jugar = (fila, valor, el) => {
       if (est.soyEspectador || valor == null) return;
@@ -5985,13 +5993,14 @@
       else onCenterCardClick(valor, el);
     };
     function dejarAlli(s) {
-      s.el.classList.remove("sostenida", "casi");
-      s.el.classList.add("soltada");
-      jugar(s.fila, s.valor, s.el);
+      const el = s.el;
+      el.classList.remove("sostenida", "casi");
+      el.classList.add("soltada");
+      jugar(s.fila, s.valor, el);
       const mia = s.fila === "yourCards" ? est.pendingDrop?.index === s.valor : est.pendingTake?.card.id === s.valor;
       if (!mia) return aSuSitio(s);
       setTimeout(() => {
-        if (s.el.isConnected && s.el.classList.contains("soltada")) aSuSitio(s);
+        if (el.isConnected && el.classList.contains("soltada")) aSuSitio(s);
       }, 2500);
     }
     for (const fila of ["yourCards", "centerCards"]) {
@@ -6000,15 +6009,16 @@
       row.addEventListener("pointerdown", (e) => {
         if (e.pointerType === "mouse" && e.button !== 0) return;
         e.stopPropagation();
-        const el = e.target.closest("[data-tap]");
-        const valida = el && row.contains(el) && !el.classList.contains("card-empty");
-        const zona = document.getElementById("centerCards").getBoundingClientRect();
-        sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: valida ? el.getBoundingClientRect() : null };
+        const t2 = e.target.closest("[data-tap]");
+        const el = t2 && row.contains(t2) && !t2.classList.contains("card-empty") ? t2 : null;
+        const valida = !!el;
+        const zona = porId("centerCards").getBoundingClientRect();
+        sostenida = { fila, el, valor: el ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: el ? el.getBoundingClientRect() : null };
         try {
           row.setPointerCapture(e.pointerId);
         } catch {
         }
-        if (valida && !est.soyEspectador) {
+        if (el && valida && !est.soyEspectador) {
           el.classList.add("sostenida");
           row.classList.add("arrastrando");
         }
@@ -6060,7 +6070,7 @@
     };
     let tablas = null;
     function abrirTablas(s) {
-      const mano = document.getElementById("yourCards"), r = mano.getBoundingClientRect();
+      const mano = porId("yourCards"), r = mano.getBoundingClientRect();
       const w = Math.min(r.width * 0.72, 460), cw = (w - 20 - 18) / 4, h = cw / 0.6476 + 20;
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       const capa2 = document.createElement("div");
@@ -6079,7 +6089,7 @@
         capa2.append(t2);
         return t2;
       });
-      document.getElementById("gameScreen").append(capa2);
+      porId("gameScreen").append(capa2);
       mano.classList.add("en-tabla");
       const queda = innerHeight - s.y - 12, entra = lim(queda * 0.3, 20, 60);
       tablas = {
@@ -6111,7 +6121,7 @@
         t2.classList.toggle("sel", yo && T.e > 0.5);
         const x = (i - T.cur) * paso + T.ox, s = (i === T.cur ? k : 1) * (yo ? 1 : 0.88);
         t2.style.transform = `translateX(${x}px) scale(${s}) perspective(${T.w * 2}px) rotateX(${a}deg)`;
-        t2.style.opacity = i === T.cur ? 1 : T.e * (Math.abs(i - T.sel) <= 2 ? 1 : 0);
+        t2.style.opacity = String(i === T.cur ? 1 : T.e * (Math.abs(i - T.sel) <= 2 ? 1 : 0));
         t2.style.setProperty("--canto", Math.abs(Math.cos(a * Math.PI / 180)).toFixed(3));
       });
     }
@@ -6149,7 +6159,7 @@
       const desde = { e: T.e, f: T.f, ox: T.ox }, hasta = { e: 0, f: T.hecho ? 1 : 0, ox: 0 }, t0 = performance.now();
       const cuadro = (now) => {
         const p = Math.min(1, (now - t0) / 280), q = 1 - (1 - p) ** 3;
-        for (const k in desde) T[k] = desde[k] + (hasta[k] - desde[k]) * q;
+        for (const k of ["e", "f", "ox"]) T[k] = desde[k] + (hasta[k] - desde[k]) * q;
         pintarTablas(T);
         if (p < 1) return requestAnimationFrame(cuadro);
         T.capa.remove();
@@ -6221,7 +6231,7 @@
       c.dataset.nick = nick;
       const cab = document.createElement("h3");
       cab.className = "vcab";
-      cab.textContent = sinEmoji2(nick);
+      cab.textContent = sinEmoji(nick);
       const lista = document.createElement("ol");
       lista.className = "vlista";
       for (let i = 0; i < 6; i++) {
@@ -6238,7 +6248,7 @@
       return c;
     }
     function mirando(c, v) {
-      const i = v.fin ? -1 : v.res.findIndex((r) => !r);
+      const i = v.fin || !v.res ? -1 : v.res.findIndex((r) => !r);
       c.querySelectorAll(".vlista li").forEach((li, j) => {
         li.classList.toggle("mira", j === i);
         const cartas = li.querySelector(".vcartas");
@@ -6280,7 +6290,7 @@
     function sellar(c, fin, anima = true) {
       const s = c.querySelector(".vsello");
       c.classList.add(fin.pos ? "gana" : "falla");
-      if (fin.pos) c.dataset.pos = fin.pos;
+      if (fin.pos) c.dataset.pos = String(fin.pos);
       s.textContent = fin.pos ? t("pos.ord", { n: fin.pos }) : "\u2715";
       mirando(c, { fin });
       if (!anima || quieto()) return;
@@ -6311,7 +6321,7 @@
       const c = columna(nick);
       const antes = new Map([...columnas.children].map((x) => [x, x.getBoundingClientRect()]));
       columnas.append(c);
-      columnas.dataset.n = columnas.children.length;
+      columnas.dataset.n = String(columnas.children.length);
       if (quieto()) return;
       for (const [x, r0] of antes) {
         const r1 = x.getBoundingClientRect();
@@ -6323,7 +6333,7 @@
       rayo2.className = "vfx vrayo" + (vertical ? " tumbado" : "");
       rayo2.innerHTML = vertical ? '<svg viewBox="0 0 400 60" preserveAspectRatio="none"><path d="M0 34 120 18 128 40 260 12 266 36 400 22 240 50 234 28 112 52 106 30 0 44z"/></svg>' : '<svg viewBox="0 0 60 400" preserveAspectRatio="none"><path d="M34 0 18 120 40 128 12 260 36 266 22 400 50 240 28 234 52 112 30 106 44 0z"/></svg>';
       Object.assign(rayo2.style, vertical ? { left: `${b.left}px`, top: `${r.top - 6}px`, width: `${b.width}px` } : { left: `${r.left - 6}px`, top: `${b.top - 20}px`, height: `${b.height + 40}px` });
-      document.getElementById("fxLayer").append(rayo2);
+      porId("fxLayer").append(rayo2);
       rayo2.animate(
         [{ clipPath: vertical ? "inset(0 100% 0 0)" : "inset(0 0 100% 0)", opacity: 1 }, { clipPath: "inset(0 0 0 0)", opacity: 1, offset: 0.25 }, { opacity: 1, offset: 0.7 }, { opacity: 0 }],
         { duration: 620, easing: "linear" }
@@ -6342,7 +6352,7 @@
         for (const [n, v] of verifs) if (n !== nick && v.fin) verifs.delete(n);
         columnas.textContent = "";
         for (const n of [nick, ...[...verifs.keys()].filter((n2) => n2 !== nick)]) columnas.append(columna(n));
-        columnas.dataset.n = columnas.children.length;
+        columnas.dataset.n = String(columnas.children.length);
       } else if (abierta()) {
         colDe(nick)?.remove();
         partir(nick);

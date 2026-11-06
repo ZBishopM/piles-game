@@ -2,7 +2,10 @@
 // client/juego/: aquí se escuchan sus avisos (juego/bus.ts) para cambiar texto por elementos
 // que se entienden solos (iconos, destellos, montoncitos de set), y van los gestos.
 import { al } from '../juego/bus.js';
-import { est } from '../juego/estado.js';
+import { est, porId, type Msg } from '../juego/estado.js';
+import type { CardInfo } from '../tipos/CardInfo';
+import type { CardMove } from '../tipos/CardMove';
+import type { ServerMessage } from '../tipos/ServerMessage';
 import { send } from '../juego/red.js';
 import { sinEmoji } from '../juego/espectador.js';
 import { misSetsRevelados, applyCardSprite, markLanded, REDUCED_MOTION, fireFrenzy } from '../juego/tablero.js';
@@ -11,7 +14,6 @@ import { playTaunt } from '../juego/burlas.js';
 import { onPlayerCardClick, onCenterCardClick, owesCard, switchSet, flipCurrentSet, qteNotifs } from '../juego/toques.js';
 import { isStunned } from '../juego/pelea.js';
 
-'use strict';
 (() => {
     const ICONOS = {
         altavoz: 'M3 9v6h4l6 5V4L7 9zM16 9l2 3-2 3M19 6l3 6-3 6', mudo: 'M3 9v6h4l6 5V4L7 9zM16 9l6 6M22 9l-6 6',
@@ -19,12 +21,12 @@ import { isStunned } from '../juego/pelea.js';
         candado: 'M5 11h14v10H5zM8 11V7h8v4', hueco: 'M6 3h12v18H6zM10 10h4v4h-4z', cruz: 'M5 5l14 14M19 5 5 19',
         reloj: 'M6 3h12M6 21h12M7 3l10 18M17 3 7 21', escudo: 'M12 3l8 3v6l-8 9-8-9V6z', check: 'M4 12l5 5L20 6',
         enchufe: 'M9 3v5M15 3v5M6 8h12v4l-6 6-6-6zM12 18v4', fuera: 'M14 4H4v16h10M10 12h11M17 8l4 4-4 4',
-    };
-    const ico = n => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
-    const sinEmoji = s => String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu, '').replace(/\s+/g, ' ').trim();
+    } as const;
+    type Icono = keyof typeof ICONOS;
+    const ico = (n: Icono) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
 
     // ── Un icono junto a lo que falló (en vez de «⚠️ …» en la franja) ──────────────
-    function avisoIco(nombre, cerca, ambar = false) {
+    function avisoIco(nombre: Icono, cerca: Element | null | undefined, ambar = false) {
         const r = cerca?.getBoundingClientRect?.(); if (!r) return;
         const e = document.createElement('div');
         e.className = 'aviso-ico' + (ambar ? ' ambar' : '');
@@ -33,9 +35,10 @@ import { isStunned } from '../juego/pelea.js';
         document.body.append(e);
         setTimeout(() => e.remove(), 1200);
     }
+    const franja = (nick: string | null | undefined) => [...document.querySelectorAll<HTMLElement>('#hud .hud-stripe')].find(x => x.querySelector<HTMLElement>('.hud-name')?.dataset.nick === nick);
     /** La franja del marcador de alguien destella: de quién vino (frenesí, la carta que te quitó). */
-    function destello(nick) {
-        const s = [...document.querySelectorAll('#hud .hud-stripe')].find(x => x.querySelector('.hud-name')?.dataset.nick === nick);
+    function destello(nick: string | null | undefined) {
+        const s = franja(nick);
         if (!s) return;
         s.classList.remove('destello'); void s.offsetWidth; s.classList.add('destello');
     }
@@ -43,7 +46,7 @@ import { isStunned } from '../juego/pelea.js';
     // ── Tus sets: seis montoncitos; el revelado enseña su prenda ───────────────────
     al('updateSetNav', () => {
         const rev = misSetsRevelados();
-        document.querySelectorAll('#setNav .set-btn').forEach((b, i) => {
+        document.querySelectorAll<HTMLElement>('#setNav .set-btn').forEach((b, i) => {
             b.setAttribute('aria-label', t('set.n', { n: i + 1 }));
             if (!b.querySelector('.set-mini')) {
                 b.textContent = '';
@@ -51,7 +54,7 @@ import { isStunned } from '../juego/pelea.js';
                 const ojo = document.createElement('span'); ojo.className = 'set-eye';   // updateSetNav escribe aquí
                 b.append(mini, ojo);
             }
-            const c = rev.get(i), mini = b.querySelector('.set-mini');
+            const c = rev.get(i), mini = b.querySelector<HTMLElement>('.set-mini')!;
             if (c) applyCardSprite(mini, c); else mini.style.backgroundPosition = '';
         });
     });
@@ -67,7 +70,7 @@ import { isStunned } from '../juego/pelea.js';
     if (rendirse) rendirse.innerHTML = `${ico('bandera')}<i></i>`;   // <i>: el relleno de mantener pulsado
     // En la pelea, tu contador lleva tu nombre a secas (en bermellón, por CSS), sin «⭐ … (Tú)».
     // La pelea de otros: nombres sin emoji, espadas y números (sin «0 clicks»).
-    al('onSwapConflict', (players, cardId) => {
+    al('onSwapConflict', (players: string[], cardId: number) => {
         if (players.includes(est.currentNickname)) {
             document.querySelectorAll('#qteScores .qte-name').forEach(n => (n.textContent = sinEmoji(n.closest('.is-me') ? est.currentNickname : n.textContent)));
             return;
@@ -77,17 +80,17 @@ import { isStunned } from '../juego/pelea.js';
         const vs = n.querySelector('.qbn-vs'); if (vs) vs.innerHTML = ico('cruz');
         n.querySelectorAll('.qbn-scores [data-nick]').forEach(s => (s.textContent = '0'));
     });
-    al('onQteUpdate', clicks => {
-        for (const n of qteNotifs.values()) n.querySelectorAll('.qbn-scores [data-nick]').forEach(s => { if (s.dataset.nick in clicks) s.textContent = clicks[s.dataset.nick]; });
+    al('onQteUpdate', (clicks: Record<string, number>) => {
+        for (const n of qteNotifs.values()) n.querySelectorAll<HTMLElement>('.qbn-scores [data-nick]').forEach(s => { const k = s.dataset.nick!; if (k in clicks) s.textContent = String(clicks[k]); });
     });
     // Marcador: nombres sin emoji (los bots llegan como «🤖 Bot 1»); quien mira, un ojo y el número
     al('renderPlayersProgress', () => {
-        document.querySelectorAll('#hud .hud-name').forEach(n => { n.dataset.nick = n.textContent; n.textContent = sinEmoji(n.textContent); });
+        document.querySelectorAll<HTMLElement>('#hud .hud-name').forEach(n => { n.dataset.nick = n.textContent ?? ''; n.textContent = sinEmoji(n.textContent); });
         const chip = document.querySelector('#hud .hud-stripe.mirones');
         if (chip) chip.innerHTML = `${ico('ojo')}${est.mirones}`;
     });
     // Los avisos de otros (se cayó, se fue, volvió): un icono en vez del emoji
-    al('pintarAviso', (el, nick, titulo) => {
+    al('pintarAviso', (el: HTMLElement | null, nick: string, titulo: string) => {
         const icono = /🔌/.test(titulo) ? 'enchufe' : /🚪/.test(titulo) ? 'fuera' : /✅/.test(titulo) ? 'check' : null;
         const tit = el?.querySelector('.qbn-title'); if (!tit) return;
         tit.textContent = sinEmoji(titulo) || nick;
@@ -97,13 +100,14 @@ import { isStunned } from '../juego/pelea.js';
     // ── Lo que decía la franja de texto, ahora se ve ──────────────────────────────
     // Jugada rechazada por el servidor: un icono sobre la fila (candado: en pelea o verificando;
     // hueco: debes o no debes carta; cruz: se la llevaron). Te la quitaron: destella quién.
-    const MOTIVO = { wait_fight: 'candado', card_fought: 'candado', verifying: 'candado', lost_card: 'candado',
+    const MOTIVO: Record<string, Icono> = { wait_fight: 'candado', card_fought: 'candado', verifying: 'candado', lost_card: 'candado',
         owe_card: 'hueco', empty_slot: 'hueco', no_debt: 'hueco', card_gone: 'cruz' };
-    al('onSwapFailed', msg => {
+    al('onSwapFailed', (msg: Partial<Msg<'swap_failed'>>) => {
         if ((msg.kind || 'rule') === 'gone') { if (msg.by) destello(msg.by); return; }
         if (!msg.reason || est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
-        const fila = ['owe_card', 'verifying'].includes(msg.code) ? 'yourCards' : 'centerCards';
-        avisoIco(MOTIVO[msg.code] ?? 'cruz', document.getElementById(fila));
+        const code = msg.code ?? '';
+        const fila = ['owe_card', 'verifying'].includes(code) ? 'yourCards' : 'centerCards';
+        avisoIco(MOTIVO[code] ?? 'cruz', document.getElementById(fila));
     });
     // Se acabó el tiempo de la deuda: la carta forzada entra con destello ámbar
     al('onDebtForced', () => {
@@ -112,7 +116,7 @@ import { isStunned } from '../juego/pelea.js';
         avisoIco('reloj', fila, true);
     });
     // Frenesí: destella quién lo soltó; si el tuyo lo paró, un escudo
-    al('onFrenzyFired', msg => {
+    al('onFrenzyFired', (msg: Msg<'frenzy_fired'>) => {
         destello(msg.player);
         if ((msg.countered || []).includes(est.currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
     });
@@ -121,26 +125,28 @@ import { isStunned } from '../juego/pelea.js';
     // Ceder: la carta en disputa, hasta la bandera blanca de abajo. Frenesí: el rayo, desde la
     // racha hasta arriba. Llegar lo manda; antes, soltar o volver la deja en su sitio. El recorrido
     // se mide al pulsar (lo que queda hasta la bandera o hasta el borde de arriba).
-    const vuelve = (el, prop) => { const ida = el.style[prop]; el.style[prop] = ''; if (ida) el.animate([{ [prop]: ida }, { [prop]: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3, 1.6, .5, 1)' }); };
+    const vuelve = (el: HTMLElement, prop: 'translate') => { const ida = el.style[prop]; el.style[prop] = ''; if (ida) el.animate([{ [prop]: ida }, { [prop]: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3, 1.6, .5, 1)' }); };
     const qte = document.getElementById('qteOverlay'), bandera = document.getElementById('qteGiveUpBtn'), hueco = document.getElementById('qteCard');
-    let cede = null;   // { id, x, y, d, hecho, copia }
+    type Cede = { id: number; x: number; y: number; d: number; hecho: boolean; copia: HTMLElement | null };
+    let cede: Cede | null = null;
     // La caja de la pelea va recortada (clip-path): lo que baja es una copia por fuera de ella
     const copiaCede = () => {
-        const c = hueco.querySelector('.card'), r = c?.getBoundingClientRect();
-        if (!r) return null;
-        const e = c.cloneNode(true);
+        const c = hueco!.querySelector<HTMLElement>('.card');
+        if (!c) return null;
+        const r = c.getBoundingClientRect();
+        const e = c.cloneNode(true) as HTMLElement;
         e.classList.add('cede');
         Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-        qte.append(e);
-        hueco.style.visibility = 'hidden';
+        qte!.append(e);
+        hueco!.style.visibility = 'hidden';
         return e;
     };
-    const sinCopia = c => { c?.copia?.remove(); hueco.style.visibility = ''; };
+    const sinCopia = (c: Cede | null) => { c?.copia?.remove(); hueco!.style.visibility = ''; };
     if (qte && bandera && hueco) {
         al('onSwapConflict', () => { sinCopia(cede); cede = null; bandera.classList.remove('cerca'); });
         al('closeQteOverlay', () => { sinCopia(cede); cede = null; qte.querySelectorAll('.card.cede').forEach(e => e.remove()); hueco.style.visibility = ''; });
         qte.addEventListener('pointerdown', e => {
-            if (!est.qteActive || bandera.hidden || e.target.closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
+            if (!est.qteActive || bandera.hidden || (e.target as Element).closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
             const f = bandera.getBoundingClientRect();
             cede = { id: e.pointerId, x: e.clientX, y: e.clientY, d: Math.max(120, f.top + f.height / 2 - e.clientY), hecho: false, copia: null };
             try { qte.setPointerCapture(e.pointerId); } catch { /* */ }
@@ -163,7 +169,7 @@ import { isStunned } from '../juego/pelea.js';
             playSfx('drop'); zumba(25);
             send({ type: 'give_up_card' });
         });
-        const finCede = e => {
+        const finCede = (e: PointerEvent) => {
             const c = cede;
             if (!c || c.id !== e.pointerId) return;
             cede = null;
@@ -178,7 +184,7 @@ import { isStunned } from '../juego/pelea.js';
     }
 
     const racha = document.getElementById('comboBox'), rayo = document.getElementById('frenzyBtn');
-    let sube = null;   // { id, x, y, d, hecho, movido }
+    let sube: { id: number; x: number; y: number; d: number; hecho: boolean; movido: boolean } | null = null;
     if (racha && rayo) {
         racha.addEventListener('pointerdown', e => {
             if (rayo.hidden || est.soyEspectador) return;
@@ -199,7 +205,7 @@ import { isStunned } from '../juego/pelea.js';
             zumba(30);
             fireFrenzy();
         });
-        const finSube = e => {
+        const finSube = (e: PointerEvent) => {
             const s = sube;
             if (!s || s.id !== e.pointerId) return;
             sube = null;
@@ -213,18 +219,18 @@ import { isStunned } from '../juego/pelea.js';
         racha.addEventListener('pointerup', finSube);
         racha.addEventListener('pointercancel', finSube);
         // El clic del ratón o del dedo ya no lo suelta; el del teclado (detail 0) sí
-        racha.addEventListener('click', e => { if (e.detail > 0 && e.target.closest('#frenzyBtn')) { e.stopPropagation(); e.preventDefault(); } }, true);
+        racha.addEventListener('click', e => { if (e.detail > 0 && (e.target as Element).closest('#frenzyBtn')) { e.stopPropagation(); e.preventDefault(); } }, true);
     }
 
     // ── Vivo aunque no juegues: fragmentos de fondo y barrido ─────────────────────
-    const tablero = document.getElementById('gameScreen');
+    const tablero = porId('gameScreen');
     for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
     const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
     const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
     for (const l of ['lampara', 'neon', 'faros', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
     // Cambiar de set: la mano nueva entra deslizando desde el lado del set elegido y rebota
     // un poco al llegar (antes la cortaba el barrido negro y se sentía brusco)
-    al('switchSet', (i, antes) => {
+    al('switchSet', (i: number, antes: number) => {
         if (REDUCED_MOTION?.matches) return;
         const x = (i > antes ? 1 : -1) * Math.min(innerWidth * .5, 260);
         document.getElementById('yourCards')?.animate(
@@ -233,7 +239,7 @@ import { isStunned } from '../juego/pelea.js';
     });
     al('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
-    al('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
+    al('updateFrenzyBtn', (ready: boolean) => tablero.classList.toggle('frenesi', !!ready));
 
     // ── Sin espacio muerto: las cartas del centro crecen hasta llenar la mesa ───────
     // Pero una carta que entra NO recoloca a las demás: la mesa reserva sus casillas
@@ -263,20 +269,21 @@ import { isStunned } from '../juego/pelea.js';
         // aparecer o vaciarse una (antes subía todo 80 px de golpe)
         const filas = Math.max(Math.ceil(n / cols), Math.floor((alto + HUECO) / (w / PROP + HUECO)));
         casillas = cols * filas;
-        fila.style.setProperty('--cc', cols);
-        fila.style.setProperty('--cf', filas);
+        fila.style.setProperty('--cc', String(cols));
+        fila.style.setProperty('--cf', String(filas));
         fila.style.setProperty('--cw', `${w}px`);
     }
     // Cada hueco del centro (fijo, ver syncCenterSlots) va a una casilla fija, de la mitad de la
     // mesa hacia fuera: las primeras cartas quedan en medio, no amontonadas en una esquina.
     function colocarCasillas() {
         const fila = document.getElementById('centerCards');
-        const cols = +fila?.style.getPropertyValue('--cc') || 0, filas = +fila?.style.getPropertyValue('--cf') || 0;
+        if (!fila) return;
+        const cols = +fila.style.getPropertyValue('--cc') || 0, filas = +fila.style.getPropertyValue('--cf') || 0;
         if (!cols || !filas) return;
-        const cx = (cols - 1) / 2, cy = (filas - 1) / 2, orden = [];
+        const cx = (cols - 1) / 2, cy = (filas - 1) / 2, orden: [number, number, number][] = [];
         for (let r = 0; r < filas; r++) for (let c = 0; c < cols; c++) orden.push([r, c, Math.hypot((c - cx) * 1.15, r - cy) + (r * cols + c) * 1e-3]);
         orden.sort((a, b) => a[2] - b[2]);
-        [...fila.children].forEach((e, i) => { const o = orden[i]; e.style.gridArea = o ? `${o[0] + 1} / ${o[1] + 1}` : ''; });
+        ([...fila.children] as HTMLElement[]).forEach((e, i) => { const o = orden[i]; e.style.gridArea = o ? `${o[0] + 1} / ${o[1] + 1}` : ''; });
     }
     al('renderCenterCards', () => { encajarCentro(); colocarCasillas(); });
     al('onGameStart', () => { casillas = 0; requestAnimationFrame(() => { encajarCentro(true); colocarCasillas(); }); });
@@ -290,10 +297,12 @@ import { isStunned } from '../juego/pelea.js';
     // se suman: `energia` crece con cada uno y se apaga en ~1 s, y las animaciones son
     // aditivas (composite: 'add'), así que un salto encima de otro sube más.
     const CAIDA = 360;
-    let aterriza = null, sinAterrizar = new Set(), trasVuelo = new Set(), energia = 0, ultimo = 0;
-    al('vuela', (cardData, from) => { if (cardData && from) trasVuelo.add(cardData.id); });
-    al('aterriza', (rowId, index) => {
-        const el = document.getElementById(rowId)?.children[index];
+    let aterriza: { rowId: string; el: HTMLElement | undefined; retraso: number } | null = null;
+    const sinAterrizar = new Set<number>(), trasVuelo = new Set<number>();
+    let energia = 0, ultimo = 0;
+    al('vuela', (cardData: CardInfo | null, from: DOMRect | null) => { if (cardData && from) trasVuelo.add(cardData.id); });
+    al('aterriza', (rowId: string, index: number) => {
+        const el = document.getElementById(rowId)?.children[index] as HTMLElement | undefined;
         const id = Number(el?.dataset.cardId);
         if (el && sinAterrizar.has(id)) return false;   // la que viene volando lo hará al llegar
         const volo = trasVuelo.delete(id);       // ya cayó volando: solo se estrella, golpe ya
@@ -301,12 +310,13 @@ import { isStunned } from '../juego/pelea.js';
         aterriza = { rowId, el, retraso: volo ? 0 : CAIDA };
     });
     al('golpe', (fuerte = false) => {
-        if (REDUCED_MOTION?.matches || !aterriza?.el) return;
-        const { rowId, el, retraso } = aterriza; aterriza = null;
+        const a = aterriza;
+        if (REDUCED_MOTION?.matches || !a?.el) return;
+        const { rowId, retraso } = a, el = a.el; aterriza = null;
         setTimeout(() => golpe(rowId, el, fuerte), retraso);
     });
-    const ADD = { composite: 'add' };
-    function golpe(rowId, el, fuerte) {
+    const ADD = { composite: 'add' as const };
+    function golpe(rowId: string, el: HTMLElement, fuerte: boolean) {
         const fila = document.getElementById(rowId);
         if (!fila || !el.isConnected) return;
         const t = performance.now();
@@ -361,15 +371,14 @@ import { isStunned } from '../juego/pelea.js';
     // `game_update` trae `moved {kind, card_id, by, taunt}`. Si lo hizo otro: la que se lleva
     // vuela de la mesa a su franja del marcador; la que suelta sale de su franja y cae en la
     // mesa con todo su peso. Lo tuyo ya tiene sus vuelos (flyCard).
-    const franja = nick => [...document.querySelectorAll('#hud .hud-stripe')].find(x => x.querySelector('.hud-name')?.dataset.nick === nick);
-    function copia(card, r) {
+    function copia(card: Partial<CardInfo>, r: { left: number; top: number; width: number; height: number }) {
         const e = document.createElement('div');
         e.className = 'card vuela'; applyCardSprite(e, card);
         Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-        document.getElementById('fxLayer').append(e);
+        porId('fxLayer').append(e);
         return e;
     }
-    function seLaLleva(m) {
+    function seLaLleva(m: CardMove) {
         const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`), dest = franja(m.by);
         if (!el || !dest) { destello(m.by); return; }
         const card = est.centerCards.find(c => c.id === m.card_id) ?? { id: m.card_id, clothing_type: 0 };
@@ -382,12 +391,12 @@ import { isStunned } from '../juego/pelea.js';
             { transform: `translate(${dx}px, ${dy}px) rotate(14deg) scale(${s})`, opacity: .3 },
         ], { duration: 480, easing: 'cubic-bezier(.5, 0, .25, 1)' }).finished.finally(() => { e.remove(); destello(m.by); });
     }
-    function laSuelta(m) {
+    function laSuelta(m: CardMove) {
         const orig = franja(m.by)?.getBoundingClientRect();
         if (!orig) return;
         sinAterrizar.add(m.card_id);
         requestAnimationFrame(() => {   // ya redibujado el centro: la carta nueva tiene su hueco
-            const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
+            const el = document.querySelector<HTMLElement>(`#centerCards .card[data-card-id="${m.card_id}"]`);
             const card = est.centerCards.find(c => c.id === m.card_id);
             if (!el || !card) { sinAterrizar.delete(m.card_id); return; }
             const b = el.getBoundingClientRect(), a = { left: orig.left + orig.width / 2 - b.width * .2, top: orig.top, width: b.width * .4, height: b.height * .4 };
@@ -401,10 +410,10 @@ import { isStunned } from '../juego/pelea.js';
             ], { duration: 520, easing: 'cubic-bezier(.55, 0, .85, .35)' }).finished.finally(() => {
                 e.remove(); sinAterrizar.delete(m.card_id);
                 // El centro puede haberse redibujado durante el vuelo: el nodo de ahora
-                const ya = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
+                const ya = document.querySelector<HTMLElement>(`#centerCards .card[data-card-id="${m.card_id}"]`);
                 if (!ya) return;
                 ya.style.visibility = '';
-                const i = [...ya.parentElement.children].indexOf(ya);
+                const i = [...ya.parentElement!.children].indexOf(ya);
                 if (i >= 0) { trasVuelo.add(m.card_id); markLanded('centerCards', i); }
             });
         });
@@ -417,37 +426,42 @@ import { isStunned } from '../juego/pelea.js';
     // Escucha en las filas, en captura, y no deja pasar el evento: bindTap (lobby.html) cogía
     // al bajar el dedo y gestosSet (gestos.js) leía el mismo gesto; aquí manda uno solo.
     const TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
-    let sostenida = null;   // { fila, el, valor, x, y, t, id, hecho, zona }
+    type Sostenida = { fila: string; el: HTMLElement | null; valor: number | null; x: number; y: number; t: number; id: number;
+        hecho: boolean; zona: DOMRect; r0: DOMRect | null; modo?: 'tabla' | 'carta' };
+    let sostenida: Sostenida | null = null;
     // Más de la mitad de la carta dentro del recuadro = dentro. Con el rectángulo medido al pulsar
     // más lo arrastrado (sin leer el layout en cada movimiento).
-    const enZona = (s, e) => {
-        const r = s.r0, z = s.zona, dx = e.clientX - s.x, dy = e.clientY - s.y;
+    const enZona = (s: Sostenida, e: PointerEvent) => {
+        const r = s.r0!, z = s.zona, dx = e.clientX - s.x, dy = e.clientY - s.y;
         const w = Math.max(0, Math.min(r.right + dx, z.right) - Math.max(r.left + dx, z.left));
         const h = Math.max(0, Math.min(r.bottom + dy, z.bottom) - Math.max(r.top + dy, z.top));
         return w * h > r.width * r.height / 2;
     };
-    const cuenta = (s, e) => s.el && (s.fila === 'yourCards') === enZona(s, e);   // ¿soltarla aquí la juega?
-    function aSuSitio(s, rebote = true) {
-        s.el.classList.remove('sostenida', 'casi', 'soltada');
+    const cuenta = (s: Sostenida, e: PointerEvent) => !!s.el && (s.fila === 'yourCards') === enZona(s, e);   // ¿soltarla aquí la juega?
+    function aSuSitio(s: Sostenida, rebote = true) {
+        const el = s.el;
+        if (!el) return;
+        el.classList.remove('sostenida', 'casi', 'soltada');
         document.getElementById(s.fila)?.classList.remove('arrastrando');
-        const ida = s.el.style.translate;
-        s.el.style.translate = '';
-        if (rebote && ida) s.el.animate([{ translate: ida }, { translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
+        const ida = el.style.translate;
+        el.style.translate = '';
+        if (rebote && ida) el.animate([{ translate: ida }, { translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
     }
-    const jugar = (fila, valor, el) => {
+    const jugar = (fila: string, valor: number | null, el: HTMLElement | null) => {
         if (est.soyEspectador || valor == null) return;
         if (fila === 'yourCards') onPlayerCardClick(valor, el); else onCenterCardClick(valor, el);
     };
     // Soltada donde cuenta: se queda ahí hasta que contesta el servidor, y el vuelo sale de ahí
     // (lobby.html mide el origen con cardRectAt al llegar la respuesta, translate incluido; el
     // redibujado de la fila la sustituye). Si no se mandó (rechazada, otra en vuelo), vuelve.
-    function dejarAlli(s) {
-        s.el.classList.remove('sostenida', 'casi');
-        s.el.classList.add('soltada');
-        jugar(s.fila, s.valor, s.el);
+    function dejarAlli(s: Sostenida) {
+        const el = s.el!;   // solo se deja la que se sostiene (cuenta() lo exige)
+        el.classList.remove('sostenida', 'casi');
+        el.classList.add('soltada');
+        jugar(s.fila, s.valor, el);
         const mia = s.fila === 'yourCards' ? est.pendingDrop?.index === s.valor : est.pendingTake?.card.id === s.valor;
         if (!mia) return aSuSitio(s);
-        setTimeout(() => { if (s.el.isConnected && s.el.classList.contains('soltada')) aSuSitio(s); }, 2500);   // sin respuesta
+        setTimeout(() => { if (el.isConnected && el.classList.contains('soltada')) aSuSitio(s); }, 2500);   // sin respuesta
     }
     for (const fila of ['yourCards', 'centerCards']) {
         const row = document.getElementById(fila);
@@ -455,13 +469,14 @@ import { isStunned } from '../juego/pelea.js';
         row.addEventListener('pointerdown', e => {
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             e.stopPropagation();
-            const el = e.target.closest('[data-tap]');
-            const valida = el && row.contains(el) && !el.classList.contains('card-empty');
+            const t = (e.target as Element).closest<HTMLElement>('[data-tap]');
+            const el = t && row.contains(t) && !t.classList.contains('card-empty') ? t : null;
+            const valida = !!el;
             // El recuadro del centro se mide una vez, al pulsar (no en cada movimiento)
-            const zona = document.getElementById('centerCards').getBoundingClientRect();
-            sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: valida ? el.getBoundingClientRect() : null };
+            const zona = porId('centerCards').getBoundingClientRect();
+            sostenida = { fila, el, valor: el ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: el ? el.getBoundingClientRect() : null };
             try { row.setPointerCapture(e.pointerId); } catch { /* */ }
-            if (valida && !est.soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
+            if (el && valida && !est.soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
         }, true);
         row.addEventListener('pointermove', e => {
             const s = sostenida;
@@ -477,7 +492,7 @@ import { isStunned } from '../juego/pelea.js';
             s.el.style.translate = `${dx}px ${dy}px`;   // sigue al dedo, entera
             s.el.classList.toggle('casi', cuenta(s, e));
         }, true);
-        const fin = e => {
+        const fin = (e: PointerEvent) => {
             const s = sostenida;
             if (!s || s.id !== e.pointerId) return;
             e.stopPropagation();
@@ -506,11 +521,13 @@ import { isStunned } from '../juego/pelea.js';
     // nada. Hasta que da la vuelta entera se deshace subiendo o soltando; entera, manda flip_set.
     // Un set revelado se oculta igual, con otro ↓. Sin preserve-3d (la fila lleva filter, que lo
     // aplana): a 90° se cambia la cara y se sigue girando desde −90°.
-    const SEP = 14, lim = (v, a, b) => Math.min(b, Math.max(a, v));
-    const zumba = ms => { try { navigator.vibrate?.(ms); } catch { /* */ } };
-    let tablas = null;   // { capa, els, rev, w, k0, cur, sel, e, f, ox, entra, giro, fija, hecho }
-    function abrirTablas(s) {
-        const mano = document.getElementById('yourCards'), r = mano.getBoundingClientRect();
+    const SEP = 14, lim = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+    const zumba = (ms: number) => { try { navigator.vibrate?.(ms); } catch { /* */ } };
+    type Tablas = { capa: HTMLElement; els: HTMLElement[]; rev: boolean[]; w: number; k0: number; cur: number; sel: number;
+        e: number; f: number; ox: number; entra: number; giro: number; fija: boolean; hecho: boolean };
+    let tablas: Tablas | null = null;
+    function abrirTablas(s: Sostenida) {
+        const mano = porId('yourCards'), r = mano.getBoundingClientRect();
         const w = Math.min(r.width * .72, 460), cw = (w - 20 - 18) / 4, h = cw / .6476 + 20;
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         const capa = document.createElement('div');
@@ -529,7 +546,7 @@ import { isStunned } from '../juego/pelea.js';
             capa.append(t);
             return t;
         });
-        document.getElementById('gameScreen').append(capa);
+        porId('gameScreen').append(capa);
         mano.classList.add('en-tabla');
         // El recorrido que queda hasta el borde de abajo: un tercio para hacerse tabla, el resto gira
         const queda = innerHeight - s.y - 12, entra = lim(queda * .3, 20, 60);
@@ -537,7 +554,7 @@ import { isStunned } from '../juego/pelea.js';
             e: 0, f: 0, ox: 0, entra, giro: Math.max(50, queda - entra), fija: owesCard(), hecho: false };
         zumba(8);
     }
-    function pintarTablas(T) {
+    function pintarTablas(T: Tablas) {
         const paso = T.w + SEP, k = 1 + (T.k0 - 1) * (1 - T.e);
         T.els.forEach((t, i) => {
             const yo = i === T.sel;
@@ -548,11 +565,11 @@ import { isStunned } from '../juego/pelea.js';
             t.classList.toggle('sel', yo && T.e > .5);
             const x = (i - T.cur) * paso + T.ox, s = (i === T.cur ? k : 1) * (yo ? 1 : .88);
             t.style.transform = `translateX(${x}px) scale(${s}) perspective(${T.w * 2}px) rotateX(${a}deg)`;
-            t.style.opacity = i === T.cur ? 1 : T.e * (Math.abs(i - T.sel) <= 2 ? 1 : 0);
+            t.style.opacity = String(i === T.cur ? 1 : T.e * (Math.abs(i - T.sel) <= 2 ? 1 : 0));
             t.style.setProperty('--canto', Math.abs(Math.cos(a * Math.PI / 180)).toFixed(3));
         });
     }
-    function moverTablas(s, e) {
+    function moverTablas(s: Sostenida, e: PointerEvent) {
         const T = tablas;
         if (!T || T.hecho) return;
         const dx = e.clientX - s.x, dy = e.clientY - s.y, n = T.els.length, paso = T.w + SEP;
@@ -571,7 +588,7 @@ import { isStunned } from '../juego/pelea.js';
         }
         pintarTablas(T);
     }
-    function soltarTablas(cancelado) {
+    function soltarTablas(cancelado: boolean) {
         const T = tablas;
         if (!T) return;
         tablas = null;
@@ -582,9 +599,9 @@ import { isStunned } from '../juego/pelea.js';
             T.cur = T.sel;
         }
         const desde = { e: T.e, f: T.f, ox: T.ox }, hasta = { e: 0, f: T.hecho ? 1 : 0, ox: 0 }, t0 = performance.now();
-        const cuadro = now => {
+        const cuadro = (now: number) => {
             const p = Math.min(1, (now - t0) / 280), q = 1 - (1 - p) ** 3;
-            for (const k in desde) T[k] = desde[k] + (hasta[k] - desde[k]) * q;
+            for (const k of ['e', 'f', 'ox'] as const) T[k] = desde[k] + (hasta[k] - desde[k]) * q;
             pintarTablas(T);
             if (p < 1) return requestAnimationFrame(cuadro);
             T.capa.remove();
@@ -593,7 +610,7 @@ import { isStunned } from '../juego/pelea.js';
         requestAnimationFrame(cuadro);
     }
 
-    al('antesDeMensaje', msg => {
+    al('antesDeMensaje', (msg: ServerMessage) => {
         const m = msg?.type === 'game_update' ? msg.moved : null;
         const otro = m && (m.by !== est.currentNickname || est.soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
         // Te la quitan de la mano: la que sostenías en el centro se la lleva otro → su burla
@@ -617,14 +634,14 @@ import { isStunned } from '../juego/pelea.js';
         const esc = document.getElementById('escenario');
         if (!esc) return barrer();
         document.body.classList.add('entrando');
-        const ojo = (rx, rz, s) => `perspective(900px) rotateX(${rx}deg) rotate(${rz}deg) scale(${s})`;
+        const ojo = (rx: number, rz: number, s: number) => `perspective(900px) rotateX(${rx}deg) rotate(${rz}deg) scale(${s})`;
         esc.animate([
             { transform: ojo(0, 0, 1), filter: 'brightness(1) blur(0)' },
             { transform: ojo(34, -12, 3.6), filter: 'brightness(1.5) blur(2px)', opacity: 1, offset: .8 },
             { transform: ojo(44, -18, 5.5), filter: 'brightness(2.4) blur(8px)', opacity: 0 },
         ], { duration: 640, easing: 'cubic-bezier(.6, 0, .9, .45)' }).finished.finally(() => document.body.classList.remove('entrando'));
         setTimeout(barrer, 420);
-        const cae = (id, kf, delay, duration = 520) => document.getElementById(id)?.animate(kf, { duration, delay, easing: 'cubic-bezier(.2, 1.35, .4, 1)', fill: 'backwards' });
+        const cae = (id: string, kf: Keyframe[], delay: number, duration = 520) => document.getElementById(id)?.animate(kf, { duration, delay, easing: 'cubic-bezier(.2, 1.35, .4, 1)', fill: 'backwards' });
         cae('gameScreen', [{ opacity: 0, transform: ojo(-22, 5, .88) }, { opacity: 1, transform: ojo(0, 0, 1) }], 500, 480);
         cae('centerCards', [{ scale: 1.6, rotate: '-7deg' }, { scale: 1, rotate: '0deg' }], 500, 600);
         cae('hud', [{ translate: '0 -90px', rotate: '-3deg' }, { translate: '0 0', rotate: '0deg' }], 640);
@@ -637,17 +654,19 @@ import { isStunned } from '../juego/pelea.js';
     // pantalla de verificación y alguien más verifica, un rayo la parte y entra su columna.
     // lobby.html sigue pintando lo suyo (oculto por CSS); sus avisos pequeños se ocultan
     // mientras tu pantalla está abierta.
-    const verifs = new Map();   // nick → { res: [null|{ok, cards}], fin: null | {pos} | {fallos} }
+    type Resultado = { ok: boolean; cards: CardInfo[] };
+    type Fin = { pos?: number; fallos?: number[] };
+    const verifs = new Map<string, { res: (Resultado | null)[]; fin: Fin | null }>();
     const capa = document.getElementById('verifyOverlay');
     const caja = capa?.querySelector('.verify-box');
     const columnas = document.createElement('div'); columnas.className = 'vcols';
     caja?.insertBefore(columnas, document.getElementById('verifyFooter'));
     const abierta = () => capa?.classList.contains('active');
-    const colDe = nick => [...columnas.children].find(c => c.dataset.nick === nick);
+    const colDe = (nick: string) => ([...columnas.children] as HTMLElement[]).find(c => c.dataset.nick === nick);
     const quieto = () => REDUCED_MOTION?.matches;
 
-    function columna(nick) {
-        const v = verifs.get(nick), mia = nick === est.currentNickname;
+    function columna(nick: string) {
+        const v = verifs.get(nick)!, mia = nick === est.currentNickname;
         const c = document.createElement('section');
         c.className = 'vcol' + (mia ? ' mia' : ''); c.dataset.nick = nick;
         const cab = document.createElement('h3'); cab.className = 'vcab'; cab.textContent = sinEmoji(nick);
@@ -665,35 +684,35 @@ import { isStunned } from '../juego/pelea.js';
         return c;
     }
     /** La fila que el servidor está comprobando ahora: la primera sin resultado. */
-    function mirando(c, v) {
-        const i = v.fin ? -1 : v.res.findIndex(r => !r);
-        c.querySelectorAll('.vlista li').forEach((li, j) => {
+    function mirando(c: HTMLElement, v: { fin: Fin | null; res?: (Resultado | null)[] }) {
+        const i = v.fin || !v.res ? -1 : v.res.findIndex(r => !r);
+        c.querySelectorAll<HTMLElement>('.vlista li').forEach((li, j) => {
             li.classList.toggle('mira', j === i);
             // Mientras llega su resultado (1 s), cuatro dorsos se barajan donde caerán las cartas
-            const cartas = li.querySelector('.vcartas');
+            const cartas = li.querySelector('.vcartas')!;
             if (j === i && !cartas.children.length) for (let k = 0; k < 4; k++) { const d = document.createElement('i'); d.className = 'vmini dorso'; d.style.animationDelay = `${-k * 90}ms`; cartas.append(d); }
             if (j !== i) cartas.querySelectorAll('.dorso').forEach(d => d.remove());
         });
     }
-    function marcar(c, i, r, anima = true) {
-        const li = c.querySelectorAll('.vlista li')[i]; if (!li) return;
-        const cartas = li.querySelector('.vcartas'); cartas.textContent = '';
+    function marcar(c: HTMLElement, i: number, r: Resultado, anima = true) {
+        const li = c.querySelectorAll<HTMLElement>('.vlista li')[i]; if (!li) return;
+        const cartas = li.querySelector('.vcartas')!; cartas.textContent = '';
         for (const card of r.cards || []) { const m = document.createElement('i'); m.className = 'vmini'; applyCardSprite(m, card); cartas.append(m); }
         li.classList.add(r.ok ? 'ok' : 'mal');
-        li.querySelector('.vmarca').innerHTML = ico(r.ok ? 'check' : 'cruz');
+        li.querySelector('.vmarca')!.innerHTML = ico(r.ok ? 'check' : 'cruz');
         if (!anima || quieto()) return;
         [...cartas.children].forEach((m, k) => m.animate([{ translate: '0 -26px', rotate: `${k % 2 ? 9 : -9}deg`, opacity: 0 }, { translate: '0 0', rotate: '0deg', opacity: 1 }],
             { duration: 260, delay: k * 55, easing: 'cubic-bezier(.2, 1.4, .4, 1)', fill: 'backwards' }));
-        li.querySelector('.vmarca').animate([{ scale: 3, rotate: '-25deg', opacity: 0 }, { scale: .85, rotate: '4deg', opacity: 1, offset: .6 }, { scale: 1, rotate: '0deg' }],
+        li.querySelector('.vmarca')!.animate([{ scale: 3, rotate: '-25deg', opacity: 0 }, { scale: .85, rotate: '4deg', opacity: 1, offset: .6 }, { scale: 1, rotate: '0deg' }],
             { duration: 320, delay: 200, easing: 'ease-out', fill: 'backwards' });
         if (r.ok) li.animate([{ '--tacha': 0 }, { '--tacha': 1 }], { duration: 260, delay: 380, easing: 'cubic-bezier(.3, 1.5, .5, 1)', fill: 'backwards' });
         else li.animate([{ translate: '0 0' }, { translate: '-9px 0' }, { translate: '7px 0' }, { translate: '-4px 0' }, { translate: '0 0' }], { duration: 360, delay: 200 });
         setTimeout(() => chispas(li.querySelector('.vmarca'), r.ok ? 5 : 8, !r.ok), 330);
     }
-    function sellar(c, fin, anima = true) {
-        const s = c.querySelector('.vsello');
+    function sellar(c: HTMLElement, fin: Fin, anima = true) {
+        const s = c.querySelector<HTMLElement>('.vsello')!;
         c.classList.add(fin.pos ? 'gana' : 'falla');
-        if (fin.pos) c.dataset.pos = fin.pos;
+        if (fin.pos) c.dataset.pos = String(fin.pos);
         s.textContent = fin.pos ? t('pos.ord', { n: fin.pos }) : '✕';
         mirando(c, { fin });
         if (!anima || quieto()) return;
@@ -702,7 +721,7 @@ import { isStunned } from '../juego/pelea.js';
         c.animate([{ translate: '0 0' }, { translate: '0 10px', offset: .25 }, { translate: '0 -3px', offset: .6 }, { translate: '0 0' }], { duration: 420, delay: 160 });
         setTimeout(() => chispas(s, fin.pos === 1 ? 18 : 10, fin.pos === 1 || !fin.pos), 200);
     }
-    function chispas(el, n, roja) {
+    function chispas(el: Element | null | undefined, n: number, roja: boolean) {
         const fx = document.getElementById('fxLayer'), r = el?.getBoundingClientRect(); if (!fx || !r) return;
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         for (let i = 0; i < n; i++) {
@@ -714,14 +733,14 @@ import { isStunned } from '../juego/pelea.js';
         }
     }
     /** Entra la columna de otro: el rayo cae donde se parte la pantalla. */
-    function partir(nick) {
+    function partir(nick: string) {
         const c = columna(nick);
         const antes = new Map([...columnas.children].map(x => [x, x.getBoundingClientRect()]));
-        columnas.append(c); columnas.dataset.n = columnas.children.length;
+        columnas.append(c); columnas.dataset.n = String(columnas.children.length);
         if (quieto()) return;
         // Las que ya estaban se apartan desde donde estaban (FLIP)
         for (const [x, r0] of antes) { const r1 = x.getBoundingClientRect(); x.animate([{ translate: `${r0.left - r1.left}px ${r0.top - r1.top}px` }, { translate: '0 0' }], { duration: 380, delay: 140, easing: 'cubic-bezier(.2, 1.3, .4, 1)', fill: 'backwards' }); }
-        const r = c.getBoundingClientRect(), b = caja.getBoundingClientRect();
+        const r = c.getBoundingClientRect(), b = caja!.getBoundingClientRect();
         const vertical = r.top > b.top + 20 && Math.abs(r.left - b.left) < 20;   // la columna nueva va debajo (móvil)
         const rayo = document.createElement('div'); rayo.className = 'vfx vrayo' +(vertical ? ' tumbado' : '');
         rayo.innerHTML = vertical
@@ -730,41 +749,41 @@ import { isStunned } from '../juego/pelea.js';
         Object.assign(rayo.style, vertical
             ? { left: `${b.left}px`, top: `${r.top - 6}px`, width: `${b.width}px` }
             : { left: `${r.left - 6}px`, top: `${b.top - 20}px`, height: `${b.height + 40}px` });
-        document.getElementById('fxLayer').append(rayo);
+        porId('fxLayer').append(rayo);
         rayo.animate([{ clipPath: vertical ? 'inset(0 100% 0 0)' : 'inset(0 0 100% 0)', opacity: 1 },{ clipPath: 'inset(0 0 0 0)', opacity: 1, offset: .25 }, { opacity: 1, offset: .7 }, { opacity: 0 }],
             { duration: 620, easing: 'linear' }).finished.finally(() => rayo.remove());
-        capa.animate([{ backgroundColor: 'rgb(233 230 218 / 55%)' }, { backgroundColor: 'rgb(6 6 6 / 92%)' }], { duration: 300, delay: 120, fill: 'backwards' });
-        caja.animate([{ translate: '0 0' }, { translate: '-8px 5px' }, { translate: '7px -4px' }, { translate: '-3px 2px' }, { translate: '0 0' }], { duration: 300, delay: 140 });
+        capa!.animate([{ backgroundColor: 'rgb(233 230 218 / 55%)' }, { backgroundColor: 'rgb(6 6 6 / 92%)' }], { duration: 300, delay: 120, fill: 'backwards' });
+        caja!.animate([{ translate: '0 0' }, { translate: '-8px 5px' }, { translate: '7px -4px' }, { translate: '-3px 2px' }, { translate: '0 0' }], { duration: 300, delay: 140 });
         c.animate([{ clipPath: vertical ? 'inset(0 0 100% 0)' : 'inset(0 0 0 100%)', opacity: .4 }, { clipPath: 'inset(0 0 0 0)', opacity: 1 }],
             { duration: 360, delay: 160, easing: 'cubic-bezier(.7, 0, .2, 1)', fill: 'backwards' });
         setTimeout(() => chispas(rayo, 14, true), 170);
     }
 
-    al('openVerifyOverlay', nick => {
+    al('openVerifyOverlay', (nick: string) => {
         verifs.set(nick, { res: Array(6).fill(null), fin: null });
         if (nick === est.currentNickname) {
             // Los que ya estaban verificando entran a la vez; los que terminaron, fuera
             for (const [n, v] of verifs) if (n !== nick && v.fin) verifs.delete(n);
             columnas.textContent = '';
             for (const n of [nick, ...[...verifs.keys()].filter(n => n !== nick)]) columnas.append(columna(n));
-            columnas.dataset.n = columnas.children.length;
+            columnas.dataset.n = String(columnas.children.length);
         } else if (abierta()) {
             colDe(nick)?.remove();
             partir(nick);
         }
     });
-    al('revealVerifySet', (nick, i, ok, cards) => {
+    al('revealVerifySet', (nick: string, i: number, ok: boolean, cards: CardInfo[]) => {
         const v = verifs.get(nick); if (!v) return;
         v.res[i] = { ok, cards };
         const c = abierta() && colDe(nick); if (!c) return;
-        marcar(c, i, v.res[i]); mirando(c, v);
+        marcar(c, i, v.res[i]!); mirando(c, v);
     });
-    al('onVerificationSuccess', (nick, pos) => {
+    al('onVerificationSuccess', (nick: string, pos: number) => {
         const v = verifs.get(nick); if (!v) return;
         v.fin = { pos };
         const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
     });
-    al('onVerificationFailed', (nick, fallos) => {
+    al('onVerificationFailed', (nick: string, fallos: number[]) => {
         const v = verifs.get(nick); if (!v) return;
         v.fin = { fallos };
         const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
