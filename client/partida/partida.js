@@ -362,8 +362,16 @@
         }, true);
         row.addEventListener('pointermove', e => {
             const s = sostenida;
-            if (!s || s.id !== e.pointerId || s.hecho || !s.el || soyEspectador) return;
-            s.el.style.translate = `${e.clientX - s.x}px ${e.clientY - s.y}px`;   // sigue al dedo, entera
+            if (!s || s.id !== e.pointerId || s.hecho || soyEspectador) return;
+            const dx = e.clientX - s.x, dy = e.clientY - s.y;
+            // ↓ sobre tu mano: la mano se hace tabla (el revelado). Se decide una vez, al moverse.
+            if (!s.modo && Math.hypot(dx, dy) > TOQUE_PX) {
+                s.modo = fila === 'yourCards' && dy > 0 && dy > Math.abs(dx) * 1.2 && allSets.length ? 'tabla' : 'carta';
+                if (s.modo === 'tabla') { if (s.el) aSuSitio(s, false); abrirTablas(s); }
+            }
+            if (s.modo === 'tabla') return moverTablas(s, e);
+            if (!s.el) return;
+            s.el.style.translate = `${dx}px ${dy}px`;   // sigue al dedo, entera
             s.el.classList.toggle('casi', cuenta(s, e));
         }, true);
         const fin = e => {
@@ -371,6 +379,7 @@
             if (!s || s.id !== e.pointerId) return;
             e.stopPropagation();
             sostenida = null;
+            if (s.modo === 'tabla') return soltarTablas(e.type === 'pointercancel');
             if (s.hecho) return;
             const dx = e.clientX - s.x, dy = e.clientY - s.y;
             const toque = Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS;
@@ -382,10 +391,103 @@
             if (Math.abs(dx) >= LADO && Math.abs(dx) > Math.abs(dy) * 1.3) {
                 const i = currentSetIndex - Math.sign(dx);
                 if (i >= 0 && i < allSets.length) { window.recogerSet?.(); switchSet(i); }
-            } else if (dy >= LADO && dy > Math.abs(dx) * 1.3) window.gestoSet?.(1);
+            }
         };
         row.addEventListener('pointerup', fin, true);
         row.addEventListener('pointercancel', fin, true);
+    }
+
+    // ── Revelar: tu mano se hace tabla (como el selector de apps) ─────────────────
+    // ↓ desde arriba de tu mano: se encoge a una tabla y asoman tus otros sets a los lados (← →
+    // elige). Sigue bajando y la tabla gira sobre su eje horizontal con el dedo; de canto no se ve
+    // nada. Hasta que da la vuelta entera se deshace subiendo o soltando; entera, manda flip_set.
+    // Un set revelado se oculta igual, con otro ↓. Sin preserve-3d (la fila lleva filter, que lo
+    // aplana): a 90° se cambia la cara y se sigue girando desde −90°.
+    const SEP = 14, lim = (v, a, b) => Math.min(b, Math.max(a, v));
+    const zumba = ms => { try { navigator.vibrate?.(ms); } catch { /* */ } };
+    let tablas = null;   // { capa, els, rev, w, k0, cur, sel, e, f, ox, entra, giro, fija, hecho }
+    function abrirTablas(s) {
+        const mano = document.getElementById('yourCards'), r = mano.getBoundingClientRect();
+        const w = Math.min(r.width * .72, 460), cw = (w - 20 - 18) / 4, h = cw / .6476 + 20;
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        const capa = document.createElement('div');
+        capa.id = 'tablas';
+        const els = allSets.map(set => {
+            const t = document.createElement('div');
+            t.className = 'tabla';
+            Object.assign(t.style, { left: `${cx - w / 2}px`, top: `${cy - h / 2}px`, width: `${w}px`, height: `${h}px` });
+            for (const c of set || []) {
+                const e = document.createElement('i');
+                e.className = c ? 'tcarta' : 'tcarta vacia';
+                if (c) applyCardSprite(e, c);
+                t.append(e);
+            }
+            t.insertAdjacentHTML('beforeend', `<b class="tojo">${ico('ojo')}</b>`);
+            capa.append(t);
+            return t;
+        });
+        document.getElementById('gameScreen').append(capa);
+        mano.classList.add('en-tabla');
+        // El recorrido que queda hasta el borde de abajo: un tercio para hacerse tabla, el resto gira
+        const queda = innerHeight - s.y - 12, entra = lim(queda * .3, 20, 60);
+        tablas = { capa, els, rev: myFlippedSets.slice(), w, k0: r.width / w, cur: currentSetIndex, sel: currentSetIndex,
+            e: 0, f: 0, ox: 0, entra, giro: Math.max(50, queda - entra), fija: owesCard(), hecho: false };
+        zumba(8);
+    }
+    function pintarTablas(T) {
+        const paso = T.w + SEP, k = 1 + (T.k0 - 1) * (1 - T.e);
+        T.els.forEach((t, i) => {
+            const yo = i === T.sel;
+            let a = yo ? 180 * T.f : 0;
+            const vuelta = a > 90;
+            if (vuelta) a -= 180;
+            t.classList.toggle('muestra', !!T.rev[i] !== vuelta);   // la cara revelada
+            t.classList.toggle('sel', yo && T.e > .5);
+            const x = (i - T.cur) * paso + T.ox, s = (i === T.cur ? k : 1) * (yo ? 1 : .88);
+            t.style.transform = `translateX(${x}px) scale(${s}) perspective(${T.w * 2}px) rotateX(${a}deg)`;
+            t.style.opacity = i === T.cur ? 1 : T.e * (Math.abs(i - T.sel) <= 2 ? 1 : 0);
+            t.style.setProperty('--canto', Math.abs(Math.cos(a * Math.PI / 180)).toFixed(3));
+        });
+    }
+    function moverTablas(s, e) {
+        const T = tablas;
+        if (!T || T.hecho) return;
+        const dx = e.clientX - s.x, dy = e.clientY - s.y, n = T.els.length, paso = T.w + SEP;
+        T.e = lim(dy / T.entra, 0, 1);
+        T.f = lim((dy - T.entra) / T.giro, 0, 1);
+        if (T.f === 0 && !T.fija) {   // girando, el set elegido ya no cambia
+            T.ox = lim(dx, -(n - 1 - T.cur) * paso - 30, T.cur * paso + 30);
+            const sel = lim(Math.round(T.cur - T.ox / paso), 0, n - 1);
+            if (sel !== T.sel) { T.sel = sel; zumba(5); }
+        }
+        if (T.f >= 1) {
+            T.hecho = true;
+            flipCurrentSet(T.sel);
+            zumba(25);
+            T.els[T.sel].animate([{ scale: '1' }, { scale: '1.08' }, { scale: '1' }], { duration: 260, easing: 'ease-out', composite: 'add' });
+        }
+        pintarTablas(T);
+    }
+    function soltarTablas(cancelado) {
+        const T = tablas;
+        if (!T) return;
+        tablas = null;
+        // Soltar sobre otro set lo elige (como en el selector de apps)
+        if (!cancelado && T.sel !== T.cur && !owesCard()) {
+            switchSet(T.sel);
+            T.ox += (T.sel - T.cur) * (T.w + SEP);
+            T.cur = T.sel;
+        }
+        const desde = { e: T.e, f: T.f, ox: T.ox }, hasta = { e: 0, f: T.hecho ? 1 : 0, ox: 0 }, t0 = performance.now();
+        const cuadro = now => {
+            const p = Math.min(1, (now - t0) / 280), q = 1 - (1 - p) ** 3;
+            for (const k in desde) T[k] = desde[k] + (hasta[k] - desde[k]) * q;
+            pintarTablas(T);
+            if (p < 1) return requestAnimationFrame(cuadro);
+            T.capa.remove();
+            document.getElementById('yourCards')?.classList.remove('en-tabla');
+        };
+        requestAnimationFrame(cuadro);
     }
 
     const handleMsgPartida = window.handleMsg;
