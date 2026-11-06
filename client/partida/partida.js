@@ -502,7 +502,7 @@
             if (fila !== 'yourCards') return;
             if (Math.abs(dx) >= LADO && Math.abs(dx) > Math.abs(dy) * 1.3) {
                 const i = currentSetIndex - Math.sign(dx);
-                if (i >= 0 && i < allSets.length) { window.recogerSet?.(); switchSet(i); }
+                if (i >= 0 && i < allSets.length) switchSet(i);
             }
         };
         row.addEventListener('pointerup', fin, true);

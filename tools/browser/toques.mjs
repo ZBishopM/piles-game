@@ -41,35 +41,41 @@ async function soltar() {
   await p.mouse.click(x, y);
   await p.waitForFunction(() => owesCard(), null, { timeout: 4000 });
 }
-/** Suelta una carta, hace `gesto` sobre una del centro y mira si salió un take_card. */
-async function prueba(nombre, gesto) {
+/** Suelta una carta, hace `gesto` sobre una del centro y mira si salió un take_card
+ *  (o, con `coge = false`, que NO salió). */
+async function prueba(nombre, gesto, coge = true) {
   await espiarEnvios(p);
   await soltar();
-  await wait(150);
+  await wait(600);   // que aterrice y la confirme el servidor: con lo tuyo pendiente no se coge nada
   const { x, y } = await centroDe();
   await gesto(x, y);
   await wait(700);
   const enviado = await envios(p);
-  const sale = (await cuenta(p, 'take_card')) === 1;
+  const sale = (await cuenta(p, 'take_card')) === (coge ? 1 : 0);
   if (!sale) info(`   (se envió: ${enviado.join(', ') || 'nada'}; deuda=${await p.evaluate(() => owesCard())}, qte=${await p.evaluate(() => qteActive)})`);
   // Deja la mano en orden para la siguiente: si no lo cogió, el plazo lo fuerza
   // (y si hubo pelea, se espera a que acabe).
   await p.waitForFunction(() => !owesCard() && !qteActive && !isStunned(), null, { timeout: 15000 });
-  await wait(300);
+  await wait(1200);   // la carta forzada por la deuda aún vuela un rato
+
   return ok(sale, nombre);
 }
 
 await prueba('un clic normal envía take_card', async (x, y) => { await p.mouse.click(x, y); });
-await prueba('un clic en el que el ratón se mueve 40 px entre bajar y soltar, también', async (x, y) => {
+// Desde el arrastre (partida.js), una carta del centro solo se coge al sacarla del recuadro:
+// moverla dentro o sostenerla y soltarla en su sitio es dudar, y no hace nada.
+await prueba('moverla 40 px dentro del recuadro y soltar NO la coge', async (x, y) => {
   await p.mouse.move(x, y); await p.mouse.down();
   await p.mouse.move(x + 40, y + 30, { steps: 3 }); await p.mouse.up();
-});
-await prueba('un clic mantenido 1 s, también', async (x, y) => {
+}, false);
+await prueba('sostenerla 1 s y soltar en su sitio NO la coge', async (x, y) => {
   await p.mouse.move(x, y); await p.mouse.down(); await wait(1000); await p.mouse.up();
-});
+}, false);
 await prueba('un clic en el que el puntero sale del centro antes de soltar, también', async (x, y) => {
+  // Se coge al soltarla fuera del recuadro de la mesa: hasta 40 px por debajo de su borde
+  const mesa = await p.locator('#centerCards').boundingBox();
   await p.mouse.move(x, y); await p.mouse.down();
-  await p.mouse.move(x, y + 420, { steps: 4 }); await p.mouse.up();
+  await p.mouse.move(x, mesa.y + mesa.height + 40, { steps: 4 }); await p.mouse.up();
 });
 
 // Con latencia (300 ms), los toques repetidos no se acumulan.

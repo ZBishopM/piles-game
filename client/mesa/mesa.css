@@ -1,13 +1,10 @@
-/* El menú en la mesa (ver diseno/menu-mesa/README.md). Sustituye a las pantallas de menú de
-   lobby.html (inicio, perfil, cómo jugar, crear, unirse, sala): esas siguen en el DOM, ocultas,
-   porque su lógica escribe en ellas. La partida (#gameScreen) no cambia.
+/* El menú en la mesa: todo lo que no es la partida (inicio, perfil, cómo jugar, crear, unirse,
+   sala). La partida (#gameScreen) va aparte (partida/).
    Todo va dentro de #escenario: las variables también, para no pisar las de lobby.html. */
 body.mesa { overflow: hidden; }
-body.mesa .screen:not(#gameScreen) { display: none !important; }
-body.mesa #cuentaAtras { display: none !important; }   /* la cuenta atrás la forman las cartas de la mesa */
 body.mesa.en-partida #escenario { display: none; }
-/* El borde-atrás de gestos.js mira el «Atrás» de la pantalla activa (oculta): aquí atrás es ↓ */
-body.mesa:not(.en-partida) #gestoBorde, body.mesa:not(.en-partida) #gestoAtras { display: none !important; }
+/* El vídeo del escáner sigue reproduciéndose sin verse: la mesa lo dibuja en el centro */
+#scanWrap { position: fixed; left: 0; top: 0; width: 2px; height: 2px; opacity: 0; pointer-events: none; overflow: hidden; }
 #escenario {
     --bg: #060606;          /* agapornis-ui */
     --tinta: #0e0e0e;

@@ -26,7 +26,7 @@ const A = await persona('Ana', { width: 390, height: 844 });
 await foto(A, '01-inicio');
 let e = await est(A);
 ok(e.pantalla === 'inicio' && e.mano.length === 3, `A en inicio con 3 cartas (${e.mano})`);
-ok(await A.evaluate(() => document.querySelectorAll('.screen.active').length === 1 && getComputedStyle(document.getElementById('homeScreen')).display === 'none'), 'pantallas viejas ocultas');
+ok(await A.evaluate(() => !document.getElementById('homeScreen') && document.querySelectorAll('.screen').length === 1 && vistaActual === 'homeScreen'), 'sin pantallas viejas: solo la partida');
 
 // Crear sala (4) y abrirla
 await tecla(A, 'ArrowRight'); await tecla(A, 'ArrowUp'); await espera(900);

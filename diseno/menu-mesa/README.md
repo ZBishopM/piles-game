@@ -259,9 +259,11 @@ chat ya escrito.
 ## Conectado con Piles (`client/mesa/`)
 
 El menú en la mesa sustituye en `lobby.html` a las pantallas `homeScreen`, `profileScreen`,
-`howToPlayScreen`, `hostScreen`, `joinScreen` y `lobbyScreen`. **Siguen en el DOM, ocultas**
-(`body.mesa`): su lógica —WebSocket, asiento, reconexión, Elo, chat, votos— no se ha tocado y
-escribe en ellas. `gameScreen` (la partida) no cambia.
+`howToPlayScreen`, `hostScreen`, `joinScreen` y `lobbyScreen`, que **ya no existen**: sus ids
+quedan como nombres de vista (`vistaActual`, `showScreen(id)`). La lógica de `lobby.html`
+—WebSocket, asiento, reconexión, Elo, votos— recibe los datos como argumentos
+(`createLobby(n)`, `joinLobby(código)`, `sendChat(texto)`, `setSmCode`…), sin campos ocultos.
+`gameScreen` (la partida) es la única pantalla del DOM.
 
 | Archivo | Qué es |
 |---|---|
@@ -276,11 +278,11 @@ Cómo se engancha (sin reescribir `lobby.html`):
 - **Acciones**: las cartas y piezas llaman a sus funciones (`quickMatch`, `createLobby`,
   `joinLobby`, `toggleReady`, `addBot`, `removeBot`, `setBotDifficulty`, `setVisibility`,
   `cambiarRol`, `sendChat`, `start_kick`/`kick_vote`, `acceptBotsOffer`, `toggleScanner`,
-  `PilesI18n.setLang`…). El tambor de jugadores escribe en `#maxPlayers`; el nombre, en `#nickname`.
+  `PilesI18n.setLang`…). El tambor de jugadores se pasa a `createLobby(n)`; el nombre es `#nombre` (lo lee `miNombre()`).
 - **Datos**: se envuelve `handleMsg` (después de lo suyo, se pinta aquí: `lobby_update`,
   `lobby_list`, `chat`, `kick_poll`…), `showScreen` (cuando `lobby.html` cambia de pantalla por su
   cuenta —entraste, te echaron, F5, fin de partida— la mesa va a la suya), `startCountdown` /
-  `closeCountdown` y `requireNickname`. La oferta de bots se lee de `#quickBotOffer` (MutationObserver).
+  `closeCountdown` y `requireNickname`. La oferta de bots llega por `alOfertaBots(abierta)`.
 - **Cuenta atrás**: el servidor la manda de **5 s** (`COUNTDOWN`); la mesa la llena hacia atrás
   desde el reparto (victoria + 3, 2, 1). Con un servidor de 3 s no hay victoria.
 - **QR**: `/api/qr/:sala/matriz` (el mismo QR que el SVG, como módulos) → cartas vistas desde arriba.

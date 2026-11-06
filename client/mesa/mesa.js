@@ -709,10 +709,11 @@ const escena = (() => {
 
 // ════════════════════════════════════════════════════════════════════════════════════
 // La interfaz: cartas, piezas y gestos, conectados a lobby.html.
-// lobby.html sigue mandando: su lógica (WebSocket, asiento, reconexión, Elo, chat, votos)
-// no cambia y sus pantallas siguen en el DOM, ocultas. Aquí se llama a sus funciones
-// (quickMatch, createLobby, joinLobby, toggleReady, addBot…) y se pinta con lo que
-// llega del servidor (se envuelven handleMsg, showScreen y la cuenta atrás).
+// lobby.html lleva la lógica (WebSocket, asiento, reconexión, Elo, votos) y no tiene
+// pantallas propias salvo la partida. Aquí se llama a sus funciones (quickMatch,
+// createLobby(n), joinLobby(código), toggleReady, addBot, sendChat(texto), setSmCode…)
+// y se pinta con lo que llega del servidor (se envuelven handleMsg, showScreen y la
+// cuenta atrás). `vistaActual` dice en cuál de sus vistas está lobby.html.
 // ════════════════════════════════════════════════════════════════════════════════════
 const tl = (k, v) => (typeof t === 'function' ? t(k, v) : k);   // el t() de lobby.html (i18n.js)
 const X = escena.X;   // lo de cada menú dentro de la escena (asientos, diales, QR, placa…)
@@ -757,12 +758,12 @@ const MENUS = {
     ],
     cuenta: [],
 };
-const EN_SALA = new Set(['sala', 'bots', 'qr', 'echar', 'votar', 'oferta', 'cuenta']);   // dentro de #lobbyScreen
-// Qué pantalla de lobby.html corresponde a cada una de aquí (y al revés)
+const EN_SALA = new Set(['sala', 'bots', 'qr', 'echar', 'votar', 'oferta', 'cuenta']);   // vista 'lobbyScreen'
+// Qué vista de lobby.html corresponde a cada menú de aquí (y al revés)
 const A_LOBBY = { inicio: 'homeScreen', perfil: 'profileScreen', sm: 'profileScreen', burla: 'profileScreen', tutorial: 'howToPlayScreen',
     crear: 'hostScreen', unirse: 'joinScreen', visor: 'joinScreen' };
 const DE_LOBBY = { homeScreen: 'inicio', profileScreen: 'perfil', howToPlayScreen: 'tutorial', hostScreen: 'crear', joinScreen: 'unirse', lobbyScreen: 'sala' };
-let crearJug = Number(document.getElementById('maxPlayers')?.value) || 4;
+let crearJug = 4;   // jugadores de la sala nueva (el tambor de «Crear sala»)
 
 const esc = document.getElementById('escenario');
 const zona = document.getElementById('cartas');
@@ -994,12 +995,12 @@ function saltarA(destino) {
 // Mientras se llama a lobby.html desde aquí, sus cambios de pantalla no se repiten aquí.
 let suprimir = 0;
 const conLobby = f => { suprimir++; try { return f(); } finally { suprimir--; } };
-/** Pone en lobby.html la pantalla que toca a la de aquí (la lista de salas se refresca sola si
- *  está «Unirse» activa, por ejemplo). Dentro de la sala no se toca nada. */
+/** Pone en lobby.html la vista que toca a la de aquí (la lista de salas se refresca sola si
+ *  está «Unirse», por ejemplo). Dentro de la sala no se toca nada. */
 function alinearLobby(p) {
     if (EN_SALA.has(p)) return;
     const id = A_LOBBY[p];
-    if (id && !document.getElementById(id)?.classList.contains('active')) conLobby(() => showScreen(id));
+    if (id && vistaActual !== id) conLobby(() => showScreen(id));
 }
 const _showScreen = window.showScreen;
 window.showScreen = id => {
@@ -1018,7 +1019,6 @@ window.showScreen = id => {
 // Sin nombre no se entra en ninguna sala: lobby.html vuelve al inicio; aquí, aviso y al campo.
 const _requireNickname = window.requireNickname;
 window.requireNickname = () => {
-    if (!document.getElementById('nickname').value.trim() && nombre.value.trim()) document.getElementById('nickname').value = nombre.value.trim();
     const n = conLobby(_requireNickname);
     if (!n) { sacude(nombre); nombre.focus(); }   // sin texto: el campo del nombre tiembla en rojo
     return n;
@@ -1034,12 +1034,11 @@ const _startCountdown = window.startCountdown, _closeCountdown = window.closeCou
 window.startCountdown = s => { _startCountdown(s); cuentaAtras(Number(s) || 3); };
 window.closeCountdown = () => { _closeCountdown(); if (cuenta && !cuenta.repartiendo) cancelarCuentaVisual(true); };
 
-// La oferta de bots de la partida rápida (lobby.html la enseña al rato de estar solo)
-const ofertaEl = document.getElementById('quickBotOffer');
-if (ofertaEl) new MutationObserver(() => {
-    if (!ofertaEl.hidden && pantalla === 'sala') ofrecerBots();
-    else if (ofertaEl.hidden && pantalla === 'oferta') cerrarOferta();
-}).observe(ofertaEl, { attributes: true, attributeFilter: ['hidden'] });
+// La oferta de bots de la partida rápida (lobby.html la abre al rato de estar solo)
+alOfertaBots = abierta => {
+    if (abierta && pantalla === 'sala') ofrecerBots();
+    else if (!abierta && pantalla === 'oferta') cerrarOferta();
+};
 
 // ── La sala, con los datos del servidor ───────────────────────────────────────────
 // Filas de 4 centradas desde ZONA (escala .56 = 72×99 px; cada 80 px de lado y 107 de alto).
@@ -1275,7 +1274,7 @@ function alCambiar(antes, ahora, lobby) {
     if (ahora === 'unirse') { if (ws?.readyState === WebSocket.OPEN) refreshLobbies(); pintarMesas(); }
     else if (ahora !== 'visor') X.mesas = null;
     if (antes === 'sm') X.placa = null;
-    if (ahora === 'sm') X.placa = { txt: document.getElementById('smCode')?.value ?? '', ok: !!document.getElementById('smCode')?.value };
+    if (ahora === 'sm') X.placa = { txt: smCodeGuardado(), ok: !!smCodeGuardado() };
     if (antes === 'qr') escena.mosaico(null);
     if (ahora === 'qr') mostrarQR();
     if (antes === 'visor') pararVisor();
@@ -1304,10 +1303,8 @@ async function mostrarQR() {
         escena.mosaico(filas, 1.5 / (n + 2 * borde));
     } catch { aviso(T('No se pudo cargar el QR'), 2400); }
 }
-// Escáner: el de lobby.html (qr-scanner) con su <video>, que se ve en el centro de la mesa.
-// El <video> sale de su pantalla oculta para que siga reproduciéndose.
-const scanWrap = document.getElementById('scanWrap');
-if (scanWrap) { document.body.append(scanWrap); Object.assign(scanWrap.style, { position: 'fixed', left: '0', top: '0', width: '2px', height: '2px', opacity: '0', pointerEvents: 'none', overflow: 'hidden' }); }
+// Escáner: el de lobby.html (qr-scanner) con su <video> (#scanWrap, invisible: mesa.css),
+// que se dibuja en el centro de la mesa.
 async function abrirVisor() {
     X.visor = { t0: escena.ahora(), video: null };
     await conLobby(() => toggleScanner());
@@ -1511,8 +1508,8 @@ function girarTambor(el, v) {
     el.querySelectorAll('.rodillo span').forEach((s, k) => s.classList.toggle('ya', k + min === v));
     return v;
 }
-// Jugadores de la sala nueva: lo lee createLobby() de #maxPlayers
-const AL_GIRAR = { jug: v => { if (v !== crearJug) vibrar(6); crearJug = v; const h = document.getElementById('maxPlayers'); if (h) h.value = v; } };
+// Jugadores de la sala nueva: se pasan a createLobby(crearJug) al abrirla
+const AL_GIRAR = { jug: v => { if (v !== crearJug) vibrar(6); crearJug = v; } };
 let arrastre = null;
 document.addEventListener('pointerdown', e => { const t0 = e.target.closest('#escenario .tambor'); if (!t0) return; arrastre = { t: t0, y: e.clientY, v: +t0.style.getPropertyValue('--v') }; t0.setPointerCapture(e.pointerId); });
 document.addEventListener('pointermove', e => { if (!arrastre) return; const { t: t0, y, v } = arrastre; AL_GIRAR[t0.dataset.tambor]?.(girarTambor(t0, v + Math.round((y - e.clientY) / 24))); });
@@ -1586,19 +1583,13 @@ function actuar(act, b) {
         b.querySelector('.num').textContent = txt.padEnd(6, '_');
         if (txt.length === 6) { cerrarCampo(); entrarCodigo(txt); }
     });
-    else if (act === 'chat' && currentLobbyId) pedir(T('Escribe aquí :D'), 300, txt => {
-        const input = document.getElementById('chatInput');
-        input.value = txt;
-        sendChat();
-        input.blur();
-    });
+    else if (act === 'chat' && currentLobbyId) pedir(T('Escribe aquí :D'), 300, txt => sendChat(txt));
 }
 document.addEventListener('click', e => { const b = e.target.closest('#escenario .pieza [data-act]'); if (b) actuar(b.dataset.act, b); });
 function entrarCodigo(cod) {
     const code = extractLobbyCode(cod);
     if (!code) { sacude(PZ[0]); return; }   // el recuadro del código tiembla
-    document.getElementById('lobbyCode').value = code;
-    joinLobby();
+    joinLobby(code);
 }
 // El chat de la sala (lo guarda el servidor mientras dura la sala, nunca en las grabaciones)
 const chatLog = [];
@@ -1659,27 +1650,21 @@ function accion(a, c, o = {}) {
     if (a === 'nada') { salta(c); return; }
     if (a === 'volver') { volver(); return; }
     if (a === 'rapida') { seVa(c); quickMatch(); return; }
-    if (a === 'abrir') { seVa(c); createLobby(); return; }
-    if (a === 'entrarSala') {
-        seVa(c);
-        document.getElementById('lobbyCode').value = o.id;
-        joinLobby(o.mirar);
-        return;
-    }
+    if (a === 'abrir') { seVa(c); createLobby(crearJug); return; }
+    if (a === 'entrarSala') { seVa(c); joinLobby(o.id, o.mirar); return; }
     if (a === 'burla') {   // elegir (la guarda lobby.html) y volver al perfil
         try { localStorage.setItem('piles.taunt', o.id); } catch { /* modo privado */ }
         salta(c); setTimeout(volver, 380);
         return;
     }
-    if (a === 'smCodigo') {   // lo que escribes aparece en la placa; con el código entero, lobby.html vincula
-        const sm = document.getElementById('smCode');
+    if (a === 'smCodigo') {   // lo que escribes aparece en la placa; al confirmar, lobby.html lo guarda y vincula
         pedir(T('Pega aquí tu código'), 12, v => {
-            sm.value = v.toUpperCase(); sm.dispatchEvent(new Event('input'));
-            X.placa = { txt: sm.value, ok: true }; vibrar(30);
+            setSmCode(v);
+            X.placa = { txt: smCodeGuardado(), ok: true }; vibrar(30);
         }, txt => { X.placa = { txt, ok: false }; });
         return;
     }
-    if (a === 'smBorrar') { document.getElementById('smCodeUnlink')?.click(); X.placa = { txt: '', ok: false }; salta(c); return; }
+    if (a === 'smBorrar') { clearSmCode(); X.placa = { txt: '', ok: false }; salta(c); return; }
     if (!currentLobbyId) return;
     if (a === 'listo') { toggleReady(); vibrar(20); menuSala(); refrescarMano('sala'); return; }
     if (a === 'rol') { cambiarRol(); seVa(c); return; }
@@ -1808,12 +1793,10 @@ addEventListener('keydown', e => {
 });
 addEventListener('resize', () => { colocarMano(true); PZ.forEach(plegar); formas(); });
 
-// Tu nombre: el de lobby.html (#nickname, guardado en piles_nickname)
-const nick = document.getElementById('nickname');
-nombre.value = localStorage.getItem('piles_nickname') || nick?.value || '';
+// Tu nombre: este campo es el único (lobby.html lo lee con miNombre()); se guarda en piles_nickname
+try { nombre.value = localStorage.getItem('piles_nickname') || ''; } catch { /* sin storage */ }
 nombre.placeholder = tl('home.nameph');
 nombre.addEventListener('input', () => {
-    if (nick) nick.value = nombre.value;
     const v = nombre.value.trim();
     try { if (v) localStorage.setItem('piles_nickname', v); } catch { /* */ }
 });
@@ -1836,8 +1819,7 @@ MENUS.perfil[1].nota = TAUNTS.find(b => b.id === getTaunt())?.name ?? tl('taunt.
 window.agText = window.agText ?? { up: tl('rank.up'), down: tl('rank.down') };
 repartir(MENUS.inicio);
 formas('inicio');
-const activa = document.querySelector('.screen.active')?.id;
-if (activa && activa !== 'homeScreen' && DE_LOBBY[activa]) saltarA(DE_LOBBY[activa]);
+if (vistaActual !== 'homeScreen' && DE_LOBBY[vistaActual]) saltarA(DE_LOBBY[vistaActual]);
 
 // Para depurar y para las pruebas con navegador
 window.mesa = { escena, X, get pantalla() { return pantalla; }, get mano() { return mano; }, jugar, volver, elegir, irA };

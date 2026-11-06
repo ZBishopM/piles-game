@@ -25,19 +25,22 @@ export async function pagina(ctx) {
   return p;
 }
 
-/** Crea sala con un bot y espera a estar en el tablero. Devuelve el código de la sala. */
+/** Crea sala con un bot (por el menú de la mesa, con el teclado) y espera a estar en el
+ *  tablero. Devuelve el código de la sala. `dificultad`: 'Fácil' | 'Normal' | 'Difícil'. */
 export async function aPartida(p, nick, dificultad = null) {
-  await p.getByPlaceholder(/Jugador1/).fill(nick);
-  await p.getByRole('button', { name: /Crear sala/ }).press("Enter");
-  await p.getByRole('button', { name: /Empezar/ }).click();
-  await p.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
-  const codigo = (await p.locator('#lobbyCodeDisplay').textContent()).trim();
-  if (dificultad) await p.getByRole('button', { name: dificultad, exact: true }).click();
-  await p.getByRole('button', { name: /\+ BOT/ }).click();
-  await wait(500);
-  await p.getByRole('button', { name: /Marcar como Listo/ }).click();
-  await p.locator('#gameScreen.active').waitFor({ timeout: 12000 });
-  await wait(800);
+  await p.fill('#nombre', nick);
+  await p.locator('#nombre').blur();
+  const tecla = async t => { await p.keyboard.press(t); await wait(350); };
+  await tecla('ArrowRight'); await tecla('ArrowUp');          // inicio → Crear sala
+  await wait(700); await tecla('ArrowUp');                    // Abrir sala
+  await p.waitForFunction(() => vistaActual === 'lobbyScreen' && !!currentLobbyId, null, { timeout: 5000 });
+  const codigo = await p.evaluate(() => currentLobbyId);
+  if (dificultad) await p.evaluate(d => setBotDifficulty({ 'Fácil': 'easy', Normal: 'normal', 'Difícil': 'hard' }[d] ?? 'normal'), dificultad);
+  await p.evaluate(() => addBot());
+  await p.waitForFunction(() => jugadoresEnSala >= 2, null, { timeout: 5000 });
+  await p.evaluate(() => toggleReady());
+  await p.locator('#gameScreen.active').waitFor({ timeout: 15000 });
+  await wait(2000);   // la entrada a la partida (el tablero cae en su sitio) dura ~1,3 s
   return codigo;
 }
 
