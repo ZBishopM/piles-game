@@ -12,24 +12,24 @@ export type ClientMessage = { "type": "create_lobby", nickname: string, max_play
  * funcionando en vez de que el mensaje entero no se pueda parsear;
  * `false` por defecto es lo prudente: nunca abre una sala sin querer.
  */
-is_public: boolean, 
+is_public?: boolean, 
 /**
  * De quién es el Elo de este jugador: `anon:<uuid>` o `sm:<id>`. Ver
  * `ratings::valid_key`. Sin él se juega igual, sin Elo.
  */
-rating_key: string | null, 
+rating_key?: string, 
 /**
  * Burla elegida (id del catálogo fijo, ver `taunts`). Opcional.
  */
-taunt: string | null, } | { "type": "quick_match", nickname: string, rating_key: string | null, taunt: string | null, } | { "type": "add_bot", difficulty: Difficulty, } | { "type": "remove_bot", player_id: string, } | { "type": "join_lobby", lobby_id: string, nickname: string, rating_key: string | null, 
+taunt?: string, } | { "type": "quick_match", nickname: string, rating_key?: string, taunt?: string, } | { "type": "add_bot", difficulty?: Difficulty, } | { "type": "remove_bot", player_id: string, } | { "type": "join_lobby", lobby_id: string, nickname: string, rating_key?: string, 
 /**
  * El secreto del asiento, si venía de uno (`ServerMessage::SeatToken`).
  * Con él se recupera el asiento y la mano; sin él, o con uno que no
  * coincide, se entra como nuevo.
  */
-seat_token: string | null, taunt: string | null, 
+seat_token?: string, taunt?: string, 
 /**
  * Entrar a mirar aunque haya sitio. Una pestaña vieja no lo manda: entra a
  * jugar si hay hueco, como siempre.
  */
-spectate: boolean, } | { "type": "set_spectator", spectate: boolean, } | { "type": "leave_lobby" } | { "type": "client_note", kind: string, detail: JsonValue, } | { "type": "chat", text: string, } | { "type": "list_lobbies" } | { "type": "set_ready", ready: boolean, } | { "type": "switch_set", set_index: number, } | { "type": "drop_card", my_card_index: number, } | { "type": "take_card", card_id: number, } | { "type": "flip_set", set_index: number, } | { "type": "request_verification" } | { "type": "qte_click" } | { "type": "frenzy" } | { "type": "give_up_card" } | { "type": "wait_poll_vote", nickname: string, keep_waiting: boolean, } | { "type": "start_kick", target: string, } | { "type": "kick_vote", yes: boolean, } | { "type": "ping", rtt_ms: number | null, };
+spectate?: boolean, } | { "type": "set_spectator", spectate: boolean, } | { "type": "leave_lobby" } | { "type": "client_note", kind: string, detail?: JsonValue, } | { "type": "chat", text: string, } | { "type": "list_lobbies" } | { "type": "set_ready", ready: boolean, } | { "type": "switch_set", set_index: number, } | { "type": "drop_card", my_card_index: number, } | { "type": "take_card", card_id: number, } | { "type": "flip_set", set_index: number, } | { "type": "request_verification" } | { "type": "qte_click" } | { "type": "frenzy" } | { "type": "give_up_card" } | { "type": "wait_poll_vote", nickname: string, keep_waiting: boolean, } | { "type": "start_kick", target: string, } | { "type": "kick_vote", yes: boolean, } | { "type": "ping", rtt_ms?: number, };

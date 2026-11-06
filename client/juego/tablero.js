@@ -257,7 +257,7 @@ export function ratingKey() {
         }
         return `anon:${anon}`;
     } catch {
-        return null;   // sin almacenamiento: se juega sin Elo
+        return undefined;   // sin almacenamiento: se juega sin Elo (rating_key ausente)
     }
 }
 

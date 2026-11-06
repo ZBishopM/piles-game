@@ -116,7 +116,7 @@
   var PONG_TIMEOUT_MS = 9e3;
   var RECONNECT_MAX_DELAY = 15e3;
 
-  // ../client/juego/red.js
+  // ../client/juego/red.ts
   var red_exports = {};
   __export(red_exports, {
     diag: () => diag,
@@ -129,7 +129,7 @@
     srvText: () => srvText
   });
 
-  // ../client/juego/sala.js
+  // ../client/juego/sala.ts
   var sala_exports = {};
   __export(sala_exports, {
     acceptBotsOffer: () => acceptBotsOffer,
@@ -1762,7 +1762,7 @@
       }
       return `anon:${anon}`;
     } catch {
-      return null;
+      return void 0;
     }
   }
   function applyBetaMode() {
@@ -2280,7 +2280,7 @@
     });
   }
 
-  // ../client/juego/sala.js
+  // ../client/juego/sala.ts
   function requireNickname() {
     const nickname = miNombre();
     if (!nickname) {
@@ -2321,7 +2321,7 @@
   function removeBot(playerId) {
     send({ type: "remove_bot", player_id: playerId });
   }
-  var quickMatchOfferTimer = null;
+  var quickMatchOfferTimer;
   var jugadoresEnSala = 0;
   var ofertaAbierta = false;
   function ponerOferta(abierta) {
@@ -2335,8 +2335,8 @@
       if (jugadoresEnSala <= 1) ponerOferta(true);
     }, 12e3);
   }
-  function cancelQuickMatchOffer(seguirOfreciendo) {
-    if (seguirOfreciendo !== true) cameFromQuickMatch = false;
+  function cancelQuickMatchOffer(seguirOfreciendo = false) {
+    if (!seguirOfreciendo) cameFromQuickMatch = false;
     clearTimeout(quickMatchOfferTimer);
     ponerOferta(false);
   }
@@ -2349,11 +2349,11 @@
       refreshLobbies();
     }
   }, 2e3);
-  function joinLobby(code, spectate) {
+  function joinLobby(code, spectate = false) {
     const nickname = requireNickname();
     if (!nickname) return;
-    code = (code || "").trim().toUpperCase();
-    if (!code) {
+    const lobby = (code || "").trim().toUpperCase();
+    if (!lobby) {
       showScreen("joinScreen");
       return;
     }
@@ -2361,11 +2361,11 @@
     cancelQuickMatchOffer();
     send({
       type: "join_lobby",
-      lobby_id: code,
+      lobby_id: lobby,
       nickname,
       rating_key: ratingKey(),
       taunt: getTaunt() || void 0,
-      spectate: spectate === true || void 0
+      spectate: spectate || void 0
     });
   }
   function onEnteredLobby(lobbyId) {
@@ -2395,7 +2395,7 @@
     }
     try {
       qrScanner = new QrScanner(
-        document.getElementById("scanVideo"),
+        porId("scanVideo"),
         (result) => {
           const code = extractLobbyCode(result.data);
           if (!code) return;
@@ -2405,7 +2405,7 @@
         { highlightScanRegion: true, preferredCamera: "environment" }
       );
       await qrScanner.start();
-      document.getElementById("scanWrap").classList.add("active");
+      porId("scanWrap").classList.add("active");
     } catch (e) {
       stopScanner();
       console.error(e);
@@ -2417,7 +2417,7 @@
       qrScanner.destroy();
       qrScanner = null;
     }
-    document.getElementById("scanWrap").classList.remove("active");
+    porId("scanWrap").classList.remove("active");
   }
   window.addEventListener("pagehide", stopScanner);
   function toggleReady() {
@@ -2446,8 +2446,8 @@
     resetCombo();
     est.gameOver = false;
     est.isReady = false;
-    document.getElementById("gameOverOverlay").classList.remove("active");
-    document.getElementById("fxLayer").innerHTML = "";
+    porId("gameOverOverlay").classList.remove("active");
+    porId("fxLayer").innerHTML = "";
     agToast({
       kind: "warning",
       title: t("seat.title"),
@@ -2482,8 +2482,8 @@
     agToast({ kind: "info", title: t("ver.new_short"), message: t("ver.updating"), duration: 2e3 });
     setTimeout(() => location.reload(), 1200);
   }
-  function sendChat(text) {
-    text = (text || "").trim();
+  function sendChat(texto) {
+    const text = (texto || "").trim();
     if (!text || !est.ws || est.ws.readyState !== WebSocket.OPEN) return;
     send({ type: "chat", text });
   }
@@ -2549,12 +2549,12 @@
     const n = Math.ceil((cuentaFin - Date.now()) / 1e3);
     if (n === cuentaN) return;
     cuentaN = n;
-    document.getElementById("cuentaAnuncio").textContent = n > 0 ? String(n) : t("ca.go");
+    porId("cuentaAnuncio").textContent = n > 0 ? String(n) : t("ca.go");
     if (!document.hidden) playSfx(n > 0 ? "countTick" : "countGo");
     if (n <= -2) closeCountdown();
   }
   function closeCountdown() {
-    clearInterval(cuentaTimer);
+    if (cuentaTimer) clearInterval(cuentaTimer);
     cuentaTimer = null;
     cuentaN = -1;
     const a = document.getElementById("cuentaAnuncio");
@@ -2603,8 +2603,8 @@
     emitir("onGameStart", msg);
   }
   function aplicarModoEspectador() {
-    const board = document.getElementById("gameScreen");
-    if (board) board.classList.toggle("espectador", est.soyEspectador);
+    const board = porId("gameScreen");
+    board.classList.toggle("espectador", est.soyEspectador);
     let banda = document.getElementById("espectadorBanda");
     if (est.soyEspectador && !banda) {
       banda = document.createElement("div");
@@ -2631,7 +2631,7 @@
     if (!est.soyEspectador) resetEspectador();
   }
 
-  // ../client/juego/red.js
+  // ../client/juego/red.ts
   var diag = /* @__PURE__ */ (() => {
     const POR_TIPO_MS = 400, POR_PARTIDA = 400, COLA_MAX = 60, DETALLE_MAX = 560;
     const cola = [];
@@ -2695,7 +2695,7 @@
     const hand = [];
     for (let s = 0; s < 6; s++) {
       const set = est.allSets[s] || [];
-      for (let i = 0; i < 4; i++) hand.push(set[i] ? set[i].id : null);
+      for (let i = 0; i < 4; i++) hand.push(set[i]?.id ?? null);
     }
     const ahora = Date.now();
     return {
@@ -2814,7 +2814,7 @@
       lobby_id: pendingRejoinCode,
       nickname,
       rating_key: ratingKey(),
-      seat_token: est.seatToken,
+      seat_token: est.seatToken ?? void 0,
       taunt: getTaunt() || void 0,
       spectate: est.soyEspectador && !enCola || void 0
     });
@@ -2823,13 +2823,13 @@
     const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
     est.ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
     est.ws.onopen = () => {
-      clearTimeout(est.reconnectTimer);
+      clearTimeout(est.reconnectTimer ?? void 0);
       diag.notReady();
       diag.note("ws", { ev: "open", attempt: est.reconnectAttempt });
       est.reconnectAttempt = 0;
       est.pendingPongSince = 0;
-      document.getElementById("reconnectOverlay").style.display = "none";
-      clearInterval(est.pingInterval);
+      porId("reconnectOverlay").style.display = "none";
+      clearInterval(est.pingInterval ?? void 0);
       est.pingInterval = setInterval(() => {
         if (!est.ws || est.ws.readyState !== WebSocket.OPEN) return;
         if (est.pendingPongSince && Date.now() - est.pendingPongSince > PONG_TIMEOUT_MS) {
@@ -2858,11 +2858,11 @@
       diag.note("ws", { ev: "error" });
     };
     est.ws.onclose = (e) => {
-      clearInterval(est.pingInterval);
+      clearInterval(est.pingInterval ?? void 0);
       est.pendingPongSince = 0;
       diag.notReady();
       diag.note("ws", { ev: "close", code: e.code, clean: e.wasClean });
-      document.getElementById("reconnectOverlay").style.display = "flex";
+      porId("reconnectOverlay").style.display = "flex";
       scheduleReconnect();
     };
     est.ws.onmessage = (e) => {
@@ -2873,7 +2873,7 @@
   }
   function abandonDeadSocket() {
     const vieja = est.ws;
-    clearInterval(est.pingInterval);
+    clearInterval(est.pingInterval ?? void 0);
     est.pendingPongSince = 0;
     diag.notReady();
     if (vieja) {
@@ -2883,18 +2883,18 @@
       } catch {
       }
     }
-    document.getElementById("reconnectOverlay").style.display = "flex";
+    porId("reconnectOverlay").style.display = "flex";
     scheduleReconnect();
   }
   function scheduleReconnect() {
-    clearTimeout(est.reconnectTimer);
+    clearTimeout(est.reconnectTimer ?? void 0);
     est.reconnectAttempt++;
     const delay = Math.min(1e3 * Math.pow(2, est.reconnectAttempt - 1), RECONNECT_MAX_DELAY);
-    document.getElementById("reconnectMsg").textContent = t(est.currentLobbyId ? "recon.retry_room" : "recon.retry", { n: est.reconnectAttempt });
+    porId("reconnectMsg").textContent = t(est.currentLobbyId ? "recon.retry_room" : "recon.retry", { n: est.reconnectAttempt });
     est.reconnectTimer = setTimeout(connectWs, delay);
   }
   function reconnect() {
-    clearTimeout(est.reconnectTimer);
+    clearTimeout(est.reconnectTimer ?? void 0);
     est.reconnectAttempt = 0;
     connectWs();
   }

@@ -10,7 +10,9 @@
 //   hace que pasaron: así queda lo que ocurrió DURANTE la caída.
 // - Límites: una por tipo cada 400 ms, 400 por partida, 60 en cola.
 import { emitir } from './bus.js';
-import { est, qteBlockedCards, PONG_TIMEOUT_MS, RECONNECT_MAX_DELAY } from './estado.js';
+import { est, qteBlockedCards, PONG_TIMEOUT_MS, RECONNECT_MAX_DELAY, porId } from './estado.js';
+import type { ClientMessage } from '../tipos/ClientMessage';
+import type { ServerMessage } from '../tipos/ServerMessage';
 import { joinLobby, onEnteredLobby, extractLobbyCode, onSeatReplaced, onHello, enCola, onKicked, onLobbyUpdate, startCountdown, onCountdownCancelled, onGameStart } from './sala.js';
 import { onSpectatorCards, onSpectatorState } from './espectador.js';
 import { updateSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, ratingKey, applyBetaMode, markLanded, onPlayerDisconnected, onPlayerLeft, onWaitPoll, onWaitPollClosed, startDebtCountdown, onDebtForced, renderCombo, onFrenzyFired, flashCenter, initCardTilt } from './tablero.js';
@@ -20,14 +22,17 @@ import { stunnedUntil, startStun, onSwapConflict, cerrarAvisoPelea, esMiPelea, o
 import { openVerifyOverlay, revealVerifySet, onVerificationSuccess, onVerificationFailed, onGameOver } from './verificacion.js';
 import { onGameCancelled, showScreen } from './cuenta.js';
 
+/** Una observación: tipo, tiempos, distancias y banderas (nunca apodos ni secretos). */
+type Nota = Record<string, unknown>;
+
 export const diag = (() => {
     const POR_TIPO_MS = 400, POR_PARTIDA = 400, COLA_MAX = 60, DETALLE_MAX = 560;
-    const cola = [];
+    const cola: { kind: string; detail: Nota; t: number }[] = [];
     const ultimaPorTipo = new Map();
     let enPartida = 0;
     let listo = false;            // ¿hay asiento en el servidor para recibirlas?
 
-    function enviar(kind, detail, hace) {
+    function enviar(kind: string, detail: Nota, hace: number) {
         if (!est.ws || est.ws.readyState !== WebSocket.OPEN) return false;
         if (hace > 1500) detail = { ...detail, hace_ms: hace };
         let texto = JSON.stringify(detail);
@@ -37,7 +42,7 @@ export const diag = (() => {
     }
 
     return {
-        note(kind, detail = {}) {
+        note(kind: string, detail: Nota = {}) {
             if (!est.currentLobbyId) return;               // sin sala no hay grabación
             const ahora = Date.now();
             // El límite es por tipo Y evento: `ws:open` y `ws:rejoin_ok` ocurren
@@ -85,7 +90,7 @@ function clientStateSample() {
     const hand = [];
     for (let s = 0; s < 6; s++) {
         const set = est.allSets[s] || [];
-        for (let i = 0; i < 4; i++) hand.push(set[i] ? set[i].id : null);
+        for (let i = 0; i < 4; i++) hand.push(set[i]?.id ?? null);
     }
     const ahora = Date.now();
     return {
@@ -146,12 +151,12 @@ window.addEventListener('DOMContentLoaded', () => {
  *  (único gancho añadido al vendored, ver dial.js). */
 function traducirVendored() {
     if (typeof agRank === 'function') {
-        for (const lista of Object.values(agRank.RANKS)) for (const par of lista) par[1] = t(`rank.${par[0]}`);
+        for (const lista of Object.values(agRank.RANKS) as [string, string][][]) for (const par of lista) par[1] = t(`rank.${par[0]}`);
     }
     window.agText = { up: t('rank.up'), down: t('rank.down') };
     if (typeof window.agToast === 'function') {
         const crear = window.agToast;
-        window.agToast = (opts) => {
+        window.agToast = (opts: unknown) => {
             const el = crear(opts);
             el?.querySelector('.ag-toast-close')?.setAttribute('aria-label', t('toast.close'));
             return el;
@@ -192,28 +197,30 @@ let pendingAutoJoin = false;
 // había notado la caída; tras un corte de red eso tardó ~100 s (2026-09-30) y
 // cada reintento chocaba con "Ya hay alguien llamado…".
 // (Estado en `est.rejoinInFlight` y `est.seatToken`.)
-let pendingRejoinCode = null;
+let pendingRejoinCode: string | null = null;
 
 // El asiento vive en el NAVEGADOR (localStorage), no en la pestaña: sobrevive
 // a cerrar la pestaña o el navegador y volver dentro del plazo. Coste: una
 // pestaña nueva se lleva el asiento de la que ya lo tenía, que lo avisa
 // (`seat_replaced`) en vez de pelearse por él.
 const SEAT_KEY = 'piles_seat';
+/** Lo que se guarda del asiento: la sala, su secreto y cuándo se vio por última vez. */
+type Asiento = { lobby: string; token: string | null; seen: number };
 /** 30 s de gracia del servidor más margen. Más viejo que esto, el asiento ya
  *  no existe y no merece la pena intentarlo. */
 const SEAT_FRESH_MS = 90000;
 
-function readSeat() {
+function readSeat(): Asiento | null {
     try { return JSON.parse(localStorage.getItem(SEAT_KEY) || 'null'); } catch { return null; }
 }
-function writeSeat(seat) {
+function writeSeat(seat: Asiento | null) {
     try {
         if (seat) localStorage.setItem(SEAT_KEY, JSON.stringify(seat));
         else localStorage.removeItem(SEAT_KEY);
     } catch { /* modo privado */ }
 }
 
-export function rememberLobby(lobbyId) {
+export function rememberLobby(lobbyId: string) {
     pendingRejoinCode = lobbyId;
     // El secreto llega en un mensaje aparte justo después (`seat_token`); si
     // ya había uno de esta misma sala, se conserva.
@@ -248,7 +255,7 @@ function attemptRejoin() {
     est.currentNickname = nickname;
     est.rejoinInFlight = true;
     send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname,
-           rating_key: ratingKey(), seat_token: est.seatToken, taunt: getTaunt() || undefined,
+           rating_key: ratingKey(), seat_token: est.seatToken ?? undefined, taunt: getTaunt() || undefined,
            spectate: (est.soyEspectador && !enCola) || undefined });
 }
 
@@ -257,12 +264,12 @@ function connectWs() {
     est.ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
 
     est.ws.onopen = () => {
-        clearTimeout(est.reconnectTimer);
+        clearTimeout(est.reconnectTimer ?? undefined);
         diag.notReady();   // hasta que se recupere el asiento
         diag.note('ws', { ev: 'open', attempt: est.reconnectAttempt });
         est.reconnectAttempt = 0;
         est.pendingPongSince = 0;
-        document.getElementById('reconnectOverlay').style.display = 'none';
+        porId('reconnectOverlay').style.display = 'none';
         // Ping para mantener viva la conexión y, de paso, para medir la ida y
         // vuelta. El servidor no puede medirla: solo el cliente sabe cuándo
         // salió su mensaje, así que manda la medida ANTERIOR pegada al ping
@@ -270,7 +277,7 @@ function connectWs() {
         //
         // Cada 3 s jugando y cada 25 s fuera: con 25 s no se puede responder a
         // "¿esto fue lag?", que es justo para lo que se guarda.
-        clearInterval(est.pingInterval);
+        clearInterval(est.pingInterval ?? undefined);
         est.pingInterval = setInterval(() => {
             if (!est.ws || est.ws.readyState !== WebSocket.OPEN) return;
             // Perro guardián: un ping sin su pong tanto rato es un socket
@@ -309,11 +316,11 @@ function connectWs() {
     };
 
     est.ws.onclose = (e) => {
-        clearInterval(est.pingInterval);
+        clearInterval(est.pingInterval ?? undefined);
         est.pendingPongSince = 0;
         diag.notReady();
         diag.note('ws', { ev: 'close', code: e.code, clean: e.wasClean });
-        document.getElementById('reconnectOverlay').style.display = 'flex';
+        porId('reconnectOverlay').style.display = 'flex';
         scheduleReconnect();
     };
 
@@ -330,7 +337,7 @@ function connectWs() {
  *  conexión vieja. */
 function abandonDeadSocket() {
     const vieja = est.ws;
-    clearInterval(est.pingInterval);
+    clearInterval(est.pingInterval ?? undefined);
     est.pendingPongSince = 0;
     diag.notReady();
     if (vieja) {
@@ -338,7 +345,7 @@ function abandonDeadSocket() {
         vieja.onopen = vieja.onmessage = vieja.onerror = vieja.onclose = null;
         try { vieja.close(); } catch { /* ya estaba rota */ }
     }
-    document.getElementById('reconnectOverlay').style.display = 'flex';
+    porId('reconnectOverlay').style.display = 'flex';
     scheduleReconnect();
 }
 
@@ -346,25 +353,25 @@ function abandonDeadSocket() {
  *  la sala exista merece la pena seguir probando, y el servidor recicla las
  *  vacías a los 30 min de todas formas. */
 function scheduleReconnect() {
-    clearTimeout(est.reconnectTimer);
+    clearTimeout(est.reconnectTimer ?? undefined);
     est.reconnectAttempt++;
     const delay = Math.min(1000 * Math.pow(2, est.reconnectAttempt - 1), RECONNECT_MAX_DELAY);
-    document.getElementById('reconnectMsg').textContent =
+    porId('reconnectMsg').textContent =
         t(est.currentLobbyId ? 'recon.retry_room' : 'recon.retry', { n: est.reconnectAttempt });
     est.reconnectTimer = setTimeout(connectWs, delay);
 }
 
 /** El botón del overlay: reintentar ya, sin esperar al backoff. */
 export function reconnect() {
-    clearTimeout(est.reconnectTimer);
+    clearTimeout(est.reconnectTimer ?? undefined);
     est.reconnectAttempt = 0;
     connectWs();
 }
 
-export function send(obj) { est.ws.send(JSON.stringify(obj)); }
+export function send(obj: ClientMessage) { est.ws!.send(JSON.stringify(obj)); }
 
 // ─── Mensajes del servidor ────────────────────────────────────────────────
-export function handleMsg(msg) {
+export function handleMsg(msg: ServerMessage) {
     emitir('antesDeMensaje', msg);   // con el estado de antes de aplicarlo
     switch (msg.type) {
         case 'lobby_created':
@@ -607,10 +614,10 @@ export function handleMsg(msg) {
  *  manda `code` (+ `args`, los datos) y siempre el texto en español como
  *  respaldo: sin `code` (servidor o mensaje viejo) o con un código que esta
  *  versión del cliente no conoce, se enseña ese texto. Nunca se analiza. */
-export function srvText(msg, ns) {
+export function srvText(msg: { message?: string; reason?: string; code?: string | null; args?: unknown }, ns: string): string {
     const fallback = msg.message ?? msg.reason ?? '';
     if (!msg.code) return fallback;
     const key = `${ns}.${msg.code}`;
-    return PilesI18n.has(key) ? t(key, msg.args || {}) : fallback;
+    return PilesI18n.has(key) ? t(key, (msg.args as Record<string, unknown>) || {}) : fallback;
 }
 

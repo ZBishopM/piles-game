@@ -66,26 +66,32 @@ pub enum ClientMessage {
         /// funcionando en vez de que el mensaje entero no se pueda parsear;
         /// `false` por defecto es lo prudente: nunca abre una sala sin querer.
         #[serde(default)]
+        #[cfg_attr(test, ts(optional, as = "Option<bool>"))]
         is_public: bool,
         /// De quién es el Elo de este jugador: `anon:<uuid>` o `sm:<id>`. Ver
         /// `ratings::valid_key`. Sin él se juega igual, sin Elo.
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         rating_key: Option<String>,
         /// Burla elegida (id del catálogo fijo, ver `taunts`). Opcional.
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         taunt: Option<String>,
     },
     /// Entrar en la sala pública más llena, o abrir una si no hay ninguna.
     QuickMatch {
         nickname: String,
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         rating_key: Option<String>,
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         taunt: Option<String>,
     },
     /// Añadir un bot a la sala. Solo antes de empezar.
     AddBot {
         #[serde(default)]
+        #[cfg_attr(test, ts(optional, as = "Option<crate::bot::Difficulty>"))]
         difficulty: crate::bot::Difficulty,
     },
     /// Echar un bot de la sala.
@@ -97,17 +103,21 @@ pub enum ClientMessage {
         lobby_id: String,
         nickname: String,
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         rating_key: Option<String>,
         /// El secreto del asiento, si venía de uno (`ServerMessage::SeatToken`).
         /// Con él se recupera el asiento y la mano; sin él, o con uno que no
         /// coincide, se entra como nuevo.
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         seat_token: Option<String>,
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         taunt: Option<String>,
         /// Entrar a mirar aunque haya sitio. Una pestaña vieja no lo manda: entra a
         /// jugar si hay hueco, como siempre.
         #[serde(default)]
+        #[cfg_attr(test, ts(optional, as = "Option<bool>"))]
         spectate: bool,
     },
     /// Cambiar de rol dentro de la sala: `true` = pasar a espectador, `false` =
@@ -126,6 +136,7 @@ pub enum ClientMessage {
     ClientNote {
         kind: String,
         #[serde(default)]
+        #[cfg_attr(test, ts(optional, as = "Option<serde_json::Value>"))]
         detail: serde_json::Value,
     },
     /// Un mensaje al chat de la sala de espera. Solo con la sala en espera: en
@@ -194,6 +205,7 @@ pub enum ClientMessage {
     /// funcionando.
     Ping {
         #[serde(default)]
+        #[cfg_attr(test, ts(optional))]
         rtt_ms: Option<u32>,
     },
 }

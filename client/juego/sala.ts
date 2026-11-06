@@ -1,6 +1,7 @@
 // ─── Lobby ────────────────────────────────────────────────────────────────
 import { emitir } from './bus.js';
-import { miNombre, est, opponentFlippedSets } from './estado.js';
+import { miNombre, est, opponentFlippedSets, porId, type Msg } from './estado.js';
+import type { Difficulty } from '../tipos/Difficulty';
 import { diag, rememberLobby, forgetLobby, dropSeatLocally, send } from './red.js';
 import { sinEmoji, resetEspectador } from './espectador.js';
 import { buildSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, ratingKey, clearGraceNotices, clearDebtCountdown, resetCombo } from './tablero.js';
@@ -28,12 +29,12 @@ export function requireNickname() {
 // código o el QR.
 export let lobbyIsPublic = true;
 
-export function setVisibility(isPublic) {
+export function setVisibility(isPublic: boolean) {
     lobbyIsPublic = isPublic;
 }
 
 /** `maxPlayers`: lo elige el tambor de la mesa (2–8). */
-export function createLobby(maxPlayers) {
+export function createLobby(maxPlayers: number) {
     const nickname = requireNickname();
     if (!nickname) return;
     cancelQuickMatchOffer();
@@ -57,9 +58,9 @@ export function refreshLobbies() {
 }
 
 // ─── Bots ─────────────────────────────────────────────────────────────────
-export let botDifficulty = 'normal';
+export let botDifficulty: Difficulty = 'normal';
 
-export function setBotDifficulty(d) {
+export function setBotDifficulty(d: Difficulty) {
     botDifficulty = d;
 }
 
@@ -67,19 +68,19 @@ export function addBot() {
     send({ type: 'add_bot', difficulty: botDifficulty });
 }
 
-export function removeBot(playerId) {
+export function removeBot(playerId: string) {
     send({ type: 'remove_bot', player_id: playerId });
 }
 
 /** Tras entrar por partida rápida: si sigues solo, se ofrece jugar contra
  *  bots. Se pregunta en vez de rellenar solo, porque quien pide partida
  *  rápida normalmente quiere gente. */
-let quickMatchOfferTimer = null;
+let quickMatchOfferTimer: ReturnType<typeof setTimeout> | undefined;
 /** Cuántos hay sentados, según el último `lobby_update`. */
 export let jugadoresEnSala = 0;
 let ofertaAbierta = false;
 /** La mesa la enseña y la quita: aviso 'ofertaBots' (`true` = ofrecer bots). */
-function ponerOferta(abierta) {
+function ponerOferta(abierta: boolean) {
     if (abierta === ofertaAbierta) return;
     ofertaAbierta = abierta;
     emitir('ofertaBots', abierta);
@@ -93,8 +94,8 @@ function armQuickMatchOffer() {
 /** Oculta la oferta y para su temporizador. Salvo `seguirOfreciendo`, también
  *  olvida que vienes de partida rápida: descartarla o aceptarla la cierra, y
  *  los `lobby_update` con un jugador que siguen llegando no la reabren. */
-export function cancelQuickMatchOffer(seguirOfreciendo) {
-    if (seguirOfreciendo !== true) cameFromQuickMatch = false;
+export function cancelQuickMatchOffer(seguirOfreciendo = false) {
+    if (!seguirOfreciendo) cameFromQuickMatch = false;
     clearTimeout(quickMatchOfferTimer);
     ponerOferta(false);
 }
@@ -118,20 +119,20 @@ setInterval(() => {
 
 /** `spectate`: entrar a mirar aunque haya sitio (lo pide la lista; el código y
  *  el QR no lo mandan, y entran a jugar si hay hueco). */
-export function joinLobby(code, spectate) {
+export function joinLobby(code: string | null | undefined, spectate = false) {
     const nickname = requireNickname();
     if (!nickname) return;
-    code = (code || '').trim().toUpperCase();
-    if (!code) { showScreen('joinScreen'); return; }
+    const lobby = (code || '').trim().toUpperCase();
+    if (!lobby) { showScreen('joinScreen'); return; }
     est.codigoPendiente = '';
     cancelQuickMatchOffer();
-    send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined,
-           spectate: spectate === true || undefined });
+    send({ type: 'join_lobby', lobby_id: lobby, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined,
+           spectate: spectate || undefined });
 }
 
 /** Host y jugador que se une llegan al lobby por mensajes distintos
  *  (`lobby_created` / `joined_lobby`); ambos pasan por aquí. */
-export function onEnteredLobby(lobbyId) {
+export function onEnteredLobby(lobbyId: string) {
     est.rejoinInFlight = false;
     rememberLobby(lobbyId);
     // Mirando se ve la sala de espera igual (jugadores, chat y la carta para
@@ -141,7 +142,7 @@ export function onEnteredLobby(lobbyId) {
     showScreen('lobbyScreen');
 }
 
-export function joinLinkFor(lobbyId) {
+export function joinLinkFor(lobbyId: string) {
     return `${location.origin}/lobby.html?join=${lobbyId}`;
 }
 
@@ -149,9 +150,9 @@ export function joinLinkFor(lobbyId) {
 // qr-scanner usa BarcodeDetector nativo donde existe y su propio worker en el
 // resto (iOS y Firefox no lo tienen), así que no hace falta ramificar aquí. El
 // vídeo (#scanVideo) no se ve: la mesa lo dibuja en el centro de la mesa.
-export let qrScanner = null;
+export let qrScanner: any = null;   // QrScanner (vendored, sin tipos)
 
-export function extractLobbyCode(raw) {
+export function extractLobbyCode(raw: string | null | undefined): string | null {
     let value = (raw || '').trim();
     // El QR del lobby lleva la URL de invitación completa; el manual, solo el código.
     try {
@@ -167,8 +168,8 @@ export async function toggleScanner() {
     if (qrScanner) { stopScanner(); return; }
     try {
         qrScanner = new QrScanner(
-            document.getElementById('scanVideo'),
-            result => {
+            porId('scanVideo'),
+            (result: { data: string }) => {
                 const code = extractLobbyCode(result.data);
                 if (!code) return; // QR ajeno: seguir escaneando
                 stopScanner();
@@ -177,7 +178,7 @@ export async function toggleScanner() {
             { highlightScanRegion: true, preferredCamera: 'environment' },
         );
         await qrScanner.start();
-        document.getElementById('scanWrap').classList.add('active');
+        porId('scanWrap').classList.add('active');
     } catch (e) {
         stopScanner();
         console.error(e);
@@ -193,7 +194,7 @@ export function stopScanner() {
         qrScanner.destroy();
         qrScanner = null;
     }
-    document.getElementById('scanWrap').classList.remove('active');
+    porId('scanWrap').classList.remove('active');
 }
 
 window.addEventListener('pagehide', stopScanner);
@@ -233,8 +234,8 @@ export function onSeatReplaced() {
     resetCombo();
     est.gameOver = false;
     est.isReady = false;
-    document.getElementById('gameOverOverlay').classList.remove('active');
-    document.getElementById('fxLayer').innerHTML = '';
+    porId('gameOverOverlay').classList.remove('active');
+    porId('fxLayer').innerHTML = '';
     agToast({
         kind: 'warning',
         title: t('seat.title'),
@@ -255,10 +256,10 @@ export function onSeatReplaced() {
 // No se recarga más de una vez cada 30 s, por si algo raro (dos servidores de
 // versiones distintas detrás del mismo sitio) hiciera cambiar la versión en
 // cada conexión: en ese caso solo se avisa.
-export let versionDelServidor = null;
+export let versionDelServidor: string | null = null;
 const RELOAD_KEY = 'piles_reloaded_at';
 
-export function onHello(version) {
+export function onHello(version: string) {
     if (!version || version === 'dev') return;     // en local no hay despliegues
     if (versionDelServidor === null) { versionDelServidor = version; return; }
     if (version === versionDelServidor) return;
@@ -276,8 +277,8 @@ export function onHello(version) {
 
 // ─── Chat de la sala de espera ────────────────────────────────────────────
 // La verdad está en el servidor (dura lo que dure la sala); lo pinta la mesa.
-export function sendChat(text) {
-    text = (text || '').trim();
+export function sendChat(texto: string | null | undefined) {
+    const text = (texto || '').trim();
     if (!text || !est.ws || est.ws.readyState !== WebSocket.OPEN) return;
     send({ type: 'chat', text });
 }
@@ -316,7 +317,7 @@ export function onKicked() {
     refreshLobbies();
 }
 
-export function onLobbyUpdate(msg) {
+export function onLobbyUpdate(msg: Msg<'lobby_update'>) {
     est.mirones = msg.spectators ?? 0;
     jugadoresEnSala = msg.players.length;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
@@ -356,9 +357,9 @@ export function onLobbyUpdate(msg) {
 // al lector de pantalla. El reloj va contra una hora de fin y no contando ticks:
 // con la pestaña oculta los temporizadores se frenan y el número saldría
 // atrasado; así se corrige solo al volver.
-let cuentaFin = 0, cuentaTimer = null, cuentaN = -1;
+let cuentaFin = 0, cuentaTimer: ReturnType<typeof setInterval> | null = null, cuentaN = -1;
 
-export function startCountdown(seconds) {
+export function startCountdown(seconds: number) {
     closeCountdown();
     cuentaFin = Date.now() + Math.max(1, Number(seconds) || 3) * 1000;
     cuentaTick();
@@ -370,14 +371,14 @@ function cuentaTick() {
     const n = Math.ceil((cuentaFin - Date.now()) / 1000);
     if (n === cuentaN) return;
     cuentaN = n;
-    document.getElementById('cuentaAnuncio').textContent = n > 0 ? String(n) : t('ca.go');
+    porId('cuentaAnuncio').textContent = n > 0 ? String(n) : t('ca.go');
     if (!document.hidden) playSfx(n > 0 ? 'countTick' : 'countGo');
     // Si el reparto no llega (se perdió el mensaje), no se queda el 0 colgado.
     if (n <= -2) closeCountdown();
 }
 
 export function closeCountdown() {
-    clearInterval(cuentaTimer);
+    if (cuentaTimer) clearInterval(cuentaTimer);
     cuentaTimer = null;
     cuentaN = -1;
     const a = document.getElementById('cuentaAnuncio');
@@ -385,7 +386,7 @@ export function closeCountdown() {
     emitir('closeCountdown');
 }
 
-export function onCountdownCancelled(reason) {
+export function onCountdownCancelled(reason: string) {
     if (cuentaTimer === null) return;
     closeCountdown();
     const porque = t(reason === 'left' ? 'ca.left' : reason === 'joined' ? 'ca.joined' : 'ca.not_ready');
@@ -393,7 +394,7 @@ export function onCountdownCancelled(reason) {
 }
 
 // ─── Inicio de juego ──────────────────────────────────────────────────────
-export function onGameStart(msg) {
+export function onGameStart(msg: Msg<'game_start'>) {
     emitir('antesDePartida', msg);   // aún con la pantalla de antes
     est.allSets = msg.your_sets;       // 6 sets
     est.centerCards = msg.center_cards;
@@ -447,8 +448,8 @@ export function onGameStart(msg) {
  *  `handle_client_message`); esto es para que la interfaz no prometa algo que
  *  no va a pasar. */
 function aplicarModoEspectador() {
-    const board = document.getElementById('gameScreen');
-    if (board) board.classList.toggle('espectador', est.soyEspectador);
+    const board = porId('gameScreen');
+    board.classList.toggle('espectador', est.soyEspectador);
     let banda = document.getElementById('espectadorBanda');
     if (est.soyEspectador && !banda) {
         banda = document.createElement('div');
