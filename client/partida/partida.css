@@ -5,7 +5,7 @@
      tu mano en abanico que respira, las cartas del centro que flotan, un barrido al cambiar de set;
    - sin espacio muerto: el centro es una mesa que ocupa el hueco y sus cartas crecen hasta llenarla.
    El orden del tablero no cambia (marcador, racha, centro, tus sets). Ver partida.js. */
-#gameScreen, #qteOverlay, #verifyOverlay, #gameOverOverlay {
+#gameScreen, #qteOverlay, #verifyOverlay, #gameOverOverlay, #eloChoice, #reconnectOverlay, #verifyNotifications {
     --tinta: #0e0e0e; --hueso: #e9e6da; --salvia: #a9b689; --militar: #4b5320; --acento: #e8402a; --tenue: #a9a9ae;
     --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
     --golpe: cubic-bezier(.7, 0, .2, 1); --rebote: cubic-bezier(.34, 1.56, .64, 1);
@@ -252,6 +252,108 @@ body:has(#gameScreen.active) #verifyNotifications { top: 78px !important; }
 .qte-battle-notif:not([data-grace]) { padding: 6px 8px !important; }
 .qte-battle-notif .qbn-scores { font: 900 .95rem var(--sans, Geist, sans-serif); }
 .qte-battle-notif .ico, #verifyNotifications .qbn-title .ico { width: 1.1em; height: 1.1em; vertical-align: -.2em; color: #e8402a; }
+
+/* ── Lo que aún tenía el estilo viejo: barras, encuesta, diálogos, espectador, fin ──────
+   Mismo lenguaje que la mesa: paneles cortados (la forma en ::before, la sombra dura en el
+   propio elemento, que sigue el corte), botones sesgados en tinta y hueso, bermellón solo
+   para lo que se elige o urge. Nada redondo. */
+
+/* Barras de estado: la racha sube de salvia a bermellón (los mismos tramos, colores de la mesa);
+   deuda = bermellón (date prisa), bloqueo = rayado gris (no puedes) */
+#gameScreen { --combo-color: var(--salvia); --combo-ring: rgb(169 182 137 / 45%); }
+#gameScreen[data-combo-tier="2"] { --combo-color: var(--hueso); --combo-ring: rgb(233 230 218 / 45%); }
+#gameScreen[data-combo-tier="3"] { --combo-color: #f2a33a; --combo-ring: rgb(242 163 58 / 45%); }
+#gameScreen[data-combo-tier="4"] { --combo-color: #f26a2a; --combo-ring: rgb(242 106 42 / 50%); }
+#gameScreen[data-combo-tier="5"] { --combo-color: var(--acento); --combo-ring: rgb(232 64 42 / 55%); }
+#gameScreen #comboMult { text-shadow: 3px 3px 0 #000; }
+#gameScreen .combo-bar { height: 8px; background: rgb(233 230 218 / 10%); }
+#gameScreen #comboBarFill { background: var(--combo-color); }
+#gameScreen #debtBar, #gameScreen #stunBar { height: 8px; background: rgb(233 230 218 / 10%); transform: skewX(-20deg); }
+#gameScreen #debtBarFill { background: var(--acento); }
+#gameScreen #stunBarFill { background: repeating-linear-gradient(-45deg, var(--tenue) 0 6px, #55555a 6px 12px); }
+
+/* Botones fuera del tablero: sesgados, tinta con canto salvia; el principal, bermellón */
+:is(#eloChoice, #reconnectOverlay, #gameOverOverlay, #espectadorBanda, #specSeats, .wait-poll-btns) button {
+    margin: 0; width: auto; min-height: 40px; padding: 8px 16px; border: none; border-radius: 0; cursor: pointer;
+    background: var(--tinta); color: var(--hueso); box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%);
+    font: 900 .82rem/1.1 var(--sans); text-transform: uppercase; letter-spacing: .03em;
+    clip-path: polygon(6px 0, 100% 3px, calc(100% - 6px) 100%, 0 calc(100% - 3px));
+    transition: transform 200ms var(--rebote), background 150ms;
+}
+:is(#eloChoice, #reconnectOverlay, #gameOverOverlay, #espectadorBanda, #specSeats, .wait-poll-btns) button:is(.btn-primary, .wp-no, .active, [aria-pressed="true"]) {
+    background: var(--acento); color: var(--tinta); box-shadow: inset 0 0 0 2px var(--tinta);
+}
+:is(#eloChoice, #reconnectOverlay, #gameOverOverlay, #espectadorBanda, #specSeats, .wait-poll-btns) button:focus-visible { outline: 3px solid var(--hueso); outline-offset: 2px; }
+/* El pomo de «deslizar para desbloquear» (gestos.css): un taco cuadrado, no una bola */
+body.mesa button.desliza::before {
+    border-radius: 0; background: var(--acento, #e8402a); color: var(--tinta, #0e0e0e); box-shadow: none;
+    clip-path: polygon(3px 0, 100% 2px, calc(100% - 3px) 100%, 0 calc(100% - 2px)); font-weight: 900;
+}
+body.mesa button.desliza:is(.btn-primary, .wp-no)::before { background: var(--tinta, #0e0e0e); color: var(--acento, #e8402a); }
+body.mesa button.desliza:not(.desliza-mini)::after { background: rgb(232 64 42 / 25%); }
+/* Mantener pulsado (los que no tienen pomo): una barra que se llena por abajo, no un anillo */
+body.mesa button.desliza.desliza-mini::after {
+    -webkit-mask: none; mask: none; border-radius: 0; top: auto; height: 4px;
+    background: linear-gradient(90deg, var(--acento, #e8402a) calc(var(--p) * 100%), transparent 0);
+}
+
+/* Paneles cortados: la forma en ::before (el corte no se come la sombra) */
+:is(.elo-choice-box, .rc-caja, .gameover-box) {
+    position: relative; isolation: isolate; background: none !important; border: none !important; border-radius: 0 !important;
+    color: var(--hueso); font-family: var(--sans); filter: drop-shadow(8px 9px 0 rgb(0 0 0 / 75%));
+}
+:is(.elo-choice-box, .rc-caja, .gameover-box)::before {
+    content: ""; position: absolute; inset: 0; z-index: -1; background: var(--tinta);
+    box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%), inset 0 5px 0 var(--acento);
+    clip-path: polygon(10px 0, 100% 6px, calc(100% - 10px) 100%, 0 calc(100% - 6px));
+}
+:is(.elo-choice-box, .rc-caja, .gameover-box) :is(h2, h3) { font: 900 1.35rem/1.05 var(--sans); text-transform: uppercase; letter-spacing: -.01em; color: var(--hueso); }
+.elo-choice { background: rgb(6 6 6 / 82%) !important; }
+.elo-choice-box p { color: var(--tenue) !important; }
+
+/* Reconexión (antes en estilos en línea) */
+#reconnectOverlay { position: fixed; inset: 0; z-index: 300; align-items: center; justify-content: center; padding: 16px; background: rgb(6 6 6 / 90%); }
+#reconnectOverlay .rc-caja { width: min(360px, 100%); padding: 30px 28px 26px; text-align: center; display: flex; flex-direction: column; gap: 10px; }
+#reconnectOverlay .rc-ico { width: 52px; height: 52px; margin: 0 auto 4px; color: var(--acento); animation: rcLate 1.2s steps(2) infinite; }
+@keyframes rcLate { 50% { opacity: .35; } }
+#reconnectOverlay p { color: var(--tenue); font-size: .9rem; margin: 0 0 12px; }
+
+/* La encuesta «¿seguimos esperando?»: el aviso en ámbar y sus dos botones */
+.qte-battle-notif.wait-poll { border-color: #f2a33a !important; }
+.wait-poll-btns { flex-direction: column; }   /* el aviso mide 200 px: uno encima del otro, sin cortar */
+.wait-poll-btns button { min-height: 34px; padding: 6px 10px; font-size: .72rem; }
+
+/* Fin de la partida: puestos grandes, el primero en bermellón */
+#gameOverOverlay { background: rgb(6 6 6 / 90%) !important; }
+.gameover-box { padding: 30px 28px 26px !important; min-width: min(340px, calc(100vw - 32px)); }
+#gameOverOverlay .ranking-entry { border-radius: 0; background: rgb(233 230 218 / 6%); transform: skewX(-8deg); margin: 6px 0; font: 800 .95rem var(--sans); }
+#gameOverOverlay .ranking-entry > * { transform: skewX(8deg); }
+#gameOverOverlay .ranking-entry:first-child { background: var(--acento); color: var(--tinta); }
+#gameOverOverlay .rank-pos { font: 900 1.5rem/1 var(--sans); }
+#gameOverOverlay .rank-elo { font-family: var(--sans); font-weight: 900; }
+#gameOverOverlay .rank-elo.up { color: var(--salvia); }
+#gameOverOverlay .ranking-entry:first-child .rank-elo { color: var(--tinta); }
+#gameOverOverlay .rank-elo.down { color: var(--acento); }
+
+/* Espectador: una franja sesgada arriba, «mirando desde» como fichas, su mano a la medida */
+#gameScreen #espectadorBanda {
+    flex-shrink: 0; gap: 8px; margin: 0 44px 8px 0; padding: 6px 10px; border-radius: 0; background: var(--tinta);
+    color: var(--acento); font: 900 .72rem var(--sans); text-transform: uppercase; letter-spacing: .06em;
+    box-shadow: inset 0 0 0 2px var(--acento); filter: drop-shadow(4px 5px 0 rgb(0 0 0 / 70%));
+}
+#gameScreen #espectadorBanda button { min-height: 32px; padding: 5px 12px; font-size: .7rem; }
+#gameScreen.espectador #specBoard { flex-shrink: 0; }
+#gameScreen #specSeats { gap: 8px; margin: 4px 0 8px; justify-content: center; }
+#gameScreen #specSeats .quien { display: none; }   /* las fichas ya dicen qué son */
+#gameScreen #specSeats button { min-height: 32px; padding: 5px 12px; font-size: .72rem; }
+#gameScreen #specCards { gap: 10px; grid-template-columns: repeat(4, min(calc((100% - 42px) / 4), calc(20dvh * 0.6476))); justify-content: center; filter: drop-shadow(var(--sombra)); }
+#gameScreen .spec-estado { justify-content: center; font: 800 .72rem var(--sans); text-transform: uppercase; letter-spacing: .05em; color: var(--tenue); }
+#gameScreen .spec-estado b { color: var(--hueso); }
+#gameScreen #specAll { max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }   /* «Todos» no aplasta la mesa */
+#gameScreen .spec-mini-set { border-radius: 0; border-color: rgb(169 182 137 / 35%); }
+#gameScreen .spec-mini-set.flipped { border-color: var(--acento); }
+#gameScreen .spec-mini-set.current { background: rgb(232 64 42 / 18%); }
+#gameScreen .spec-player-name b { color: var(--hueso); font-weight: 900; }
 
 @media (prefers-reduced-motion: reduce) {
     .pfrag, .pluz, #gameScreen .card, #gameScreen .hud-stripe, #gameScreen #frenzyBtn, #gameScreen #centerCards::before,

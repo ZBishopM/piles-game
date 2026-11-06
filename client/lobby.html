@@ -2095,13 +2095,14 @@
 <!-- Cartas volando entre el centro y tu set -->
 <div id="fxLayer"></div>
 
-<div id="reconnectOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.92);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
-    <div style="background:var(--card);border-radius:16px;padding:36px 40px;text-align:center;max-width:360px;">
-        <div style="font-size:2.5rem;margin-bottom:12px;">🔌</div>
-        <h2 style="margin:0 0 8px;color:var(--text)" data-i18n="recon.title">Conexión perdida</h2>
-        <p style="color:var(--text-faint);font-size:0.9rem;margin-bottom:24px" id="reconnectMsg" data-i18n="recon.msg">La conexión con el servidor se interrumpió.</p>
+<!-- El estilo, en partida.css (el de la mesa). display lo cambia el JS: none / flex. -->
+<div id="reconnectOverlay" style="display:none">
+    <div class="rc-caja">
+        <svg class="rc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg>
+        <h2 data-i18n="recon.title">Conexión perdida</h2>
+        <p id="reconnectMsg" data-i18n="recon.msg">La conexión con el servidor se interrumpió.</p>
         <button class="btn btn-primary" onclick="reconnect()" data-i18n="recon.btn">Reconectar</button>
-        <button class="btn btn-secondary" style="margin-top:8px" onclick="location.reload()" data-i18n="recon.reload">Recargar página</button>
+        <button class="btn btn-secondary" onclick="location.reload()" data-i18n="recon.reload">Recargar página</button>
     </div>
 </div>
 
@@ -3872,7 +3873,7 @@ function aplicarModoEspectador() {
         banda = document.createElement('div');
         banda.id = 'espectadorBanda';
         const texto = document.createElement('span');
-        texto.textContent = t('spec.watching');
+        texto.textContent = sinEmoji(t('spec.watching'));
         // Mirando no hay «Salir de la sala» en ninguna otra parte del tablero.
         const salir = document.createElement('button');
         salir.type = 'button';
@@ -3901,6 +3902,11 @@ let specState = null;      // la última foto
 let specOrden = [];        // los jugadores en el orden de la mesa
 let specVista = null;      // a quién se mira: su apodo, o '*' = todos
 let specSet = null;        // set elegido a mano; null = el que tiene abierto el jugador
+
+/** Sin emoji, como en la mesa (los nombres de bot y algunos textos de i18n traen uno). */
+function sinEmoji(s) {
+    return String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu, '').replace(/\s+/g, ' ').trim();
+}
 
 function resetEspectador() {
     specCards = {}; specState = null; specOrden = []; specVista = null; specSet = null;
@@ -3961,7 +3967,8 @@ function renderSpectator() {
         b.type = 'button';
         b.className = 'spec-seat' + (specVista === valor ? ' active' : '');
         b.dataset.nick = valor;
-        b.textContent = texto;
+        b.dataset.toque = '';   // elegir a quién miras no necesita deslizar (gestos.js)
+        b.textContent = sinEmoji(texto);
         b.onclick = () => { specVista = valor; specSet = null; renderSpectator(); };
         return b;
     };
@@ -4029,7 +4036,7 @@ function renderSpectatorTodos(nicks) {
         const cab = document.createElement('div');
         cab.className = 'spec-player-name';
         const nombre = document.createElement('b');
-        nombre.textContent = n;
+        nombre.textContent = sinEmoji(n);
         cab.append(nombre, `×${formatMult(p.mult ?? 100)}`);
         if (p.owed) cab.append(t('spec.owes_short'));
         if (p.verif) cab.append(t('spec.verifying'));
@@ -6281,7 +6288,8 @@ function onGameOver(rankings, elo = []) {
     resetCombo();
     const list = document.getElementById('rankingList');
     list.innerHTML = '';
-    const medals = ['🥇', '🥈', '🥉'];
+    const titulo = document.querySelector('#gameOverOverlay h2');
+    if (titulo) titulo.textContent = sinEmoji(t('over.title'));
     rankings.forEach(entry => {
         const div = document.createElement('div');
         div.className = 'ranking-entry';
@@ -6293,11 +6301,11 @@ function onGameOver(rankings, elo = []) {
 
         const pos = document.createElement('span');
         pos.className = 'rank-pos';
-        pos.textContent = medals[entry.position - 1] || String(entry.position);
+        pos.textContent = String(entry.position);   // sin medallas: el primero va en bermellón (partida.css)
         // textContent, no innerHTML: el apodo lo escribe cualquiera.
         const nombre = document.createElement('span');
         nombre.className = 'rank-name';
-        nombre.textContent = entry.nickname;
+        nombre.textContent = sinEmoji(entry.nickname);
         div.append(pos, nombre);
         if (d !== null) {
             const eloTag = document.createElement('span');
