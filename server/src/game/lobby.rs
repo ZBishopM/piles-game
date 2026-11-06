@@ -19,6 +19,12 @@ const EMPTY_LOBBY_TTL: Duration = Duration::from_secs(30 * 60);
 /// sus cartas sueltas, que era lo que dejaba la partida sin solución.
 pub const GRACE_PERIOD: Duration = Duration::from_secs(30);
 
+/// Lo que se espera a la única persona de una sala con bots si se le cae la
+/// conexión. En el móvil basta con cambiar de app: el navegador suspende la
+/// pestaña y el socket muere. Nadie más está esperando, así que se le da más
+/// tiempo; mientras, los bots no juegan (`hay_persona_conectada`).
+pub const GRACE_SOLO: Duration = Duration::from_secs(120);
+
 /// Cuánto dura la encuesta "¿seguimos esperando a X?" que se abre cuando a
 /// quien se le cayó la conexión se le acaba `GRACE_PERIOD`. Quien no contesta
 /// cuenta como Sí.
@@ -876,6 +882,11 @@ impl Lobby {
     }
 
     /// Cuántos siguen con conexión. Por debajo de 2 no hay partida posible.
+    /// ¿Hay alguna persona, aparte de `player_id`, sentada y conectada?
+    pub fn otra_persona_conectada(&self, player_id: &Uuid) -> bool {
+        self.players.iter().any(|p| !p.is_bot && p.id != *player_id && p.disconnected_at.is_none())
+    }
+
     pub fn connected_count(&self) -> usize {
         self.players.iter().filter(|p| p.disconnected_at.is_none()).count()
     }
@@ -1037,6 +1048,14 @@ impl LobbyManager {
     }
 
     /// Obtiene un lobby por su ID
+    /// ¿Queda alguna persona sentada y conectada? Sin clonar la sala: lo
+    /// preguntan los bots en cada tic.
+    pub async fn hay_persona_conectada(&self, lobby_id: &str) -> bool {
+        let lobbies = self.lobbies.read().await;
+        lobbies.get(lobby_id)
+            .is_some_and(|l| l.players.iter().any(|p| !p.is_bot && p.disconnected_at.is_none()))
+    }
+
     pub async fn get_lobby(&self, lobby_id: &str) -> Option<Lobby> {
         let lobbies = self.lobbies.read().await;
         lobbies.get(lobby_id).cloned()

@@ -1045,6 +1045,14 @@ pub async fn remove_bot(state: &AppState, lobby_id: &str, bot_id: Uuid) {
 }
 
 /// El bucle del bot: escucha, piensa, actúa.
+/// ¿Hay alguna persona conectada en la sala del bot? Sin sala, sí (no hay nada que esperar).
+async fn alguien_juega(state: &AppState, lobby: &Option<String>) -> bool {
+    match lobby {
+        Some(id) => state.lobby_manager.hay_persona_conectada(id).await,
+        None => true,
+    }
+}
+
 async fn run(
     state: AppState,
     id: Uuid,
@@ -1091,9 +1099,13 @@ async fn run(
                 }
             }
             _ = watch.tick() => {
+                if !alguien_juega(&state, &current_lobby).await { continue; }
                 try_contest(&state, &mut bot, &mut current_lobby).await;
             }
             _ = think.tick() => {
+                // Sin ninguna persona conectada (se le cayó la conexión a la única)
+                // los bots esperan: al volver, la partida sigue donde la dejó.
+                if !alguien_juega(&state, &current_lobby).await { continue; }
                 let action = {
                     let mut rng = rand::thread_rng();
                     match bot.decide(&mut rng) {

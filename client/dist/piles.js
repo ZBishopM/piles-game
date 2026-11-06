@@ -2939,7 +2939,7 @@
   var pendingAutoJoin = false;
   var pendingRejoinCode = null;
   var SEAT_KEY = "piles_seat";
-  var SEAT_FRESH_MS = 9e4;
+  var SEAT_FRESH_MS = 15e4;
   function readSeat() {
     try {
       return JSON.parse(localStorage.getItem(SEAT_KEY) || "null");

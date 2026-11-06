@@ -206,9 +206,10 @@ let pendingRejoinCode: string | null = null;
 const SEAT_KEY = 'piles_seat';
 /** Lo que se guarda del asiento: la sala, su secreto y cuándo se vio por última vez. */
 type Asiento = { lobby: string; token: string | null; seen: number };
-/** 30 s de gracia del servidor más margen. Más viejo que esto, el asiento ya
- *  no existe y no merece la pena intentarlo. */
-const SEAT_FRESH_MS = 90000;
+/** La gracia más larga del servidor (120 s, sola contra bots: GRACE_SOLO) más
+ *  margen. Más viejo que esto, el asiento ya no existe y no merece la pena
+ *  intentarlo. En el móvil el navegador puede recargar la pestaña al volver. */
+const SEAT_FRESH_MS = 150000;
 
 function readSeat(): Asiento | null {
     try { return JSON.parse(localStorage.getItem(SEAT_KEY) || 'null'); } catch { return null; }

@@ -17,7 +17,7 @@ use crate::game::{
     FRENZY_STUN,
     get_clothing_name,
 };
-use crate::game::lobby::{Voto, CountdownChange, COUNTDOWN, DEBT_DEADLINE, GRACE_PERIOD, VOTE_PERIOD};
+use crate::game::lobby::{Voto, CountdownChange, COUNTDOWN, DEBT_DEADLINE, GRACE_PERIOD, GRACE_SOLO, VOTE_PERIOD};
 
 /// Tipo para enviar mensajes a un cliente específico
 type ClientSender = mpsc::UnboundedSender<ServerMessage>;
@@ -741,21 +741,23 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     // partida se canceló en el mismo milisegundo y no tuvo a qué volver). Se
     // espera igual; `run_grace_period` decide al cumplirse el plazo.
     if lobby.status == LobbyStatus::Playing && !lobby.is_spectator(&player_id) {
+        // Sola contra bots: nadie más espera, se le da más tiempo (GRACE_SOLO).
+        let gracia = if lobby.otra_persona_conectada(&player_id) { GRACE_PERIOD } else { GRACE_SOLO };
         if let Some(nickname) = lobby.mark_disconnected(&player_id) {
             tracing::info!(
                 "⏳ {} ({}) se cayó en partida; {}s para volver",
-                nickname, player_id, GRACE_PERIOD.as_secs()
+                nickname, player_id, gracia.as_secs()
             );
             lobby.commit().await;
             state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
-                "kind": "grace_start", "player": nickname, "secs": GRACE_PERIOD.as_secs(),
+                "kind": "grace_start", "player": nickname, "secs": gracia.as_secs(),
                 "voluntaria": voluntary,
             })).await;
             state.broadcast_to_lobby(lobby_id, ServerMessage::PlayerDisconnected {
                 nickname,
-                seconds: GRACE_PERIOD.as_secs(),
+                seconds: gracia.as_secs(),
             }).await;
-            tokio::spawn(run_grace_period(state.clone(), lobby_id.to_string(), player_id, voluntary));
+            tokio::spawn(run_grace_period(state.clone(), lobby_id.to_string(), player_id, voluntary, gracia));
         }
         // Si no está en `players`, su asiento ya lo tomó otra conexión suya
         // (`rebind_seat`): este cierre ya no pinta nada.
@@ -808,7 +810,18 @@ async fn leave_current_lobby(state: &AppState, player_id: Uuid, lobby_id: &str, 
     if !en_partida {
         state.broadcast_to_lobby(lobby_id, update).await;
         countdown_notify(state, lobby_id, cuenta, "left").await;
-        retire_orphan_bots(state, lobby_id).await;
+        if voluntary {
+            retire_orphan_bots(state, lobby_id).await;
+        } else {
+            // Se le cayó la conexión (el móvil, al cambiar de app): la sala con
+            // sus bots le espera GRACE_SOLO. Si para entonces no ha vuelto
+            // ninguna persona, se cierra (retire_orphan_bots lo comprueba).
+            let (state, lobby_id) = (state.clone(), lobby_id.to_string());
+            tokio::spawn(async move {
+                sleep(GRACE_SOLO).await;
+                retire_orphan_bots(&state, &lobby_id).await;
+            });
+        }
     }
 }
 
@@ -2628,8 +2641,8 @@ async fn cancel_match(state: &AppState, lobby_id: &str, because_of: &str) {
 /// Es aquí, y no en el momento de la caída, donde se decide si la partida se
 /// cancela: antes se cancelaba al instante cuando se caía la única persona (o
 /// quedaba una sola), y quien volvía a los pocos segundos ya no tenía partida.
-async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, voluntary: bool) {
-    sleep(GRACE_PERIOD).await;
+async fn run_grace_period(state: AppState, lobby_id: String, player_id: Uuid, voluntary: bool, gracia: Duration) {
+    sleep(gracia).await;
 
     let Some(mut lobby) = state.lobby_manager.txn(&lobby_id).await else { return };
     // ¿Sigue esperándose a este mismo id?
@@ -2790,12 +2803,12 @@ async fn vote_until_closed(state: AppState, lobby_id: String, caido: Uuid) {
                     nickname: enc.nickname,
                     seconds: GRACE_PERIOD.as_secs(),
                 }).await;
-                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false));
+                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false, GRACE_PERIOD));
             }
             // La partida terminó con él fuera: `run_grace_period` lo saca de la
             // sala (si se queda, bloquea la siguiente ronda).
             "fin" => {
-                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false));
+                tokio::spawn(run_grace_period(state.clone(), lobby_id, caido, false, GRACE_PERIOD));
             }
             _ => {}
         }
