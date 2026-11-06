@@ -19,8 +19,8 @@ async function finDePartida(p, elo) {
       window.playSfx = (n, a) => { __sfx.push(n); return o(n, a); };
       window.__espiado = true;
     }
-    est.currentNickname = 'Rangos';
-    onGameOver([{ position: 1, nickname: 'Rangos', points: 10, combo_points: 0, best_mult_x100: 100 }], elo);
+    juego.est.currentNickname = 'Rangos';
+    juego.onGameOver([{ position: 1, nickname: 'Rangos', points: 10, combo_points: 0, best_mult_x100: 100 }], elo);
   }, elo);
   // 450 ms de espera + el giro (1,8–3,4 s) + el golpe final
   await p.waitForFunction(() => document.querySelector('#eloDial .ag-dial-delta.is-shown'), null, { timeout: 12000 });
@@ -130,8 +130,8 @@ const cuenta = (l, n) => l.filter(x => x === n).length;
   const p = await pagina(ctx);
   await p.evaluate(() => {
     window.__sfx = [];
-    est.currentNickname = 'Rangos';
-    onGameOver([{ position: 1, nickname: 'Rangos', points: 10, combo_points: 0, best_mult_x100: 100 }],
+    juego.est.currentNickname = 'Rangos';
+    juego.onGameOver([{ position: 1, nickname: 'Rangos', points: 10, combo_points: 0, best_mult_x100: 100 }],
       [{ nickname: 'Rangos', pool: 'glory', before: 1195, after: 1207, top3_before: false, top3_after: false }]);
   });
   await wait(1200);

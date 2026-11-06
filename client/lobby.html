@@ -35,12 +35,13 @@
     <script src="/agapornis-ui/rank.js" defer></script>
     <script src="/agapornis-ui/rank-fx.js" defer></script>
     <script src="/agapornis-ui/dial.js" defer></script>
-    <!-- El menú en la mesa (diseno/menu-mesa/README.md). Después de dial.js. -->
+    <!-- El menú en la mesa (diseno/menu-mesa/README.md). -->
     <link rel="stylesheet" href="/mesa/mesa.css">
-    <script src="/mesa/mesa.js" defer></script>
-    <!-- La partida con el mismo estilo y sin franjas de texto (partida/partida.js). Su CSS va
-         al final del <head>, detrás de lobby.css: a igual especificidad, manda el suyo. -->
-    <script src="/partida/partida.js" defer></script>
+    <!-- Todo el cliente: client/juego/*.js, la mesa y la partida, juntados por esbuild
+         desde client/juego/index.js (no se edita a mano: pnpm build en tools/).
+         Después de dial.js. El CSS de la partida va al final del <head>, detrás de
+         lobby.css: a igual especificidad, manda el suyo. -->
+    <script src="/dist/piles.js" defer></script>
     <link rel="preload" as="image" href="/mesa/siluetas.webp">
     <link rel="stylesheet" href="/lobby.css">
     <link rel="stylesheet" href="/partida/partida.css">
@@ -90,7 +91,7 @@
          cada uno). Estaban lejos el uno del otro y el de abajo empujaba el
          tablero fuera de la pantalla. -->
     <div class="hud" id="hud"></div>
-    <button id="muteBtn" type="button" onclick="toggleMute()" title="Silenciar" data-i18n-attr="title:game.mute">🔊</button>
+    <button id="muteBtn" type="button" data-accion="toggleMute" title="Silenciar" data-i18n-attr="title:game.mute">🔊</button>
 
     <!-- Hint de intercambio -->
     <div id="swapHint" data-i18n-html="game.swaphint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
@@ -118,7 +119,7 @@
         <div class="combo-bar"><div id="comboBarFill"></div></div>
         <!-- Aparece al llegar a x5. Se puede soltar, o guardar para parar el de
              otro: mientras lo tengas cargado, su frenesí no te bloquea. -->
-        <button id="frenzyBtn" type="button" hidden onclick="fireFrenzy()" data-i18n="frenzy.btn">FRENZY</button>
+        <button id="frenzyBtn" type="button" hidden data-accion="fireFrenzy" data-i18n="frenzy.btn">FRENZY</button>
     </div>
     </div><!-- /statusStrip -->
 
@@ -133,7 +134,7 @@
         <p class="section-label" data-i18n="game.sets">Tus Sets</p>
         <!-- Con el dedo se revela deslizando ↓↓ sobre las cartas (gestos.js); el botón
              queda para el teclado. -->
-        <button id="flipBtn" class="solo-teclado" onclick="flipCurrentSet()"
+        <button id="flipBtn" class="solo-teclado" data-accion="flipCurrentSet"
                 title="Mostrar este set a los demás jugadores"
                 data-i18n-attr="title:game.fliptitle" data-i18n="game.flip">👁 Revelar set</button>
     </div>
@@ -167,7 +168,7 @@
         <h2 id="verifyTitle">Verificando...</h2>
         <div id="verifySets"></div>
         <div class="verify-footer" id="verifyFooter"></div>
-        <button id="verifyCloseBtn" onclick="closeVerifyOverlay()" data-i18n="common.close">Cerrar</button>
+        <button id="verifyCloseBtn" data-accion="closeVerifyOverlay" data-i18n="common.close">Cerrar</button>
     </div>
 </div>
 
@@ -203,7 +204,7 @@
         <div id="eloDial" hidden></div>
         <div id="rankingList"></div>
         <p id="smClaimStatus" style="font-size:0.85rem;opacity:0.85;margin-top:10px;"></p>
-        <button class="btn btn-primary" style="margin-top:24px" onclick="returnToLobby()" data-i18n="over.back">Volver al Lobby</button>
+        <button class="btn btn-primary" style="margin-top:24px" data-accion="returnToLobby" data-i18n="over.back">Volver al Lobby</button>
     </div>
 </div>
 
@@ -217,24 +218,10 @@
         <svg class="rc-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="square" aria-hidden="true"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg>
         <h2 data-i18n="recon.title">Conexión perdida</h2>
         <p id="reconnectMsg" data-i18n="recon.msg">La conexión con el servidor se interrumpió.</p>
-        <button class="btn btn-primary" onclick="reconnect()" data-i18n="recon.btn">Reconectar</button>
-        <button class="btn btn-secondary" onclick="location.reload()" data-i18n="recon.reload">Recargar página</button>
+        <button class="btn btn-primary" data-accion="reconnect" data-i18n="recon.btn">Reconectar</button>
+        <button class="btn btn-secondary" data-accion="recargar" data-i18n="recon.reload">Recargar página</button>
     </div>
 </div>
 
-<!-- La lógica del juego, en orden (scripts clásicos: comparten las globales). -->
-<script src="/juego/bus.js"></script>
-<script src="/juego/estado.js"></script>
-<script src="/juego/red.js"></script>
-<script src="/juego/sala.js"></script>
-<script src="/juego/espectador.js"></script>
-<script src="/juego/tablero.js"></script>
-<script src="/juego/sonido.js"></script>
-<script src="/juego/burlas.js"></script>
-<script src="/juego/musica.js"></script>
-<script src="/juego/toques.js"></script>
-<script src="/juego/pelea.js"></script>
-<script src="/juego/verificacion.js"></script>
-<script src="/juego/cuenta.js"></script>
 </body>
 </html>

@@ -58,17 +58,20 @@ piles-game/
 │   │   └── game/        # deck.rs, models.rs, lobby.rs, messages.rs
 │   └── Cargo.toml
 ├── client/                     # Frontend estático (lo sirve el propio binario)
-│   ├── lobby.html              # La página: HTML de la partida y los <script> en orden
+│   ├── lobby.html              # La página: HTML de la partida; carga dist/piles.js
 │   ├── lobby.css               # Estilos base de la partida
-│   ├── juego/                  # La lógica, por dominio: red, sala, tablero, toques, pelea…
+│   ├── juego/                  # La lógica en módulos ES, por dominio: red, sala, tablero,
+│   │                           #   toques, pelea…; index.js es la entrada
 │   ├── mesa/  partida/         # El menú en la mesa y el estilo de la partida
+│   ├── dist/piles.js           # Todo lo anterior junto (esbuild). No se edita: `pnpm build`
+│   │                           #   en tools/ y commit; la CI falla si no coincide con la fuente
 │   ├── i18n.js                 # Idiomas (es, en, zh): diccionarios y t(); ver tools/README.md
 │   ├── replay.html             # Reproduce una grabación de recordings/
 │   ├── index.html              # Redirección a /lobby.html
 │   ├── cards.webp              # Hoja de sprites: 50 prendas × 4 colores + reverso
 │   └── qr-scanner*.min.js      # qr-scanner 1.4.2 (nimiq, MIT), vendorizado
 ├── recordings/                 # Partidas grabadas (.jsonl), servidas por /api/recordings
-├── tools/                      # Arneses de prueba en Node: tap, take-race, spectator…
+├── tools/                      # `pnpm build` del cliente y arneses de prueba en Node: tap, take-race…
 ├── .env.example
 ├── DEPLOY.md                   # Entornos (producción/beta) y cómo desplegar
 ├── arquitectura-piles.html     # Diagrama de arquitectura en ejecución (abrir en el navegador)

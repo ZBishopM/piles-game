@@ -128,7 +128,7 @@ await swipe(70, await caja('#revelaBarra'));
 await wait(1300);
 ok(await cuenta(p, 'flip_set') === 1, '↓ ↓ y esperar: un flip_set');
 await wait(500);
-ok(await p.evaluate(() => !!est.myFlippedSets[est.currentSetIndex]), 'el set queda revelado');
+ok(await p.evaluate(() => !!juego.est.myFlippedSets[juego.est.currentSetIndex]), 'el set queda revelado');
 
 await swipe(-70);
 ok(await p.locator('#revelaBarra.fuera').count() === 1, 'revelado: ↑ saca la barra de ocultar');
@@ -137,9 +137,9 @@ await wait(600);
 ok(await cuenta(p, 'flip_set') === 2, '↑ ↑ oculta (sin espera)');
 
 ok(await cuenta(p, 'drop_card') === 0, 'ningún gesto sobre las cartas soltó una carta');
-const antes = await p.evaluate(() => est.currentSetIndex);
+const antes = await p.evaluate(() => juego.est.currentSetIndex);
 await arrastrar(cartas.x + cartas.width * 0.8, cartas.y + cartas.height / 2, cartas.x + cartas.width * 0.2, cartas.y + cartas.height / 2, 8);
-ok(await p.evaluate(() => est.currentSetIndex) === antes + 1, `← cambia al set siguiente (${antes} → ${await p.evaluate(() => est.currentSetIndex)})`);
+ok(await p.evaluate(() => juego.est.currentSetIndex) === antes + 1, `← cambia al set siguiente (${antes} → ${await p.evaluate(() => juego.est.currentSetIndex)})`);
 
 ok(p.errores.length === 0, `sin errores de página ${p.errores.join(' | ')}`);
 info(`capturas en ${capturas}`);

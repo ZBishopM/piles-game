@@ -31,6 +31,14 @@
 //
 // Y lo que se descarta ya no es mudo: queda anotado (`tap_ignored`) para poder
 // saber, en la grabación, por qué un toque no llegó al servidor.
+import { emitir } from './bus.js';
+import { est, opponentFlippedSets, qteBlockedCards } from './estado.js';
+import { diag, send, srvText } from './red.js';
+import { updateSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, buildCard, cardRectAt, flyCard, clearDebtCountdown } from './tablero.js';
+import { playSfx } from './sonido.js';
+import { playTaunt } from './burlas.js';
+import { stunnedUntil, isStunned } from './pelea.js';
+
 const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
 const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 
@@ -141,7 +149,7 @@ function markPending(el) {
     if (el) el.classList.add('card-pending');
 }
 
-function clearPending() {
+export function clearPending() {
     document.querySelectorAll('.card-pending')
         .forEach(el => el.classList.remove('card-pending'));
 }
@@ -173,7 +181,7 @@ bindTap(document.getElementById('yourCards'),
 const PENDING_MAX_MS = 2500;
 const enVuelo = p => !!p && Date.now() - p.t < PENDING_MAX_MS;
 
-function onPlayerCardClick(index, el) {
+export function onPlayerCardClick(index, el) {
     // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
     // quieto: sigues jugando con tus cartas y con el resto del centro.
     // Debiendo una carta no se puede soltar otra: primero se tapa el hueco.
@@ -192,7 +200,7 @@ function onPlayerCardClick(index, el) {
     send({ type: 'drop_card', my_card_index: index });
 }
 
-function onCenterCardClick(cardId, el) {
+export function onCenterCardClick(cardId, el) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta ya explica por qué no
     // pasa nada. La carta en disputa es la única intocable; las demás siguen
     // disponibles para quien no está peleando.
@@ -233,7 +241,7 @@ function onCenterCardClick(cardId, el) {
 
 /** Movimiento confirmado. La carta vuela de donde salió a donde ha llegado:
  *  al centro si la soltaste, a tu hueco si la cogiste o ganaste la pelea. */
-function onSwapSuccess(msg) {
+export function onSwapSuccess(msg) {
     const drop = est.pendingDrop;
     const take = est.pendingTake;
     const wonFight = !drop && !take && est.qteWonSlot !== null;
@@ -286,7 +294,7 @@ function onSwapSuccess(msg) {
  *  Solo se dice algo cuando el jugador puede hacer algo al respecto —debes una
  *  carta, estás verificando—, y eso lo marca el servidor con `kind`, no el
  *  texto: decidir comparando el texto ya rompió esto una vez. */
-function onSwapFailed(msg) {
+export function onSwapFailed(msg) {
     est.pendingDrop = null;
     est.pendingTake = null;
     rollbackGhost();
@@ -330,13 +338,13 @@ function findChangedSlot(oldCards, newCards) {
 // `est.pendingDrop` y `est.pendingTake`.
 
 /** ¿Hay algún hueco sin tapar en alguno de mis sets? */
-function owesCard() {
+export function owesCard() {
     return est.allSets.some(set => (set || []).some(card => !card));
 }
 
 /** Refleja en el tablero si debes una carta: tus cartas se apagan y el centro
  *  se resalta como lo único con lo que puedes actuar. */
-function updateOwingUi() {
+export function updateOwingUi() {
     const owing = owesCard();
     document.getElementById('gameScreen')?.classList.toggle('owing', owing);
     const hint = document.getElementById('swapHint');
@@ -355,14 +363,14 @@ function updateOwingUi() {
 const DEFAULT_SWAP_HINT = t('swap.hint');
 const OWING_HINT = t('swap.owing');
 
-function clearSelection() {
+export function clearSelection() {
     updateSwapHint(owesCard() ? OWING_HINT : DEFAULT_SWAP_HINT);
 }
 
 let swapHintResetTimer = null;
 
 /** Devuelve el hint a su texto por defecto tras un aviso temporal. */
-function resetSwapHintLater(delayMs) {
+export function resetSwapHintLater(delayMs) {
     if (swapHintResetTimer) clearTimeout(swapHintResetTimer);
     swapHintResetTimer = setTimeout(() => {
         swapHintResetTimer = null;
@@ -371,14 +379,14 @@ function resetSwapHintLater(delayMs) {
 }
 
 // Siempre como texto: algunos avisos llevan apodos de otros jugadores.
-function updateSwapHint(texto) {
+export function updateSwapHint(texto) {
     const el = document.getElementById('swapHint');
     el.textContent = texto;
     el.classList.toggle('selected', owesCard());
 }
 
 // ─── Cambio de set ────────────────────────────────────────────────────────
-function switchSet(index) {
+export function switchSet(index) {
     if (index === est.currentSetIndex) return;
     // Debiendo una carta no se cambia de set: el hueco se quedaría en un set
     // que no estás viendo. El servidor también lo rechaza.
@@ -397,11 +405,11 @@ function switchSet(index) {
 // ─── Voltear sets ─────────────────────────────────────────────────────────
 // `i`: el set fijado al empezar el gesto. El revelado espera 1 s; si en ese rato
 // cambiabas de set, se volteaba el nuevo en vez del que pediste.
-function flipCurrentSet(i = est.currentSetIndex) {
+export function flipCurrentSet(i = est.currentSetIndex) {
     send({ type: 'flip_set', set_index: i });
 }
 
-function updateFlipBtn() {
+export function updateFlipBtn() {
     const btn = document.getElementById('flipBtn');
     if (!btn) return;
     const flipped = est.myFlippedSets[est.currentSetIndex];
@@ -412,7 +420,7 @@ function updateFlipBtn() {
     btn.classList.toggle('is-flipped', flipped);
 }
 
-function onSetFlipped(playerName, setIndex, cards) {
+export function onSetFlipped(playerName, setIndex, cards) {
     const isFlipped = cards.length > 0;
 
     if (playerName === est.currentNickname) {
@@ -440,8 +448,8 @@ function onSetFlipped(playerName, setIndex, cards) {
 // Era una sola variable, y con dos peleas a la vez la segunda pisaba a la
 // primera: el aviso de la primera se quedaba colgado en pantalla para siempre,
 // porque ya no quedaba nada que lo apuntara para poder borrarlo.
-const qteNotifs = new Map();
+export const qteNotifs = new Map();
 
 /** Cuánto dura el resultado en pantalla antes de volver al tablero. */
-const FIGHT_RESULT_MS = 800;
+export const FIGHT_RESULT_MS = 800;
 

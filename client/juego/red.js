@@ -9,7 +9,18 @@
 //   vuelto a la sala) se guardan en una cola y salen al volver, con cuánto
 //   hace que pasaron: así queda lo que ocurrió DURANTE la caída.
 // - Límites: una por tipo cada 400 ms, 400 por partida, 60 en cola.
-const diag = (() => {
+import { emitir } from './bus.js';
+import { est, qteBlockedCards, PONG_TIMEOUT_MS, RECONNECT_MAX_DELAY } from './estado.js';
+import { joinLobby, onEnteredLobby, extractLobbyCode, onSeatReplaced, onHello, enCola, onKicked, onLobbyUpdate, startCountdown, onCountdownCancelled, onGameStart } from './sala.js';
+import { onSpectatorCards, onSpectatorState } from './espectador.js';
+import { updateSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, ratingKey, applyBetaMode, markLanded, onPlayerDisconnected, onPlayerLeft, onWaitPoll, onWaitPollClosed, startDebtCountdown, onDebtForced, renderCombo, onFrenzyFired, flashCenter, initCardTilt } from './tablero.js';
+import { getTaunt } from './burlas.js';
+import { onSwapSuccess, onSwapFailed, owesCard, updateOwingUi, clearSelection, onSetFlipped } from './toques.js';
+import { stunnedUntil, startStun, onSwapConflict, cerrarAvisoPelea, esMiPelea, onQteUpdate, onQteTiebreak, onQteResolved } from './pelea.js';
+import { openVerifyOverlay, revealVerifySet, onVerificationSuccess, onVerificationFailed, onGameOver } from './verificacion.js';
+import { onGameCancelled, showScreen } from './cuenta.js';
+
+export const diag = (() => {
     const POR_TIPO_MS = 400, POR_PARTIDA = 400, COLA_MAX = 60, DETALLE_MAX = 560;
     const cola = [];
     const ultimaPorTipo = new Map();
@@ -202,7 +213,7 @@ function writeSeat(seat) {
     } catch { /* modo privado */ }
 }
 
-function rememberLobby(lobbyId) {
+export function rememberLobby(lobbyId) {
     pendingRejoinCode = lobbyId;
     // El secreto llega en un mensaje aparte justo después (`seat_token`); si
     // ya había uno de esta misma sala, se conserva.
@@ -213,7 +224,7 @@ function rememberLobby(lobbyId) {
 }
 
 /** Te vas de verdad (o la sala ya no existe): se olvida aquí y en el navegador. */
-function forgetLobby() {
+export function forgetLobby() {
     pendingRejoinCode = null;
     est.currentLobbyId = '';
     est.seatToken = null;
@@ -223,7 +234,7 @@ function forgetLobby() {
 
 /** Lo ha tomado otra pestaña: solo se limpia esta pestaña. Lo guardado en el
  *  navegador ya es de la otra. */
-function dropSeatLocally() {
+export function dropSeatLocally() {
     pendingRejoinCode = null;
     est.currentLobbyId = '';
     est.seatToken = null;
@@ -344,16 +355,16 @@ function scheduleReconnect() {
 }
 
 /** El botón del overlay: reintentar ya, sin esperar al backoff. */
-function reconnect() {
+export function reconnect() {
     clearTimeout(est.reconnectTimer);
     est.reconnectAttempt = 0;
     connectWs();
 }
 
-function send(obj) { est.ws.send(JSON.stringify(obj)); }
+export function send(obj) { est.ws.send(JSON.stringify(obj)); }
 
 // ─── Mensajes del servidor ────────────────────────────────────────────────
-function handleMsg(msg) {
+export function handleMsg(msg) {
     emitir('antesDeMensaje', msg);   // con el estado de antes de aplicarlo
     switch (msg.type) {
         case 'lobby_created':
@@ -596,7 +607,7 @@ function handleMsg(msg) {
  *  manda `code` (+ `args`, los datos) y siempre el texto en español como
  *  respaldo: sin `code` (servidor o mensaje viejo) o con un código que esta
  *  versión del cliente no conoce, se enseña ese texto. Nunca se analiza. */
-function srvText(msg, ns) {
+export function srvText(msg, ns) {
     const fallback = msg.message ?? msg.reason ?? '';
     if (!msg.code) return fallback;
     const key = `${ns}.${msg.code}`;

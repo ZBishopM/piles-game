@@ -18,8 +18,8 @@ p.on('websocket', () => { sockets++; });
 
 // El servidor deja de contestar (para el cliente): se descartan los pong.
 await p.evaluate(() => {
-  const original = window.handleMsg;
-  window.handleMsg = m => (m.type === 'pong' ? undefined : original(m));
+  const ws = juego.est.ws, original = ws.onmessage;
+  ws.onmessage = e => (JSON.parse(e.data).type === 'pong' ? undefined : original(e));
 });
 const t0 = Date.now();
 

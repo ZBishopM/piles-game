@@ -16,14 +16,14 @@ const p = await pagina(ctx);
 
 let recargas = 0;
 p.on('framenavigated', f => { if (f === p.mainFrame()) recargas++; });
-const hola = v => p.evaluate(v => handleMsg({ type: 'hello', version: v }), v);
+const hola = v => p.evaluate(v => juego.handleMsg({ type: 'hello', version: v }), v);
 const marca = () => p.evaluate(() => window.__marca ?? null);
 
 await p.evaluate(() => { window.__marca = 'antes'; sessionStorage.removeItem('piles_reloaded_at'); });
 
 // Con el servidor local, la versión es «dev» y no se mira. Contra beta o
 // producción el primer `hello` real ya fijó la versión de la página.
-const real = await p.evaluate(() => versionDelServidor);
+const real = await p.evaluate(() => juego.versionDelServidor);
 let aaa = 'aaa1111';
 if (real === null) {
   await hola('dev'); await hola('dev');

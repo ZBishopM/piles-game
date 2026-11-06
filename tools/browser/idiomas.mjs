@@ -118,7 +118,7 @@ async function pestana(idioma, viewport, nick = null, extra = {}) {
   return p;
 }
 const abrir = async (p, url = '/lobby.html') => { await p.goto(base + url, { waitUntil: 'networkidle' }); };
-const inyectar = (p, m) => p.evaluate(m => handleMsg(m), m);
+const inyectar = (p, m) => p.evaluate(m => juego.handleMsg(m), m);
 const ENTRAR_SALA = async (p, nick) => {
   await p.locator('#nickname').fill(nick);
   await p.locator('button[onclick="showScreen(\'hostScreen\')"]').click();
@@ -224,23 +224,23 @@ for (const L of IDIOMAS) {
   // Jugadas rechazadas con su código: el aviso del tablero sale traducido.
   await A.evaluate(() => {
     window.__m = [];
-    const o = est.ws.onmessage;
-    est.ws.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'swap_failed' || m.type === 'error') __m.push(m); } catch { /* */ } o(e); };
+    const o = juego.est.ws.onmessage;
+    juego.est.ws.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'swap_failed' || m.type === 'error') __m.push(m); } catch { /* */ } o(e); };
   });
-  await A.evaluate(() => send({ type: 'take_card', card_id: est.centerCards[0].id }));
+  await A.evaluate(() => juego.send({ type: 'take_card', card_id: juego.est.centerCards[0].id }));
   await A.waitForFunction(() => __m.some(m => m.type === 'swap_failed'), null, { timeout: 3000 });
-  const sf = await A.evaluate(() => { const m = __m.find(m => m.type === 'swap_failed'); return { code: m.code, texto: srvText(m, 'swapfail'), esperado: t('swapfail.no_debt') }; });
+  const sf = await A.evaluate(() => { const m = __m.find(m => m.type === 'swap_failed'); return { code: m.code, texto: juego.srvText(m, 'swapfail'), esperado: t('swapfail.no_debt') }; });
   ok(sf.code === 'no_debt' && sf.texto === sf.esperado && (L === 'es' || !/Suelta/.test(sf.texto)), `[${L}] swap_failed real (coger sin deber) llega con su code y sale traducido: «${sf.texto}»`);
-  await A.evaluate(() => send({ type: 'switch_set', set_index: 9 }));
+  await A.evaluate(() => juego.send({ type: 'switch_set', set_index: 9 }));
   await A.waitForFunction(() => __m.some(m => m.type === 'error'), null, { timeout: 3000 });
-  const er = await A.evaluate(() => { const m = __m.find(m => m.type === 'error'); return { code: m.code, texto: srvText(m, 'err'), esperado: t('err.bad_set_index') }; });
+  const er = await A.evaluate(() => { const m = __m.find(m => m.type === 'error'); return { code: m.code, texto: juego.srvText(m, 'err'), esperado: t('err.bad_set_index') }; });
   ok(er.code === 'bad_set_index' && er.texto === er.esperado, `[${L}] error real del servidor (set inválido) llega con su code y sale traducido: «${er.texto}»`);
   await A.locator('.ag-toast-msg').filter({ hasText: er.texto }).first().waitFor({ timeout: 3000 });
   await revisar(A, L, 'toast de error');
 
   // Pelea y desempate (lo que no se puede provocar a voluntad), inyectados.
   await A.evaluate(() => { document.querySelectorAll('.ag-toast').forEach(e => e.remove()); });
-  const carta = await A.evaluate(() => est.centerCards[0].id);
+  const carta = await A.evaluate(() => juego.est.centerCards[0].id);
   await inyectar(A, { type: 'swap_conflict', players: ['Ana', '🤖 Bot 1'], card_id: carta, qte_duration: 6000 });
   await inyectar(A, { type: 'qte_update', card_id: carta, clicks: { 'Ana': 3, '🤖 Bot 1': 2 } });
   await revisar(A, L, 'pelea (overlay)'); await sinDesborde(A, L, 'pelea'); await foto(A, L, 'pelea', MOV);
@@ -297,7 +297,7 @@ for (const L of IDIOMAS) {
   await A.locator('#verifyCloseBtn').click();
 
   // Cuenta atrás cancelada, expulsión y fin
-  await A.evaluate(() => startCountdown(3));
+  await A.evaluate(() => juego.startCountdown(3));
   await inyectar(A, { type: 'countdown_cancelled', reason: 'joined' });
   await revisar(A, L, 'cuenta atrás cancelada');
   await inyectar(A, { type: 'game_over',
@@ -356,7 +356,7 @@ for (const L of IDIOMAS) {
     await a.locator('.ag-toast').filter({ hasText: /Beto/ }).first().waitFor({ timeout: 3000 });
     await revisar(a, L, 'aviso «fue expulsado»');
     // Beto no puede volver: el error trae los minutos.
-    await b.evaluate(code => { document.getElementById('lobbyCode').value = code; joinLobby(); }, cod);
+    await b.evaluate(code => { document.getElementById('lobbyCode').value = code; juego.joinLobby(); }, cod);
     const vuelta = await b.evaluate(() => t('err.kicked_wait', { min: 5 }));
     await b.waitForFunction(s => [...document.querySelectorAll('.ag-toast-msg')].some(e => e.textContent === s), vuelta, { timeout: 4000 });
     await revisar(b, L, 'no puede volver tras la expulsión');

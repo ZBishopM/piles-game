@@ -1,7 +1,18 @@
 // ─── Verificación ────────────────────────────────────────────────────────
+import { emitir } from './bus.js';
+import { est, otherVerifications, qteBlockedCards } from './estado.js';
+import { send } from './red.js';
+import { sinEmoji } from './espectador.js';
+import { applyCardSprite, cardName, REDUCED_MOTION, resetCombo } from './tablero.js';
+import { playSfx } from './sonido.js';
+import { stopMusic } from './musica.js';
+import { qteNotifs } from './toques.js';
+import { cerrarAvisoPelea } from './pelea.js';
+import { claimSessionManagerResult } from './cuenta.js';
+
 
 /** Enseñar los 6 sets ES pedir la verificación; no hay botón. */
-function checkAutoVerify() {
+export function checkAutoVerify() {
     if (est.verificationSent) return;
     if (est.myFlippedSets.length === 6 && est.myFlippedSets.every(f => f)) {
         est.verificationSent = true;
@@ -9,7 +20,7 @@ function checkAutoVerify() {
     }
 }
 
-function openVerifyOverlay(playerName) {
+export function openVerifyOverlay(playerName) {
     if (playerName === est.currentNickname) {
         // Mi verificación → overlay completo
         const overlay = document.getElementById('verifyOverlay');
@@ -54,7 +65,7 @@ function openVerifyOverlay(playerName) {
     emitir('openVerifyOverlay', playerName);
 }
 
-function revealVerifySet(playerName, setIndex, isValid, cards) {
+export function revealVerifySet(playerName, setIndex, isValid, cards) {
     const symbol = isValid ? '✅' : '❌';
 
     if (playerName === est.currentNickname) {
@@ -80,7 +91,7 @@ function revealVerifySet(playerName, setIndex, isValid, cards) {
     emitir('revealVerifySet', playerName, setIndex, isValid, cards);
 }
 
-function onVerificationSuccess(playerName, position) {
+export function onVerificationSuccess(playerName, position) {
     const medals = ['🥇', '🥈', '🥉'];
     const medal = medals[position - 1] || t('pos.ord', { n: position });
 
@@ -100,7 +111,7 @@ function onVerificationSuccess(playerName, position) {
     emitir('onVerificationSuccess', playerName, position);
 }
 
-function onVerificationFailed(playerName, failedSets) {
+export function onVerificationFailed(playerName, failedSets) {
     const failedNames = failedSets.map(i => t('set.n', { n: i + 1 })).join(t('list.sep'));
 
     if (playerName === est.currentNickname) {
@@ -120,7 +131,7 @@ function onVerificationFailed(playerName, failedSets) {
     emitir('onVerificationFailed', playerName, failedSets);
 }
 
-function closeVerifyOverlay() {
+export function closeVerifyOverlay() {
     document.getElementById('verifyOverlay').classList.remove('active');
 }
 
@@ -144,7 +155,7 @@ function dismissVerifyNotif(playerName, notif, delayMs) {
  *  completó el podio mientras otro seguía verificando) el resultado no
  *  llegaba nunca y la notificación se quedaba en pantalla — incluso en la
  *  siguiente ronda. Al cerrar la partida se limpian todas. */
-function clearMatchNotifications() {
+export function clearMatchNotifications() {
     document.getElementById('verifyNotifications').innerHTML = '';
     otherVerifications.clear();
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
@@ -184,7 +195,7 @@ function lanzarConfeti() {
     setTimeout(() => layer.remove(), 4200);
 }
 
-function onGameOver(rankings, elo = []) {
+export function onGameOver(rankings, elo = []) {
     const yaMostrado = document.getElementById('gameOverOverlay').classList.contains('active');
     est.gameOver = true;
     stopMusic();

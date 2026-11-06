@@ -17,7 +17,7 @@ const browser = await lanzar();
 async function caso(nombre, rankings, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
   const p = await pagina(ctx);
-  await p.evaluate(rs => { est.currentNickname = 'Yo'; onGameOver(rs, []); }, rankings);
+  await p.evaluate(rs => { juego.est.currentNickname = 'Yo'; juego.onGameOver(rs, []); }, rankings);
   return { p, ctx };
 }
 
@@ -34,7 +34,7 @@ async function caso(nombre, rankings, opts = {}) {
   ok(t.pe === 'none' && !t.hit, 'no captura clics (pointer-events:none)');
   ok(!t.anchoScroll, 'sin desborde horizontal');
   // mensaje repetido: no duplica
-  await p.evaluate(() => onGameOver([{ position: 1, nickname: 'Yo' }, { position: 2, nickname: 'Bot' }], []));
+  await p.evaluate(() => juego.onGameOver([{ position: 1, nickname: 'Yo' }, { position: 2, nickname: 'Bot' }], []));
   ok(await p.evaluate(() => document.querySelectorAll('#confetiLayer').length) === 1, 'mensaje repetido: una sola capa');
   await wait(500);
   if (carpeta) {
@@ -53,7 +53,7 @@ async function caso(nombre, rankings, opts = {}) {
 {
   const { p, ctx } = await caso('limpia', [R(1, 'Yo'), R(2, 'Bot')]);
   await wait(300);
-  await p.evaluate(() => returnToLobby());
+  await p.evaluate(() => juego.returnToLobby());
   ok(await p.evaluate(() => !document.getElementById('confetiLayer')), 'returnToLobby retira el confeti');
   ok(p.errores.length === 0, 'sin errores de JS tras returnToLobby');
   await ctx.close();

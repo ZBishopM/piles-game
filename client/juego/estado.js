@@ -1,19 +1,11 @@
 // ─── Estado ───────────────────────────────────────────────────────────────
 // El rótulo de las cartas en pelea sale del CSS (::after): se lee de esta variable.
 document.documentElement.style.setProperty('--t-peleada', JSON.stringify(t('card.fought')));
-// Cambiar de idioma recarga la página (ver i18n.js): se recuerda la pantalla para volver a ella.
-window.onBeforeLangChange = () => {
-    try {
-        const v = miNombre();
-        if (v) localStorage.setItem('piles_nickname', v);
-        sessionStorage.setItem('piles.afterLang', vistaActual);
-    } catch { /* sin storage */ }
-};
 /** Tu nombre: el campo de la mesa (#nombre). La mesa lo guarda en piles_nickname al escribir. */
-const miNombre = () => (document.getElementById('nombre')?.value ?? '').trim();
+export const miNombre = () => (document.getElementById('nombre')?.value ?? '').trim();
 
 /** Lo que cambian varios archivos: aquí y solo aquí, como `est.x`. */
-const est = {
+export const est = {
     ws: null,
     currentPlayerId: '',
     currentLobbyId: '',
@@ -80,10 +72,10 @@ const est = {
 };
 
 // Map<playerName, Map<setIndex, CardInfo|null>>
-const opponentFlippedSets = new Map();
+export const opponentFlippedSets = new Map();
 
 // Verificaciones en curso de otros jugadores: Map<playerName, HTMLElement>
-const otherVerifications = new Map();
+export const otherVerifications = new Map();
 
 // Id de la carta del centro en disputa, para todos los clientes
 // (participantes y espectadores) — pinta esa carta en rojo y las demás
@@ -92,15 +84,15 @@ const otherVerifications = new Map();
 // Cartas en disputa AHORA MISMO, por id. Es un conjunto y no un id suelto
 // porque puede haber dos peleas a la vez: con una sola variable, la segunda
 // borraba a la primera y su carta se quedaba sin marcar.
-const qteBlockedCards = new Set();
+export const qteBlockedCards = new Set();
 
 // Perro guardián de la conexión: si un ping lleva tanto sin su pong, el socket
 // está muerto aunque el navegador no lo sepa (con la red caída tarda minutos en
 // avisar) y se vuelve a conectar sin esperarle.
-const PONG_TIMEOUT_MS = 9000;
+export const PONG_TIMEOUT_MS = 9000;
 
 // Reconexión: el overlay ya traía un botón "Reconectar", pero había que
 // encontrarlo y pulsarlo. La partida sigue viva en el servidor y volver es lo
 // único que quiere el jugador, así que se reintenta solo. El botón se queda
 // como "ahora mismo, sin esperar".
-const RECONNECT_MAX_DELAY = 15000;
+export const RECONNECT_MAX_DELAY = 15000;

@@ -47,9 +47,31 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+  client:
+    name: Cliente (client/dist al día)
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: tools
+    steps:
+      - uses: actions/checkout@v6
+
+      # pnpm en la versión de tools/package.json (packageManager), con el corepack de Node.
+      - name: pnpm
+        run: corepack enable && pnpm --version
+
+      - run: pnpm install --frozen-lockfile
+
+      # client/dist se sirve tal cual desde git (el VPS no compila): tiene que ser
+      # exactamente lo que sale de la fuente.
+      - name: client/dist = pnpm build
+        run: |
+          pnpm build
+          git diff --exit-code -- ../client/dist || { echo "client/dist no corresponde a la fuente: pnpm build en tools/ y commit"; exit 1; }
+
   deploy-beta:
     name: Deploy beta
-    needs: build
+    needs: [build, client]
     if: github.event_name == 'push' && github.ref == 'refs/heads/beta' && vars.DEPLOY_HOST != ''
     runs-on: ubuntu-24.04
     environment: beta

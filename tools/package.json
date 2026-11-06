@@ -2,9 +2,15 @@
   "name": "piles-tools",
   "private": true,
   "type": "module",
-  "description": "Herramientas para depurar piles: pruebas con sockets reales (repro/) y con navegador (browser/). Ver README.md.",
+  "description": "Herramientas de piles: el empaquetado del cliente (build), pruebas con sockets reales (repro/) y con navegador (browser/). Ver README.md.",
+  "packageManager": "pnpm@11.3.0",
+  "scripts": {
+    "build": "esbuild ../client/juego/index.js --bundle --format=iife --target=es2022 --outfile=../client/dist/piles.js --log-level=warning"
+  },
   "devDependencies": {
     "@playwright/test": "1.62.1",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
     "ws": "^8.18.0"
   }
 }

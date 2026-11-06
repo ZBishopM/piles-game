@@ -26,13 +26,13 @@ for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 900 }, {
   const res = await page.evaluate(() => {
     const carta = (id, t) => ({ id, clothing_type: t, name: 'x' + t });
     const sets = Array.from({ length: 6 }, (_, s) => Array.from({ length: 4 }, (_, i) => carta(s * 4 + i, 2 + s)));
-    est.currentNickname = 'Ana';
+    juego.est.currentNickname = 'Ana';
     const salida = [];
     for (const n of [4, 6, 8]) {
       let peor = -99, ejemplo = '';
       for (let intento = 0; intento < 40; intento++) {
         const centro = Array.from({ length: n }, (_, i) => carta(100 + intento * 17 + i * 5 + i * i, 20 + i));
-        handleMsg({ type: 'game_start', your_sets: sets, center_cards: centro, current_set: 0, players: ['Ana', 'Beto'] });
+        juego.handleMsg({ type: 'game_start', your_sets: sets, center_cards: centro, current_set: 0, players: ['Ana', 'Beto'] });
         const c = document.getElementById('centerCards');
         const d = c.scrollHeight - c.clientHeight;
         if (d > peor) { peor = d; ejemplo = `overflow-y=${getComputedStyle(c).overflowY}`; }

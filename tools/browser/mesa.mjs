@@ -18,7 +18,7 @@ async function persona(nombre, vp) {
   await p.fill('#nombre', nombre); await p.locator('#nombre').blur();
   return p;
 }
-const estadoDe = p => p.evaluate(() => ({ pantalla: mesa.pantalla, sala: est.currentLobbyId, mano: mesa.mano.map(c => c.dataset.nombre), cab: document.querySelectorAll('.carta.cabecera').length }));
+const estadoDe = p => p.evaluate(() => ({ pantalla: mesa.pantalla, sala: juego.est.currentLobbyId, mano: mesa.mano.map(c => c.dataset.nombre), cab: document.querySelectorAll('.carta.cabecera').length }));
 const tecla = async (p, k, n = 1) => { for (let i = 0; i < n; i++) { await p.keyboard.press(k); await espera(350); } };
 const foto = (p, n) => p.screenshot({ path: `${OUT}/${n}.png` });
 
@@ -26,7 +26,7 @@ const A = await persona('Ana', { width: 390, height: 844 });
 await foto(A, '01-inicio');
 let e = await estadoDe(A);
 ok(e.pantalla === 'inicio' && e.mano.length === 3, `A en inicio con 3 cartas (${e.mano})`);
-ok(await A.evaluate(() => !document.getElementById('homeScreen') && document.querySelectorAll('.screen').length === 1 && vistaActual === 'homeScreen'), 'sin pantallas viejas: solo la partida');
+ok(await A.evaluate(() => !document.getElementById('homeScreen') && document.querySelectorAll('.screen').length === 1 && juego.vistaActual === 'homeScreen'), 'sin pantallas viejas: solo la partida');
 
 // Crear sala (4) y abrirla
 await tecla(A, 'ArrowRight'); await tecla(A, 'ArrowUp'); await espera(900);

@@ -10,11 +10,13 @@
 //
 // Si algún día se quieren muestras de verdad, el sitio por donde entrar es
 // `playSfx`: misma llamada, otro reproductor.
-let audioCtx = null;
+import { est } from './estado.js';
+
+export let audioCtx = null;
 try { est.sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
 
 /** El navegador no deja sonar nada hasta que el usuario toca algo. */
-function unlockAudio() {
+export function unlockAudio() {
     if (audioCtx) return;
     try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -23,7 +25,7 @@ function unlockAudio() {
 document.addEventListener('pointerdown', unlockAudio, { once: true });
 
 /** Una nota. `type` da el color, la envolvente da el golpe. */
-function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }) {
+export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }) {
     if (!audioCtx || est.sfxMuted) return;
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -62,7 +64,7 @@ function noise({ dur = 0.08, gain = 0.12, hp = 800 }) {
 
 /** Escalón de la cadena: cada jugada encadenada suena más arriba.
  *  Es LA firma de Balatro y lo que convierte una racha en algo que se siente. */
-function comboStep(multX100) {
+export function comboStep(multX100) {
     const escalon = Math.max(0, Math.round((multX100 - 100) / 25));
     // Semitonos sobre un La: sube sin salirse de tono aunque la racha sea larga.
     tone({ freq: 440 * Math.pow(2, Math.min(escalon, 16) / 12), dur: 0.1, type: 'square', gain: 0.12 });
@@ -114,7 +116,7 @@ const SFX = {
     },
 };
 
-function playSfx(name, arg) {
+export function playSfx(name, arg) {
     if (est.sfxMuted || !audioCtx) return;
     try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
 }

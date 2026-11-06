@@ -10,9 +10,9 @@
 // Quien escucha y devuelve `false` cancela: `emitir` devuelve entonces false
 // (solo lo miran los avisos que lo dicen, como 'aterriza').
 const bus = new EventTarget();
-function emitir(nombre, ...datos) {
+export function emitir(nombre, ...datos) {
     return bus.dispatchEvent(new CustomEvent(nombre, { detail: datos, cancelable: true }));
 }
-function al(nombre, f) {
+export function al(nombre, f) {
     bus.addEventListener(nombre, e => { if (f(...e.detail) === false) e.preventDefault(); });
 }

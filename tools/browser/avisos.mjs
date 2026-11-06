@@ -16,8 +16,8 @@ const p = await pagina(ctx);
 await p.evaluate(() => { window.__xss = undefined; });
 await aPartida(p, 'Mirón');
 
-const inyectar = m => p.evaluate(m => handleMsg(m), m);
-const [X, Y] = await p.evaluate(() => [est.centerCards[0].id, est.centerCards[1].id]);
+const inyectar = m => p.evaluate(m => juego.handleMsg(m), m);
+const [X, Y] = await p.evaluate(() => [juego.est.centerCards[0].id, juego.est.centerCards[1].id]);
 const malo = '<img src=x onerror=window.__xss=1>';
 
 await inyectar({ type: 'swap_conflict', players: [malo, 'Luis'], card_id: X, qte_duration: 4000 });
@@ -79,18 +79,18 @@ ok(await oferta(q1), 'tras 12 s solo, la oferta de bots aparece');
 
 // b) «Seguir buscando» la cierra y no vuelve con el siguiente lobby_update.
 await q1.getByRole('button', { name: /Seguir buscando/ }).click();
-ok(await q1.evaluate(() => cameFromQuickMatch === false), 'descartar la oferta apaga cameFromQuickMatch');
-await q1.evaluate(() => handleMsg({ type: 'lobby_update', players: [{ id: est.currentPlayerId, nickname: 'Rapido' }], max_players: 4 }));
+ok(await q1.evaluate(() => juego.cameFromQuickMatch === false), 'descartar la oferta apaga cameFromQuickMatch');
+await q1.evaluate(() => juego.handleMsg({ type: 'lobby_update', players: [{ id: juego.est.currentPlayerId, nickname: 'Rapido' }], max_players: 4 }));
 await wait(13000);
 ok(!(await oferta(q1)), 'un lobby_update con un jugador no la reabre tras descartarla');
 
 // c) salir y crear otra sala: nada de oferta.
-await q1.evaluate(() => leaveLobby());
-await q1.evaluate(() => { cameFromQuickMatch = true; });   // peor caso: bandera sucia
+await q1.evaluate(() => juego.leaveLobby());
+await q1.evaluate(() => { juego.cameFromQuickMatch = true; });   // peor caso: bandera sucia
 await q1.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await q1.getByRole('button', { name: /Empezar/ }).click();
 await q1.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
-ok(await q1.evaluate(() => cameFromQuickMatch === false), 'crear sala apaga cameFromQuickMatch');
+ok(await q1.evaluate(() => juego.cameFromQuickMatch === false), 'crear sala apaga cameFromQuickMatch');
 await wait(13000);
 ok(!(await oferta(q1)), 'en la sala nueva con un jugador no sale la oferta de bots');
 
@@ -99,15 +99,15 @@ const q2 = await pagina(await browser.newContext());
 await q2.getByPlaceholder(/Jugador1/).fill('Rapido2');
 await q2.getByRole('button', { name: /Partida rápida/ }).press("Enter");
 await q2.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
-await q2.evaluate(() => leaveLobby());
-ok(await q2.evaluate(() => cameFromQuickMatch === false), 'salir de la sala apaga cameFromQuickMatch');
+await q2.evaluate(() => juego.leaveLobby());
+ok(await q2.evaluate(() => juego.cameFromQuickMatch === false), 'salir de la sala apaga cameFromQuickMatch');
 
 // e) aceptar la oferta apaga la bandera y los lobby_update siguientes no la rearman.
 await q2.getByPlaceholder(/Jugador1/).fill('Rapido3');
 await q2.getByRole('button', { name: /Partida rápida/ }).press("Enter");
 await q2.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
-await q2.evaluate(() => acceptBotsOffer());
-ok(await q2.evaluate(() => cameFromQuickMatch === false), 'aceptar la oferta apaga cameFromQuickMatch');
+await q2.evaluate(() => juego.acceptBotsOffer());
+ok(await q2.evaluate(() => juego.cameFromQuickMatch === false), 'aceptar la oferta apaga cameFromQuickMatch');
 ok(q2.errores.length === 0 && q1.errores.length === 0, 'sin errores de JavaScript en las pestañas de la oferta');
 
 await browser.close();

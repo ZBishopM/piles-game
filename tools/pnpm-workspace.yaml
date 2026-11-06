@@ -1,0 +1,3 @@
+allowBuilds:
+  # El binario llega en @esbuild/<plataforma>; su postinstall solo lo verifica.
+  esbuild: false

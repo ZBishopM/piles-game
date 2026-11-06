@@ -2,14 +2,17 @@
 // El servidor manda la tabla de cartas (`spectator_cards`, una vez) y la mano
 // de todos por ids (`spectator_state`, cada ~200 ms si algo cambió). Con eso se
 // pinta el tablero de cualquier jugador con las mismas cartas del juego.
+import { est } from './estado.js';
+import { cardName, buildCard, formatMult } from './tablero.js';
+
 let specCards = {};        // id → { c: prenda, n: nombre }
 
 /** Sin emoji, como en la mesa (los nombres de bot y algunos textos de i18n traen uno). */
-function sinEmoji(s) {
+export function sinEmoji(s) {
     return String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu, '').replace(/\s+/g, ' ').trim();
 }
 
-function resetEspectador() {
+export function resetEspectador() {
     specCards = {}; est.specState = null; est.specOrden = []; est.specVista = null; est.specSet = null;
     document.getElementById('specSeats')?.replaceChildren();
     document.getElementById('specCards')?.replaceChildren();
@@ -17,12 +20,12 @@ function resetEspectador() {
     document.getElementById('specAll')?.replaceChildren();
 }
 
-function onSpectatorCards(msg) {
+export function onSpectatorCards(msg) {
     specCards = msg.cards || {};
     renderSpectator();
 }
 
-function onSpectatorState(msg) {
+export function onSpectatorState(msg) {
     est.specState = msg;
     renderSpectator();
 }

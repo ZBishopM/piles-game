@@ -258,7 +258,7 @@ quedan como nombres de vista (`vistaActual`, `showScreen(id)`). La lógica (`cli
 
 | Archivo | Qué es |
 |---|---|
-| `client/mesa/mesa.js` | La escena, el diccionario (`DIC`) y la interfaz conectada. Todo dentro de una IIFE (no choca con los globales de `client/juego/`). |
+| `client/mesa/mesa.js` | La escena, el diccionario (`DIC`) y la interfaz conectada. Módulo ES: importa de `client/juego/` lo que usa; va en `client/dist/piles.js` (tras editarlo, `pnpm build` en tools/). |
 | `client/mesa/mesa.css` | Estilos, todos bajo `#escenario` (las variables también). |
 | `client/mesa/siluetas.webp`, `brazos.webp` | Las hojas de sprites (archivos aparte, cacheables). |
 

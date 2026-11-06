@@ -1,7 +1,16 @@
 // ─── Elo en el perfil y vincular la cuenta ────────────────────────────────
+import { emitir } from './bus.js';
+import { miNombre, est, opponentFlippedSets } from './estado.js';
+import { srvText } from './red.js';
+import { cancelQuickMatchOffer, closeCountdown } from './sala.js';
+import { IS_BETA, resetCombo } from './tablero.js';
+import { stopMusic } from './musica.js';
+import { clearStun, closeQteOverlay } from './pelea.js';
+import { closeVerifyOverlay, clearMatchNotifications } from './verificacion.js';
+
 const SM_BASE = 'https://gamesessions.danassistantassistant.website';
 
-async function fetchElo(key) {
+export async function fetchElo(key) {
     const res = await fetch(`/api/elo/${encodeURIComponent(key)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -17,15 +26,15 @@ const eloLine = rec => ['fun', 'glory']
 // ─── Código de Session Manager ───────────────────────────────────────────
 // Queda guardado (piles_sm_code) y se usa en cada partida hasta que lo
 // cambies o lo borres. Lo escribe la mesa (Perfil → Session Manager).
-const smCodeGuardado = () => (localStorage.getItem('piles_sm_code') || '').trim();
+export const smCodeGuardado = () => (localStorage.getItem('piles_sm_code') || '').trim();
 /** Guarda el código y, si tiene forma de código, vincula también el Elo. */
-function setSmCode(code) {
+export function setSmCode(code) {
     const v = (code || '').trim().toUpperCase();
     if (!v) { clearSmCode(); return; }
     localStorage.setItem('piles_sm_code', v);
     if (/^[A-Z2-9]{6,12}$/.test(v)) linkAccountElo(v);
 }
-function clearSmCode() {
+export function clearSmCode() {
     localStorage.removeItem('piles_sm_code');
     unlinkAccountElo();
 }
@@ -116,7 +125,7 @@ function unlinkAccountElo() {
 // already computed here) so it counts toward their session-manager
 // profile. No effect on anonymous play — nothing is sent without a code.
 // See pb_hooks/piles_claim.pb.js in the session-manager repo.
-function claimSessionManagerResult(rankings) {
+export function claimSessionManagerResult(rankings) {
     // En beta no se reclama nada: no hace falta cuenta de Session Manager y
     // las partidas de prueba no deben sumar en perfiles reales.
     if (IS_BETA) return;
@@ -158,7 +167,7 @@ function claimSessionManagerResult(rankings) {
         });
 }
 
-function onGameCancelled(msg) {
+export function onGameCancelled(msg) {
     stopMusic();
     // Cerrar overlays activos del juego
     closeVerifyOverlay();
@@ -173,7 +182,7 @@ function onGameCancelled(msg) {
     returnToLobby();
 }
 
-function returnToLobby() {
+export function returnToLobby() {
     cancelQuickMatchOffer();
     stopMusic();
     est.gameOver = false;
@@ -201,11 +210,20 @@ function returnToLobby() {
 // ─── Vista ────────────────────────────────────────────────────────────────
 /** Dónde está el jugador: 'homeScreen', 'profileScreen', 'joinScreen', 'lobbyScreen'
  *  o 'gameScreen'. Solo la partida es una pantalla del DOM; el resto lo pinta la
- *  mesa, que envuelve esta función para ir a su menú. */
-let vistaActual = 'homeScreen';
-function showScreen(id) {
+ *  mesa, que escucha `showScreen` para ir a su menú. */
+export let vistaActual = 'homeScreen';
+export function showScreen(id) {
     vistaActual = id;
     document.getElementById('gameScreen').classList.toggle('active', id === 'gameScreen');
     if (id !== 'lobbyScreen') closeCountdown();   // la partida (o salir) cierra la cuenta atrás
     emitir('showScreen', id);
 }
+
+// Cambiar de idioma recarga la página (ver i18n.js): se recuerda la pantalla para volver a ella.
+window.onBeforeLangChange = () => {
+    try {
+        const v = miNombre();
+        if (v) localStorage.setItem('piles_nickname', v);
+        sessionStorage.setItem('piles.afterLang', vistaActual);
+    } catch { /* sin storage */ }
+};

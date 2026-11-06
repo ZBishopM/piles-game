@@ -33,12 +33,12 @@ export async function aPartida(p, nick, dificultad = null) {
   const tecla = async t => { await p.keyboard.press(t); await wait(350); };
   await tecla('ArrowRight'); await tecla('ArrowUp');          // inicio → Crear sala
   await wait(700); await tecla('ArrowUp');                    // Abrir sala
-  await p.waitForFunction(() => vistaActual === 'lobbyScreen' && !!est.currentLobbyId, null, { timeout: 5000 });
-  const codigo = await p.evaluate(() => est.currentLobbyId);
-  if (dificultad) await p.evaluate(d => setBotDifficulty({ 'Fácil': 'easy', Normal: 'normal', 'Difícil': 'hard' }[d] ?? 'normal'), dificultad);
-  await p.evaluate(() => addBot());
-  await p.waitForFunction(() => jugadoresEnSala >= 2, null, { timeout: 5000 });
-  await p.evaluate(() => toggleReady());
+  await p.waitForFunction(() => juego.vistaActual === 'lobbyScreen' && !!juego.est.currentLobbyId, null, { timeout: 5000 });
+  const codigo = await p.evaluate(() => juego.est.currentLobbyId);
+  if (dificultad) await p.evaluate(d => juego.setBotDifficulty({ 'Fácil': 'easy', Normal: 'normal', 'Difícil': 'hard' }[d] ?? 'normal'), dificultad);
+  await p.evaluate(() => juego.addBot());
+  await p.waitForFunction(() => juego.jugadoresEnSala >= 2, null, { timeout: 5000 });
+  await p.evaluate(() => juego.toggleReady());
   await p.locator('#gameScreen.active').waitFor({ timeout: 15000 });
   await wait(2000);   // la entrada a la partida (el tablero cae en su sitio) dura ~1,3 s
   return codigo;
@@ -48,13 +48,13 @@ export async function aPartida(p, nick, dificultad = null) {
 export async function espiarEnvios(p) {
   await p.evaluate(() => {
     window.__env = [];                       // cada llamada vacía la cuenta…
-    if (est.ws.__espiado) return;                // …pero el espía se instala UNA vez
-    const o = est.ws.send.bind(est.ws);
-    est.ws.send = d => {
+    if (juego.est.ws.__espiado) return;                // …pero el espía se instala UNA vez
+    const o = juego.est.ws.send.bind(juego.est.ws);
+    juego.est.ws.send = d => {
       try { const m = JSON.parse(d); if (m.type !== 'ping' && m.type !== 'client_note') __env.push(m.type); } catch { /* */ }
       return o(d);
     };
-    est.ws.__espiado = true;
+    juego.est.ws.__espiado = true;
   });
 }
 export const envios = p => p.evaluate(() => [...__env]);
@@ -63,9 +63,9 @@ export const cuenta = async (p, tipo) => (await envios(p)).filter(t => t === tip
 /** Retrasa todo lo que llega del servidor: lo que hace falta para ver duplicados que en localhost no salen. */
 export async function conRetraso(p, ms) {
   await p.evaluate(ms => {
-    const om = est.ws.onmessage;
-    est.ws.onmessage = e => setTimeout(() => om(e), ms);
+    const om = juego.est.ws.onmessage;
+    juego.est.ws.onmessage = e => setTimeout(() => om(e), ms);
   }, ms);
 }
 
-export const mano = p => p.evaluate(() => JSON.stringify(est.allSets));
+export const mano = p => p.evaluate(() => JSON.stringify(juego.est.allSets));

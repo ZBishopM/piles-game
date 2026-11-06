@@ -7,6 +7,10 @@
 //
 // Responde a la racha, que es lo que la hace valer la pena: la partida se oye
 // distinta cuando vas encadenando, sin tener que mirar el multiplicador.
+import { emitir } from './bus.js';
+import { est } from './estado.js';
+import { audioCtx, unlockAudio, tone, playSfx } from './sonido.js';
+
 const MUSIC_SCALE = [0, 3, 5, 7, 10];     // pentatónica menor, sobre La
 const MUSIC_BASS = [0, 0, 7, 5];          // 4 tiempos
 let musicTimer = null;
@@ -60,7 +64,7 @@ function musicTick() {
     musicTimer = setTimeout(musicTick, musicBeatMs());
 }
 
-function startMusic() {
+export function startMusic() {
     if (musicTimer || est.sfxMuted) return;
     unlockAudio();
     if (!audioCtx) return;
@@ -68,7 +72,7 @@ function startMusic() {
     musicTick();
 }
 
-function stopMusic() {
+export function stopMusic() {
     clearTimeout(musicTimer);
     musicTimer = null;
     musicLevel = 0;
@@ -77,7 +81,7 @@ function stopMusic() {
 
 /** La racha manda sobre la música. Lo llama `renderCombo`, que ya recibe todo
  *  lo que hace falta: ni estado nuevo ni sondeos. */
-function musicFromCombo(multX100, frenzyReady) {
+export function musicFromCombo(multX100, frenzyReady) {
     musicFrenzy = !!frenzyReady;
     musicLevel = multX100 >= 400 ? 3
         : multX100 >= 250 ? 2
@@ -85,7 +89,7 @@ function musicFromCombo(multX100, frenzyReady) {
         : 0;
 }
 
-function toggleMute() {
+export function toggleMute() {
     est.sfxMuted = !est.sfxMuted;
     try { localStorage.setItem('piles.mute', est.sfxMuted ? '1' : '0'); } catch { /* modo privado */ }
     const btn = document.getElementById('muteBtn');

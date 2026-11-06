@@ -17,7 +17,7 @@ async function persona(nombre, vp = { width: 390, height: 844 }) {
   await p.fill('#nombre', nombre); await p.locator('#nombre').blur();
   return p;
 }
-const estadoDe = p => p.evaluate(() => ({ pantalla: mesa.pantalla, sala: est.currentLobbyId, mano: mesa.mano.map(c => c.dataset.nombre), estado: document.getElementById('estado').textContent }));
+const estadoDe = p => p.evaluate(() => ({ pantalla: mesa.pantalla, sala: juego.est.currentLobbyId, mano: mesa.mano.map(c => c.dataset.nombre), estado: document.getElementById('estado').textContent }));
 const tecla = async (p, k, n = 1) => { for (let i = 0; i < n; i++) { await p.keyboard.press(k); await espera(350); } };
 const foto = (p, n) => p.screenshot({ path: `${OUT}/${n}.png` });
 const elegirNombre = (p, nombre) => p.evaluate(n => { const i = mesa.mano.findIndex(c => c.dataset.nombre === n); for (let k = 0; k < 12; k++) mesa.elegir(-1); for (let k = 0; k < i; k++) mesa.elegir(1); return i; }, nombre);

@@ -39,7 +39,7 @@ const propiaDe = () => p.evaluate(() => {
 async function soltar() {
   const { x, y } = await propiaDe();
   await p.mouse.click(x, y);
-  await p.waitForFunction(() => owesCard(), null, { timeout: 4000 });
+  await p.waitForFunction(() => juego.owesCard(), null, { timeout: 4000 });
 }
 /** Suelta una carta, hace `gesto` sobre una del centro y mira si salió un take_card
  *  (o, con `coge = false`, que NO salió). */
@@ -52,10 +52,10 @@ async function prueba(nombre, gesto, coge = true) {
   await wait(700);
   const enviado = await envios(p);
   const sale = (await cuenta(p, 'take_card')) === (coge ? 1 : 0);
-  if (!sale) info(`   (se envió: ${enviado.join(', ') || 'nada'}; deuda=${await p.evaluate(() => owesCard())}, qte=${await p.evaluate(() => est.qteActive)})`);
+  if (!sale) info(`   (se envió: ${enviado.join(', ') || 'nada'}; deuda=${await p.evaluate(() => juego.owesCard())}, qte=${await p.evaluate(() => juego.est.qteActive)})`);
   // Deja la mano en orden para la siguiente: si no lo cogió, el plazo lo fuerza
   // (y si hubo pelea, se espera a que acabe).
-  await p.waitForFunction(() => !owesCard() && !est.qteActive && !isStunned(), null, { timeout: 15000 });
+  await p.waitForFunction(() => !juego.owesCard() && !juego.est.qteActive && !juego.isStunned(), null, { timeout: 15000 });
   await wait(1200);   // la carta forzada por la deuda aún vuela un rato
 
   return ok(sale, nombre);
@@ -86,14 +86,14 @@ await conRetraso(p, 300);
   for (let i = 0; i < 3; i++) { await p.mouse.click(x, y); await wait(40); }
   await wait(900);
   ok((await cuenta(p, 'drop_card')) === 1, `3 toques seguidos en una carta propia mandan UN drop_card (${await cuenta(p, 'drop_card')})`);
-  await p.waitForFunction(() => owesCard(), null, { timeout: 3000 });
+  await p.waitForFunction(() => juego.owesCard(), null, { timeout: 3000 });
 
   await espiarEnvios(p);
   await wait(500);   // que la carta soltada haya aterrizado
   const dos = await centroDe(2);
   await p.mouse.click(dos[0].x, dos[0].y); await wait(60);
   await p.mouse.click(dos[1].x, dos[1].y);
-  const pendiente = await p.evaluate(() => est.pendingTake?.card.id ?? null);
+  const pendiente = await p.evaluate(() => juego.est.pendingTake?.card.id ?? null);
   await wait(900);
   ok((await cuenta(p, 'take_card')) === 1, `pedir otra carta con una cogida en vuelo no manda otra petición (${await cuenta(p, 'take_card')})`);
   ok(pendiente === dos[0].id, `y lo pendiente sigue siendo la primera carta (${pendiente} = ${dos[0].id})`);

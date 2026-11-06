@@ -1,5 +1,13 @@
 // ─── Renderizado ──────────────────────────────────────────────────────────
-function buildSetNav() {
+import { emitir } from './bus.js';
+import { est, opponentFlippedSets, qteBlockedCards } from './estado.js';
+import { send } from './red.js';
+import { comboStep, playSfx } from './sonido.js';
+import { musicFromCombo } from './musica.js';
+import { owesCard, updateOwingUi, resetSwapHintLater, updateSwapHint, switchSet, updateFlipBtn } from './toques.js';
+import { checkAutoVerify } from './verificacion.js';
+
+export function buildSetNav() {
     const nav = document.getElementById('setNav');
     nav.innerHTML = '';
     for (let i = 0; i < 6; i++) {
@@ -12,7 +20,7 @@ function buildSetNav() {
     }
 }
 
-function updateSetNav() {
+export function updateSetNav() {
     const owing = owesCard();
     document.querySelectorAll('.set-btn').forEach((btn, i) => {
         const flipped = est.myFlippedSets[i];
@@ -76,7 +84,7 @@ function thrownStyle(cardId) {
     return { angle, dx, dy };
 }
 
-function renderCenterCards() {
+export function renderCenterCards() {
     const div = document.getElementById('centerCards');
     if (!div) return;
     syncCenterSlots();
@@ -122,7 +130,7 @@ function renderCenterCards() {
     emitir('renderCenterCards');
 }
 
-function renderYourCards() {
+export function renderYourCards() {
     const div = document.getElementById('yourCards');
     div.innerHTML = '';
     const set = est.allSets[est.currentSetIndex] || [];
@@ -153,7 +161,7 @@ let lastProgress = [];
  *  cerrados y cuáles ha enseñado. Antes eso vivía en dos sitios —una tira de
  *  etiquetas arriba y un panel al final del tablero—, y el de abajo crecía
  *  según la gente iba revelando hasta empujar las cartas fuera de la pantalla. */
-function renderPlayersProgress(progress) {
+export function renderPlayersProgress(progress) {
     if (progress) lastProgress = progress;
     const hud = document.getElementById('hud');
     if (!hud) return;
@@ -215,7 +223,7 @@ function renderPlayersProgress(progress) {
 }
 
 /** Mis propios sets revelados, en el mismo formato que los de los rivales. */
-function misSetsRevelados() {
+export function misSetsRevelados() {
     const m = new Map();
     for (let i = 0; i < 6; i++) {
         if (!est.myFlippedSets[i]) continue;
@@ -232,13 +240,13 @@ function misSetsRevelados() {
 // romper algo ahí no toca a quien está jugando en producción. Además no se
 // vincula con Session Manager: los testers no necesitan cuenta, y sus
 // partidas de prueba no ensucian perfiles reales.
-const IS_BETA = location.hostname.startsWith('beta.');
+export const IS_BETA = location.hostname.startsWith('beta.');
 
 // ─── De quién es el Elo ───────────────────────────────────────────────────
 // Por defecto, de este navegador (`anon:<uuid>`). Si se vincula una cuenta de
 // Session Manager, de la cuenta (`sm:<id>`). El servidor lo guarda por clave;
 // ver server/src/ratings.rs.
-function ratingKey() {
+export function ratingKey() {
     try {
         const cuenta = localStorage.getItem('piles_rating_key');
         if (cuenta) return cuenta;
@@ -253,7 +261,7 @@ function ratingKey() {
     }
 }
 
-function applyBetaMode() {
+export function applyBetaMode() {
     if (!IS_BETA) return;
     // El perfil se queda: ahí está el Elo, que en beta hay que poder probar.
     // Lo que no se hace en beta es sumar resultados a Session Manager (ver
@@ -278,7 +286,7 @@ function applyBetaMode() {
 const SPRITE_COLS = 16;
 const SPRITE_ROWS = 13;
 
-function applyCardSprite(el, card) {
+export function applyCardSprite(el, card) {
     const type = card.clothing_type ?? 0;
     const variant = (card.id ?? 0) % 4;
     const col = (type % 4) * 4 + variant;
@@ -296,12 +304,12 @@ const flyingCards = new Set();
 
 /** Nombre de una prenda en el idioma de la pestaña, por su tipo. El servidor
  *  manda el nombre en español (`name`), que queda de respaldo. */
-function cardName(type, fallback) {
+export function cardName(type, fallback) {
     const k = `cloth.${type}`;
     return PilesI18n.has(k) ? t(k) : (fallback || '');
 }
 
-function buildCard(card) {
+export function buildCard(card) {
     const el = document.createElement('div');
     el.className = 'card';
     el.dataset.cardId = card.id;
@@ -316,7 +324,7 @@ function buildCard(card) {
 // se anima el nodo real: se mide antes, se deja que el tablero se redibuje, y
 // se lanza una copia por encima que va del sitio viejo al nuevo.
 
-function cardRectAt(rowId, index) {
+export function cardRectAt(rowId, index) {
     const el = document.getElementById(rowId)?.children[index];
     return el ? el.getBoundingClientRect() : null;
 }
@@ -330,7 +338,7 @@ function cardRectAt(rowId, index) {
  *  dos a la vez (que es exactamente lo que pasaba). Por eso la de destino se
  *  esconde mientras dura el vuelo y se descubre justo cuando la copia llega.
  */
-function flyCard(cardData, from, rowId, index, won = false) {
+export function flyCard(cardData, from, rowId, index, won = false) {
     emitir('vuela', cardData, from);
     const dest = document.getElementById(rowId)?.children[index];
     const to = dest ? dest.getBoundingClientRect() : null;
@@ -380,7 +388,7 @@ function flyCard(cardData, from, rowId, index, won = false) {
 
 /** Marca una carta recién llegada para que se vea qué ha cambiado.
  *  `won` la pinta en dorado y con más fuerza: es el premio de una pelea. */
-function markLanded(rowId, index, won = false) {
+export function markLanded(rowId, index, won = false) {
     // 'aterriza' puede cancelarlo: la partida espera a que llegue la carta que viene volando
     if (!emitir('aterriza', rowId, index, won)) return;
     const el = document.getElementById(rowId)?.children[index];
@@ -398,7 +406,7 @@ function markLanded(rowId, index, won = false) {
 // fácil no enterarse de que algo pasó. Nada de esto cambia el estado del
 // juego: si falla, se pierde el adorno y no la partida.
 
-const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+export const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 /** El golpe de la carta al caer en la mesa. `hard` para las peleas ganadas.
  *  Lo pinta la partida (partida/partida.js, «Gravedad»). */
@@ -459,7 +467,7 @@ function clearGrace(nickname) {
 
 /** El aviso de `nickname` con un título y unas líneas de texto. Como texto, nunca
  *  como HTML: el servidor no filtra los apodos. Devuelve el aviso. */
-function pintarAviso(nickname, titulo, lineas) {
+export function pintarAviso(nickname, titulo, lineas) {
     const el = graceNotif(nickname);
     if (!el) return null;
     el.classList.remove('wait-poll');
@@ -476,7 +484,7 @@ function pintarAviso(nickname, titulo, lineas) {
     return el;
 }
 
-function onPlayerDisconnected(nickname, seconds) {
+export function onPlayerDisconnected(nickname, seconds) {
     if (!graceNotif(nickname)) return;
     clearInterval(graceTimers.get(nickname));
 
@@ -492,7 +500,7 @@ function onPlayerDisconnected(nickname, seconds) {
     }, 1000));
 }
 
-function onPlayerLeft(nickname, retired, types) {
+export function onPlayerLeft(nickname, retired, types) {
     clearGrace(nickname);
     // Las prendas retiradas se nombran a propósito: explica por qué de pronto
     // hay cartas que ya no están, y lo convierte en mecánica y no en un fallo.
@@ -512,7 +520,7 @@ function onPlayerLeft(nickname, retired, types) {
 // siguen: Sí = otros 30 s de espera, No = se cancela la partida (basta uno).
 // Quien no contesta en el plazo cuenta como Sí. Quien mira solo lo ve.
 
-function onWaitPoll(nickname, seconds) {
+export function onWaitPoll(nickname, seconds) {
     clearInterval(graceTimers.get(nickname));
     let left = seconds;
     let voto = null;
@@ -546,7 +554,7 @@ function onWaitPoll(nickname, seconds) {
     }, 1000));
 }
 
-function onWaitPollClosed(nickname, result) {
+export function onWaitPollClosed(nickname, result) {
     clearInterval(graceTimers.get(nickname));
     graceTimers.delete(nickname);
     if (result === 'volvio') {
@@ -560,7 +568,7 @@ function onWaitPollClosed(nickname, result) {
 }
 
 /** Una partida nueva no arrastra avisos de la anterior. */
-function clearGraceNotices() {
+export function clearGraceNotices() {
     for (const n of [...graceTimers.keys()]) clearGrace(n);
     document.querySelectorAll('[data-grace]').forEach(el => el.remove());
 }
@@ -573,7 +581,7 @@ function clearGraceNotices() {
 
 let debtTimer = null;
 
-function startDebtCountdown(ms) {
+export function startDebtCountdown(ms) {
     const bar = document.getElementById('debtBar');
     const fill = document.getElementById('debtBarFill');
     if (!bar || !fill) return;
@@ -589,12 +597,12 @@ function startDebtCountdown(ms) {
     debtTimer = setTimeout(() => bar.classList.remove('active'), ms);
 }
 
-function clearDebtCountdown() {
+export function clearDebtCountdown() {
     clearTimeout(debtTimer);
     document.getElementById('debtBar')?.classList.remove('active');
 }
 
-function onDebtForced(card) {
+export function onDebtForced(card) {
     clearDebtCountdown();
     updateSwapHint(t('debt.forced', { name: cardName(card.clothing_type, card.name) }));
     resetSwapHintLater(2500);
@@ -612,12 +620,12 @@ let comboHideTimer = null;
  *  x2,00, pero x1,25 necesita los suyos. Un solo sitio, porque el visor de
  *  grabaciones enseñaba x2,00 donde el juego enseña x2 y comparar los dos
  *  obligaba a traducir de cabeza. */
-function formatMult(x100) {
+export function formatMult(x100) {
     return x100 % 100 === 0 ? String(x100 / 100)
                             : (x100 / 100).toFixed(2).replace('.', t('num.dec'));
 }
 
-function renderCombo(msg) {
+export function renderCombo(msg) {
     const box = document.getElementById('comboBox');
     const mult = document.getElementById('comboMult');
     const fill = document.getElementById('comboBarFill');
@@ -674,7 +682,7 @@ function renderCombo(msg) {
 }
 
 /** Al empezar o terminar una partida no debe quedar racha de la anterior. */
-function resetCombo() {
+export function resetCombo() {
     clearTimeout(comboHideTimer);
     musicFromCombo(100, false);
     document.getElementById('comboBox')?.classList.remove('active');
@@ -688,7 +696,7 @@ function resetCombo() {
  *  `coste` es lo que costará el SIGUIENTE, que sube medio punto cada vez que
  *  gastas uno. Se enseña en el título porque si no, la segunda vez el
  *  multiplicador parece atascarse antes de llegar arriba sin explicación. */
-function updateFrenzyBtn(ready, coste) {
+export function updateFrenzyBtn(ready, coste) {
     const btn = document.getElementById('frenzyBtn');
     if (!btn) return;
     if (coste) {
@@ -711,7 +719,7 @@ function updateFrenzyBtn(ready, coste) {
     emitir('updateFrenzyBtn', ready, coste);
 }
 
-function fireFrenzy() {
+export function fireFrenzy() {
     const btn = document.getElementById('frenzyBtn');
     if (!btn || btn.hidden) return;
     btn.hidden = true;          // sin doble envío mientras contesta el servidor
@@ -720,7 +728,7 @@ function fireFrenzy() {
 }
 
 /** Alguien soltó un frenesí. Quien lo paró se entera de que le ha servido. */
-function onFrenzyFired(msg) {
+export function onFrenzyFired(msg) {
     const yoParé = (msg.countered || []).includes(est.currentNickname);
     const yoLoSolté = msg.player === est.currentNickname;
     playSfx(yoParé ? 'frenzyCounter' : 'frenzyHit');
@@ -746,7 +754,7 @@ function onFrenzyFired(msg) {
 }
 
 /** Destello del centro: alguien más ha movido algo ahí. */
-function flashCenter() {
+export function flashCenter() {
     if (REDUCED_MOTION?.matches) return;
     const row = document.getElementById('centerCards');
     if (!row) return;
@@ -760,7 +768,7 @@ function flashCenter() {
  *  sale gratis: se escuchan los eventos en las filas (no en cada carta, que
  *  se reconstruyen constantemente) y solo se tocan dos variables CSS.
  *  Sin puntero de verdad no se activa: en táctil no hay hacia dónde apuntar. */
-function initCardTilt() {
+export function initCardTilt() {
     if (!window.matchMedia?.('(hover: hover)').matches) return;
     const MAX = 9;   // grados; más que esto y las cartas se deforman
 

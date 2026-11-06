@@ -6,8 +6,11 @@
 // de `server/src/taunts.rs`: el servidor descarta cualquier otro.
 //
 // Una a la vez (la nueva corta la anterior) y como mucho una cada 2 s en juego.
+import { est } from './estado.js';
+import { audioCtx, unlockAudio } from './sonido.js';
+
 let tauntBus = null;
-let tauntLastAt = -Infinity;
+export let tauntLastAt = -Infinity;
 
 /** Una nota de burla. `at` en segundos desde ahora; `vib` es la profundidad (Hz). */
 function tt(at, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 0, vibHz = 12 }) {
@@ -31,7 +34,7 @@ function tt(at, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 
     osc.start(t); osc.stop(t + dur + 0.02);
 }
 
-const TAUNTS = [
+export const TAUNTS = [
     { id: 'honk', name: t('taunt.honk'), play: () => {
         tt(0,    { freq: 420, slideTo: 350, dur: 0.15, type: 'sawtooth', gain: 0.09 });
         tt(0,    { freq: 421, slideTo: 351, dur: 0.15, type: 'square', gain: 0.04 });
@@ -80,7 +83,7 @@ const TAUNTS = [
     } },
 ];
 
-function getTaunt() {
+export function getTaunt() {
     try {
         const id = localStorage.getItem('piles.taunt') || '';
         return TAUNTS.some(t => t.id === id) ? id : '';
@@ -89,7 +92,7 @@ function getTaunt() {
 
 /** Suena una burla. Devuelve si sonó. `preview` (el ▶ del perfil) se salta el
  *  límite de una cada 2 s; en juego no hay prisa por oírla dos veces seguidas. */
-function playTaunt(id, preview = false) {
+export function playTaunt(id, preview = false) {
     const t = TAUNTS.find(x => x.id === id);
     if (!t || est.sfxMuted) return false;
     unlockAudio();

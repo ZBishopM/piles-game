@@ -1,12 +1,19 @@
 // ─── Bloqueo por perder ───────────────────────────────────────────────────
-let stunnedUntil = 0;
+import { emitir } from './bus.js';
+import { est, qteBlockedCards } from './estado.js';
+import { send } from './red.js';
+import { renderCenterCards, buildCard } from './tablero.js';
+import { playSfx } from './sonido.js';
+import { clearPending, qteNotifs, FIGHT_RESULT_MS } from './toques.js';
+
+export let stunnedUntil = 0;
 let stunTimer = null;
 
-function isStunned() { return Date.now() < stunnedUntil; }
+export function isStunned() { return Date.now() < stunnedUntil; }
 
 /** El servidor manda la duración porque es quien la aplica de verdad; aquí
  *  solo se pinta. No hay texto: el tablero apagado es el mensaje. */
-function startStun(ms) {
+export function startStun(ms) {
     stunnedUntil = Date.now() + ms;
     document.getElementById('gameScreen').classList.add('stunned');
     const bar = document.getElementById('stunBar');
@@ -28,14 +35,14 @@ function startStun(ms) {
     }, 50);
 }
 
-function clearStun() {
+export function clearStun() {
     stunnedUntil = 0;
     if (stunTimer) { clearInterval(stunTimer); stunTimer = null; }
     document.getElementById('stunBar')?.classList.remove('active');
     document.getElementById('gameScreen')?.classList.remove('stunned');
 }
 
-function onSwapConflict(players, cardId, durationMs) {
+export function onSwapConflict(players, cardId, durationMs) {
     const isParticipant = players.includes(est.currentNickname);
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
@@ -178,7 +185,7 @@ function onSwapConflict(players, cardId, durationMs) {
 }
 
 /** Quita el aviso de una pelea concreta, con sus temporizadores. */
-function cerrarAvisoPelea(cardId) {
+export function cerrarAvisoPelea(cardId) {
     const notif = qteNotifs.get(cardId);
     if (!notif) return;
     clearInterval(notif._timer);
@@ -195,14 +202,14 @@ function cerrarAvisoPelea(cardId) {
  *
  *  Los mensajes viejos no traen `card_id`: en ese caso se acepta, que es como se
  *  comportaba antes. */
-function esMiPelea(cardId) {
+export function esMiPelea(cardId) {
     if (cardId === undefined || cardId === null) return true;
     // Peleando yo, solo cuenta la mía: las ajenas ya no la pisan.
     if (est.qteMyCardId !== null) return est.qteMyCardId === cardId;
     return qteBlockedCards.has(cardId);
 }
 
-function onQteUpdate(clicks, cardId) {
+export function onQteUpdate(clicks, cardId) {
     // Sin card_id (mensajes viejos) se tocan todos los avisos.
     const notifs = cardId == null ? [...qteNotifs.values()] : [qteNotifs.get(cardId)];
     Object.entries(clicks).forEach(([name, count]) => {
@@ -221,7 +228,7 @@ function onQteUpdate(clicks, cardId) {
 /** La pelea terminó. En vez de cerrar de golpe, el overlay se queda un
  *  momento con la carta y los dos marcadores: el del ganador se ilumina y el
  *  del perdedor se apaga. Sin una sola frase — quién ganó se ve, no se lee. */
-function onQteTiebreak(cardId, round, ms) {
+export function onQteTiebreak(cardId, round, ms) {
     ms = ms || 1000;
     const bar = (fill) => {
         const start = Date.now();
@@ -270,7 +277,7 @@ function onQteTiebreak(cardId, round, ms) {
 }
 let qteTieLabelTimer = null;
 
-function onQteResolved(winnerName, info) {
+export function onQteResolved(winnerName, info) {
     const wasParticipant = est.qtePlayers.includes(est.currentNickname);
     clearTimeout(qteTieLabelTimer);
 
@@ -321,7 +328,7 @@ function onQteResolved(winnerName, info) {
     }, info?.random ? FIGHT_RESULT_MS + 900 : FIGHT_RESULT_MS);
 }
 
-function closeQteOverlay() {
+export function closeQteOverlay() {
     est.qteActive = false;
     cancelGiveUpHold();
     const rendirse = giveUpBtn();

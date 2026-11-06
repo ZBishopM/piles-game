@@ -1,8 +1,21 @@
 // ─── Lobby ────────────────────────────────────────────────────────────────
+import { emitir } from './bus.js';
+import { miNombre, est, opponentFlippedSets } from './estado.js';
+import { diag, rememberLobby, forgetLobby, dropSeatLocally, send } from './red.js';
+import { sinEmoji, resetEspectador } from './espectador.js';
+import { buildSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, ratingKey, clearGraceNotices, clearDebtCountdown, resetCombo } from './tablero.js';
+import { playSfx } from './sonido.js';
+import { getTaunt } from './burlas.js';
+import { startMusic, stopMusic } from './musica.js';
+import { updateFlipBtn } from './toques.js';
+import { clearStun, closeQteOverlay } from './pelea.js';
+import { closeVerifyOverlay, clearMatchNotifications } from './verificacion.js';
+import { vistaActual, showScreen } from './cuenta.js';
+
 
 /** Devuelve el nombre o null. Sin nombre no se entra en ninguna sala: la mesa
  *  hace temblar su campo (aviso 'sinNombre'). */
-function requireNickname() {
+export function requireNickname() {
     const nickname = miNombre();
     if (!nickname) { emitir('sinNombre'); return null; }
     localStorage.setItem('piles_nickname', nickname);
@@ -13,14 +26,14 @@ function requireNickname() {
 // Pública por defecto, que es lo que quiere quien monta una sala para jugar
 // ya; quien la monta para sus amigos la marca privada y solo se entra con el
 // código o el QR.
-let lobbyIsPublic = true;
+export let lobbyIsPublic = true;
 
-function setVisibility(isPublic) {
+export function setVisibility(isPublic) {
     lobbyIsPublic = isPublic;
 }
 
 /** `maxPlayers`: lo elige el tambor de la mesa (2–8). */
-function createLobby(maxPlayers) {
+export function createLobby(maxPlayers) {
     const nickname = requireNickname();
     if (!nickname) return;
     cancelQuickMatchOffer();
@@ -30,31 +43,31 @@ function createLobby(maxPlayers) {
 /** Partida rápida: el servidor mete en la sala pública más llena, o abre una.
  *  Si pasado un rato sigues solo, se ofrece jugar contra bots — pero se
  *  pregunta, no se rellena por su cuenta. */
-function quickMatch() {
+export function quickMatch() {
     const nickname = requireNickname();
     if (!nickname) return;
     cameFromQuickMatch = true;
     send({ type: 'quick_match', nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined });
 }
 
-let cameFromQuickMatch = false;
+export let cameFromQuickMatch = false;
 
-function refreshLobbies() {
+export function refreshLobbies() {
     send({ type: 'list_lobbies' });
 }
 
 // ─── Bots ─────────────────────────────────────────────────────────────────
-let botDifficulty = 'normal';
+export let botDifficulty = 'normal';
 
-function setBotDifficulty(d) {
+export function setBotDifficulty(d) {
     botDifficulty = d;
 }
 
-function addBot() {
+export function addBot() {
     send({ type: 'add_bot', difficulty: botDifficulty });
 }
 
-function removeBot(playerId) {
+export function removeBot(playerId) {
     send({ type: 'remove_bot', player_id: playerId });
 }
 
@@ -63,7 +76,7 @@ function removeBot(playerId) {
  *  rápida normalmente quiere gente. */
 let quickMatchOfferTimer = null;
 /** Cuántos hay sentados, según el último `lobby_update`. */
-let jugadoresEnSala = 0;
+export let jugadoresEnSala = 0;
 let ofertaAbierta = false;
 /** La mesa la enseña y la quita: aviso 'ofertaBots' (`true` = ofrecer bots). */
 function ponerOferta(abierta) {
@@ -80,13 +93,13 @@ function armQuickMatchOffer() {
 /** Oculta la oferta y para su temporizador. Salvo `seguirOfreciendo`, también
  *  olvida que vienes de partida rápida: descartarla o aceptarla la cierra, y
  *  los `lobby_update` con un jugador que siguen llegando no la reabren. */
-function cancelQuickMatchOffer(seguirOfreciendo) {
+export function cancelQuickMatchOffer(seguirOfreciendo) {
     if (seguirOfreciendo !== true) cameFromQuickMatch = false;
     clearTimeout(quickMatchOfferTimer);
     ponerOferta(false);
 }
 
-function acceptBotsOffer() {
+export function acceptBotsOffer() {
     cancelQuickMatchOffer();
     // Hasta 3 rivales: suficiente para una partida movida sin esperar mucho.
     for (let i = 0; i < 3; i++) addBot();
@@ -105,7 +118,7 @@ setInterval(() => {
 
 /** `spectate`: entrar a mirar aunque haya sitio (lo pide la lista; el código y
  *  el QR no lo mandan, y entran a jugar si hay hueco). */
-function joinLobby(code, spectate) {
+export function joinLobby(code, spectate) {
     const nickname = requireNickname();
     if (!nickname) return;
     code = (code || '').trim().toUpperCase();
@@ -118,7 +131,7 @@ function joinLobby(code, spectate) {
 
 /** Host y jugador que se une llegan al lobby por mensajes distintos
  *  (`lobby_created` / `joined_lobby`); ambos pasan por aquí. */
-function onEnteredLobby(lobbyId) {
+export function onEnteredLobby(lobbyId) {
     est.rejoinInFlight = false;
     rememberLobby(lobbyId);
     // Mirando se ve la sala de espera igual (jugadores, chat y la carta para
@@ -128,7 +141,7 @@ function onEnteredLobby(lobbyId) {
     showScreen('lobbyScreen');
 }
 
-function joinLinkFor(lobbyId) {
+export function joinLinkFor(lobbyId) {
     return `${location.origin}/lobby.html?join=${lobbyId}`;
 }
 
@@ -136,9 +149,9 @@ function joinLinkFor(lobbyId) {
 // qr-scanner usa BarcodeDetector nativo donde existe y su propio worker en el
 // resto (iOS y Firefox no lo tienen), así que no hace falta ramificar aquí. El
 // vídeo (#scanVideo) no se ve: la mesa lo dibuja en el centro de la mesa.
-let qrScanner = null;
+export let qrScanner = null;
 
-function extractLobbyCode(raw) {
+export function extractLobbyCode(raw) {
     let value = (raw || '').trim();
     // El QR del lobby lleva la URL de invitación completa; el manual, solo el código.
     try {
@@ -150,7 +163,7 @@ function extractLobbyCode(raw) {
 }
 
 /** Enciende o apaga la cámara. Si no se puede, `qrScanner` queda en null (la mesa lo avisa). */
-async function toggleScanner() {
+export async function toggleScanner() {
     if (qrScanner) { stopScanner(); return; }
     try {
         qrScanner = new QrScanner(
@@ -174,7 +187,7 @@ async function toggleScanner() {
 /** Único punto de apagado. Si esto no corre, la luz de la cámara se queda
  *  encendida y consume batería — por eso lo llaman también onEnteredLobby(),
  *  la mesa al salir del visor y pagehide. */
-function stopScanner() {
+export function stopScanner() {
     if (qrScanner) {
         qrScanner.stop();
         qrScanner.destroy();
@@ -185,12 +198,12 @@ function stopScanner() {
 
 window.addEventListener('pagehide', stopScanner);
 
-function toggleReady() {
+export function toggleReady() {
     est.isReady = !est.isReady;
     send({ type: 'set_ready', ready: est.isReady });
 }
 
-function leaveLobby() {
+export function leaveLobby() {
     // Avisar al servidor. Antes solo se cambiaba de pantalla: el asiento
     // seguía, la sala seguía en la lista y el apodo seguía ocupado, así que
     // volver a entrar con el mismo nombre daba "Ya hay alguien llamado…".
@@ -209,7 +222,7 @@ function leaveLobby() {
 /** Otra pestaña ha tomado tu asiento (o lo has recuperado tú tras un corte
  *  desde otro sitio). Esta ya no es la buena: se vuelve al inicio sin
  *  reintentar, que es lo que evita que dos pestañas se lo quiten sin parar. */
-function onSeatReplaced() {
+export function onSeatReplaced() {
     cancelQuickMatchOffer();
     dropSeatLocally();
     stopMusic();
@@ -242,10 +255,10 @@ function onSeatReplaced() {
 // No se recarga más de una vez cada 30 s, por si algo raro (dos servidores de
 // versiones distintas detrás del mismo sitio) hiciera cambiar la versión en
 // cada conexión: en ese caso solo se avisa.
-let versionDelServidor = null;
+export let versionDelServidor = null;
 const RELOAD_KEY = 'piles_reloaded_at';
 
-function onHello(version) {
+export function onHello(version) {
     if (!version || version === 'dev') return;     // en local no hay despliegues
     if (versionDelServidor === null) { versionDelServidor = version; return; }
     if (version === versionDelServidor) return;
@@ -263,7 +276,7 @@ function onHello(version) {
 
 // ─── Chat de la sala de espera ────────────────────────────────────────────
 // La verdad está en el servidor (dura lo que dure la sala); lo pinta la mesa.
-function sendChat(text) {
+export function sendChat(text) {
     text = (text || '').trim();
     if (!text || !est.ws || est.ws.readyState !== WebSocket.OPEN) return;
     send({ type: 'chat', text });
@@ -272,7 +285,7 @@ function sendChat(text) {
 // ─── Jugar o mirar ───────────────────────────────────────────────────────
 // `enCola`: miras y te sentarás solo en cuanto haya hueco (llegaste con la mesa
 // llena o la partida en marcha, o lo pediste). Mirar por gusto no es cola.
-let enCola = false, rolPedido = 0;
+export let enCola = false, rolPedido = 0;
 
 /** El botón de la franja de espectador en el tablero: esperar plaza o no. */
 function pintarRol() {
@@ -283,7 +296,7 @@ function pintarRol() {
     }
 }
 
-function cambiarRol() {
+export function cambiarRol() {
     // Sentado: pasar a mirar. Mirando: pedir sitio; en cola: dejar la cola.
     const mirar = !est.soyEspectador || enCola;
     if (!est.soyEspectador) { rolPedido = Date.now(); est.isReady = false; }
@@ -293,7 +306,7 @@ function cambiarRol() {
 // ─── Te echaron ───────────────────────────────────────────────────────────
 // La votación (kick_poll / kick_poll_ended) la pinta la mesa.
 /** Te han echado: de vuelta a la lista de salas, con el aviso. */
-function onKicked() {
+export function onKicked() {
     forgetLobby();
     est.isReady = false;
     est.soyEspectador = false;
@@ -303,7 +316,7 @@ function onKicked() {
     refreshLobbies();
 }
 
-function onLobbyUpdate(msg) {
+export function onLobbyUpdate(msg) {
     est.mirones = msg.spectators ?? 0;
     jugadoresEnSala = msg.players.length;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
@@ -345,7 +358,7 @@ function onLobbyUpdate(msg) {
 // atrasado; así se corrige solo al volver.
 let cuentaFin = 0, cuentaTimer = null, cuentaN = -1;
 
-function startCountdown(seconds) {
+export function startCountdown(seconds) {
     closeCountdown();
     cuentaFin = Date.now() + Math.max(1, Number(seconds) || 3) * 1000;
     cuentaTick();
@@ -363,7 +376,7 @@ function cuentaTick() {
     if (n <= -2) closeCountdown();
 }
 
-function closeCountdown() {
+export function closeCountdown() {
     clearInterval(cuentaTimer);
     cuentaTimer = null;
     cuentaN = -1;
@@ -372,7 +385,7 @@ function closeCountdown() {
     emitir('closeCountdown');
 }
 
-function onCountdownCancelled(reason) {
+export function onCountdownCancelled(reason) {
     if (cuentaTimer === null) return;
     closeCountdown();
     const porque = t(reason === 'left' ? 'ca.left' : reason === 'joined' ? 'ca.joined' : 'ca.not_ready');
@@ -380,7 +393,7 @@ function onCountdownCancelled(reason) {
 }
 
 // ─── Inicio de juego ──────────────────────────────────────────────────────
-function onGameStart(msg) {
+export function onGameStart(msg) {
     emitir('antesDePartida', msg);   // aún con la pantalla de antes
     est.allSets = msg.your_sets;       // 6 sets
     est.centerCards = msg.center_cards;

@@ -1,5 +1,14 @@
 // El menú en la mesa (diseno/menu-mesa/README.md): la escena de fondo, el diccionario y la
-// interfaz conectada al juego (client/juego/), dentro de una IIFE para no chocar con sus globales.
+// interfaz conectada al juego (client/juego/, por import y por el bus). Tras editar: pnpm build en tools/.
+import { al } from '../juego/bus.js';
+import { est } from '../juego/estado.js';
+import { send } from '../juego/red.js';
+import { lobbyIsPublic, setVisibility, createLobby, quickMatch, refreshLobbies, botDifficulty, setBotDifficulty, addBot, removeBot, cancelQuickMatchOffer, acceptBotsOffer, joinLobby, joinLinkFor, qrScanner, extractLobbyCode, toggleScanner, stopScanner, toggleReady, leaveLobby, sendChat, enCola, cambiarRol } from '../juego/sala.js';
+import { sinEmoji } from '../juego/espectador.js';
+import { ratingKey } from '../juego/tablero.js';
+import { TAUNTS, getTaunt, playTaunt } from '../juego/burlas.js';
+import { fetchElo, smCodeGuardado, setSmCode, clearSmCode, vistaActual, showScreen } from '../juego/cuenta.js';
+
 'use strict';
 (() => {
 // ── La partida de fondo: cuatro personas jugando a cámara lenta ─────────────────
@@ -1416,7 +1425,7 @@ const DIC = {
     '¿Pasar tu Elo a la cuenta?': ['Move your Elo to the account?', '把你的 Elo 转到账号吗？'], 'Echar': ['Kick', '踢出'],
     // Piezas
     '? Reglas': ['? Rules', '? 规则'], 'Jugadores': ['Players', '玩家'], 'Pública': ['Public', '公开'], 'Privada': ['Private', '私密'],
-    'Código · entra al escribir la 6.ª letra': ['Code · joins at the 6th letter', '代码 · 输入第 6 位即进入'], 'Escanear QR': ['Scan QR', '扫描二维码'], 'Jugando · 1 mirando · Entrarás a mirar': ['Playing · 1 watching · You will watch', '对局中 · 1 人观战 · 你将观战'],
+    'Código · entra al escribir la 6.ª letra': ['Code · joins at the 6th letter', '代码 · 输入第 6 位即进入'], 'Jugando · 1 mirando · Entrarás a mirar': ['Playing · 1 watching · You will watch', '对局中 · 1 人观战 · 你将观战'],
     'Chat de la sala': ['Room chat', '房间聊天'], 'Escribe aquí :D': ['Type here :D', '在这里输入 :D'],
     'Fácil': ['Easy', '简单'], 'Normal': ['Normal', '普通'], 'Difícil': ['Hard', '困难'],
     // Avisos y estado

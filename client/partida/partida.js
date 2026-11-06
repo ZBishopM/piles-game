@@ -1,6 +1,16 @@
 // La partida con el estilo de la mesa (diseno/menu-mesa/README.md). La lógica es la de
 // client/juego/: aquí se escuchan sus avisos (juego/bus.js) para cambiar texto por elementos
 // que se entienden solos (iconos, destellos, montoncitos de set), y van los gestos.
+import { al } from '../juego/bus.js';
+import { est } from '../juego/estado.js';
+import { send } from '../juego/red.js';
+import { sinEmoji } from '../juego/espectador.js';
+import { misSetsRevelados, applyCardSprite, markLanded, REDUCED_MOTION, fireFrenzy } from '../juego/tablero.js';
+import { playSfx } from '../juego/sonido.js';
+import { playTaunt } from '../juego/burlas.js';
+import { onPlayerCardClick, onCenterCardClick, owesCard, switchSet, flipCurrentSet, qteNotifs } from '../juego/toques.js';
+import { isStunned } from '../juego/pelea.js';
+
 'use strict';
 (() => {
     const ICONOS = {
@@ -273,8 +283,8 @@
     addEventListener('resize', () => { encajarCentro(true); colocarCasillas(); });
 
     // ── Gravedad: la carta que cae pesa; las demás saltan en su sitio, no se mueven ──
-    // `markLanded` (lobby.html) marca la carta y llama a `shakeBoard`, que sacudía las filas
-    // enteras. Aquí el golpe es en la mesa: se hunde un poco, la carta se aplasta al caer y
+    // `markLanded` (juego/tablero.js) marca la carta y avisa `golpe` (antes sacudía las filas
+    // enteras). Aquí el golpe es en la mesa: se hunde un poco, la carta se aplasta al caer y
     // las demás dan un saltito que se apaga con la distancia.
     // El golpe va al TOCAR la mesa (tras `CAIDA`), no al empezar a caer. Los golpes seguidos
     // se suman: `energia` crece con cada uno y se apaga en ~1 s, y las animaciones son
@@ -395,7 +405,7 @@
                 if (!ya) return;
                 ya.style.visibility = '';
                 const i = [...ya.parentElement.children].indexOf(ya);
-                if (i >= 0) { trasVuelo.add(m.card_id); window.markLanded('centerCards', i); }
+                if (i >= 0) { trasVuelo.add(m.card_id); markLanded('centerCards', i); }
             });
         });
     }

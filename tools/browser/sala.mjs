@@ -124,10 +124,10 @@ ok(chips.length === 3 && chips.every(c => c.rango === 'hierro' && c.elo === '100
 ok(await A.locator('#poolNote').textContent().then(t => /For glory/.test(t)), 'la sala dice que el Elo es de For glory');
 
 // Elo de otros rangos, inyectados como los mandaría el servidor.
-await A.evaluate(() => handleMsg({
+await A.evaluate(() => juego.handleMsg({
   type: 'lobby_update', pool: 'glory', ready_count: 0, max_players: 4, spectators: 0,
   players: [
-    { id: est.currentPlayerId, nickname: 'Ana', is_ready: false, is_bot: false, elo: 1000, top3: false },
+    { id: juego.est.currentPlayerId, nickname: 'Ana', is_ready: false, is_bot: false, elo: 1000, top3: false },
     { id: 'x', nickname: 'Beto', is_ready: false, is_bot: false, elo: 1250, top3: false },
     { id: 'y', nickname: '<b>Caro</b>', is_ready: true, is_bot: false, elo: 1700, top3: true },
   ],
@@ -170,8 +170,8 @@ ok(true, 'al echar el bot la sala vuelve a For glory');
 
 // ── Pantalla final: sin puntos ni combo ────────────────────────────────────
 await A.evaluate(() => {
-  est.currentNickname = 'Ana';
-  onGameOver(
+  juego.est.currentNickname = 'Ana';
+  juego.onGameOver(
     [
       { position: 1, nickname: '<i>Zeta</i>', points: 100, combo_points: 30, best_combo: 5, best_mult_x100: 300 },
       { position: 2, nickname: 'Ana', points: 75, combo_points: 0, best_combo: 0, best_mult_x100: 100 },
