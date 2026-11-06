@@ -3,10 +3,6 @@
 // de todos por ids (`spectator_state`, cada ~200 ms si algo cambió). Con eso se
 // pinta el tablero de cualquier jugador con las mismas cartas del juego.
 let specCards = {};        // id → { c: prenda, n: nombre }
-let specState = null;      // la última foto
-let specOrden = [];        // los jugadores en el orden de la mesa
-let specVista = null;      // a quién se mira: su apodo, o '*' = todos
-let specSet = null;        // set elegido a mano; null = el que tiene abierto el jugador
 
 /** Sin emoji, como en la mesa (los nombres de bot y algunos textos de i18n traen uno). */
 function sinEmoji(s) {
@@ -14,7 +10,7 @@ function sinEmoji(s) {
 }
 
 function resetEspectador() {
-    specCards = {}; specState = null; specOrden = []; specVista = null; specSet = null;
+    specCards = {}; est.specState = null; est.specOrden = []; est.specVista = null; est.specSet = null;
     document.getElementById('specSeats')?.replaceChildren();
     document.getElementById('specCards')?.replaceChildren();
     document.getElementById('specSetNav')?.replaceChildren();
@@ -27,14 +23,14 @@ function onSpectatorCards(msg) {
 }
 
 function onSpectatorState(msg) {
-    specState = msg;
+    est.specState = msg;
     renderSpectator();
 }
 
 /** Los jugadores en el orden de la mesa; si falta alguno del orden, al final. */
 function specNicks() {
-    const todos = Object.keys(specState?.players || {});
-    const orden = specOrden.filter(n => todos.includes(n));
+    const todos = Object.keys(est.specState?.players || {});
+    const orden = est.specOrden.filter(n => todos.includes(n));
     return orden.concat(todos.filter(n => !orden.includes(n)));
 }
 
@@ -53,12 +49,12 @@ function specCard(id) {
 }
 
 function renderSpectator() {
-    if (!soyEspectador || !specState) return;
+    if (!est.soyEspectador || !est.specState) return;
     const board = document.getElementById('gameScreen');
     if (!board || !board.classList.contains('espectador')) return;
     const nicks = specNicks();
     if (!nicks.length) return;
-    if (specVista !== '*' && !nicks.includes(specVista)) specVista = nicks[0];
+    if (est.specVista !== '*' && !nicks.includes(est.specVista)) est.specVista = nicks[0];
 
     // ── Mirando desde ──
     const seats = document.getElementById('specSeats');
@@ -70,20 +66,20 @@ function renderSpectator() {
     const boton = (valor, texto) => {
         const b = document.createElement('button');
         b.type = 'button';
-        b.className = 'spec-seat' + (specVista === valor ? ' active' : '');
+        b.className = 'spec-seat' + (est.specVista === valor ? ' active' : '');
         b.dataset.nick = valor;
         b.dataset.toque = '';   // elegir a quién miras no necesita deslizar (gestos.js)
         b.textContent = sinEmoji(texto);
-        b.onclick = () => { specVista = valor; specSet = null; renderSpectator(); };
+        b.onclick = () => { est.specVista = valor; est.specSet = null; renderSpectator(); };
         return b;
     };
     nicks.forEach(n => seats.append(boton(n, n)));
     seats.append(boton('*', t('spec.all')));
 
-    const todos = specVista === '*';
+    const todos = est.specVista === '*';
     document.getElementById('specSingle').hidden = todos;
     document.getElementById('specAll').hidden = !todos;
-    if (todos) renderSpectatorTodos(nicks); else renderSpectatorUno(specState.players[specVista]);
+    if (todos) renderSpectatorTodos(nicks); else renderSpectatorUno(est.specState.players[est.specVista]);
 
     // Las cartas peleadas del centro, que `renderCenterCards` ya marca por su cuenta.
 }
@@ -91,8 +87,8 @@ function renderSpectator() {
 /** El tablero de un jugador, como lo ve él: sus 6 sets, el abierto, su deuda. */
 function renderSpectatorUno(p) {
     if (!p) return;
-    document.getElementById('specLabel').textContent = t('spec.sets_of', { nick: specVista });
-    const actual = specSet ?? p.cur;
+    document.getElementById('specLabel').textContent = t('spec.sets_of', { nick: est.specVista });
+    const actual = est.specSet ?? p.cur;
 
     const nav = document.getElementById('specSetNav');
     nav.replaceChildren();
@@ -106,7 +102,7 @@ function renderSpectatorUno(p) {
         ojo.className = 'set-eye';
         ojo.textContent = p.flip[i] ? '👁' : '';
         b.append(ojo);
-        b.onclick = () => { specSet = i; renderSpectator(); };
+        b.onclick = () => { est.specSet = i; renderSpectator(); };
         nav.append(b);
     }
 
@@ -127,7 +123,7 @@ function renderSpectatorUno(p) {
     if (p.frenzy) dato(t('spec.frenzy'));
     if (p.verif) dato(t('spec.verifying'));
     if (p.fin) dato(t('spec.finished') + ' ', t('pos.ord', { n: p.fin }));
-    if (specSet !== null && specSet !== p.cur) dato(t('spec.theirs', { set: p.cur + 1 }));
+    if (est.specSet !== null && est.specSet !== p.cur) dato(t('spec.theirs', { set: p.cur + 1 }));
 }
 
 /** Los sets de cada jugador en miniatura, todos a la vez. */
@@ -135,7 +131,7 @@ function renderSpectatorTodos(nicks) {
     const cont = document.getElementById('specAll');
     cont.replaceChildren();
     nicks.forEach(n => {
-        const p = specState.players[n];
+        const p = est.specState.players[n];
         const bloque = document.createElement('div');
         bloque.className = 'spec-player';
         const cab = document.createElement('div');

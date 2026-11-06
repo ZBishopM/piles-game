@@ -6,7 +6,7 @@ function requireNickname() {
     const nickname = miNombre();
     if (!nickname) { emitir('sinNombre'); return null; }
     localStorage.setItem('piles_nickname', nickname);
-    currentNickname = nickname;
+    est.currentNickname = nickname;
     return nickname;
 }
 
@@ -97,7 +97,7 @@ function acceptBotsOffer() {
 // 3, así que «empezando» llega a verse. La pinta la mesa (lobby_list).
 setInterval(() => {
     if (vistaActual === 'joinScreen'
-        && ws && ws.readyState === WebSocket.OPEN
+        && est.ws && est.ws.readyState === WebSocket.OPEN
         && document.visibilityState === 'visible') {
         refreshLobbies();
     }
@@ -110,7 +110,7 @@ function joinLobby(code, spectate) {
     if (!nickname) return;
     code = (code || '').trim().toUpperCase();
     if (!code) { showScreen('joinScreen'); return; }
-    codigoPendiente = '';
+    est.codigoPendiente = '';
     cancelQuickMatchOffer();
     send({ type: 'join_lobby', lobby_id: code, nickname, rating_key: ratingKey(), taunt: getTaunt() || undefined,
            spectate: spectate === true || undefined });
@@ -119,7 +119,7 @@ function joinLobby(code, spectate) {
 /** Host y jugador que se une llegan al lobby por mensajes distintos
  *  (`lobby_created` / `joined_lobby`); ambos pasan por aquí. */
 function onEnteredLobby(lobbyId) {
-    rejoinInFlight = false;
+    est.rejoinInFlight = false;
     rememberLobby(lobbyId);
     // Mirando se ve la sala de espera igual (jugadores, chat y la carta para
     // jugar); si la partida ya está en marcha, el `game_start` que viene detrás
@@ -186,21 +186,21 @@ function stopScanner() {
 window.addEventListener('pagehide', stopScanner);
 
 function toggleReady() {
-    isReady = !isReady;
-    send({ type: 'set_ready', ready: isReady });
+    est.isReady = !est.isReady;
+    send({ type: 'set_ready', ready: est.isReady });
 }
 
 function leaveLobby() {
     // Avisar al servidor. Antes solo se cambiaba de pantalla: el asiento
     // seguía, la sala seguía en la lista y el apodo seguía ocupado, así que
     // volver a entrar con el mismo nombre daba "Ya hay alguien llamado…".
-    if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'leave_lobby' });
+    if (est.ws && est.ws.readyState === WebSocket.OPEN) send({ type: 'leave_lobby' });
     showScreen('homeScreen');
     forgetLobby();
     cancelQuickMatchOffer();
-    isReady = false;
+    est.isReady = false;
     // Si mirabas (o esperabas plaza), ya no.
-    soyEspectador = false;
+    est.soyEspectador = false;
     enCola = false;
     rolPedido = 0;
     aplicarModoEspectador();
@@ -218,8 +218,8 @@ function onSeatReplaced() {
     clearStun();
     clearMatchNotifications();
     resetCombo();
-    gameOver = false;
-    isReady = false;
+    est.gameOver = false;
+    est.isReady = false;
     document.getElementById('gameOverOverlay').classList.remove('active');
     document.getElementById('fxLayer').innerHTML = '';
     agToast({
@@ -265,7 +265,7 @@ function onHello(version) {
 // La verdad está en el servidor (dura lo que dure la sala); lo pinta la mesa.
 function sendChat(text) {
     text = (text || '').trim();
-    if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!text || !est.ws || est.ws.readyState !== WebSocket.OPEN) return;
     send({ type: 'chat', text });
 }
 
@@ -285,8 +285,8 @@ function pintarRol() {
 
 function cambiarRol() {
     // Sentado: pasar a mirar. Mirando: pedir sitio; en cola: dejar la cola.
-    const mirar = !soyEspectador || enCola;
-    if (!soyEspectador) { rolPedido = Date.now(); isReady = false; }
+    const mirar = !est.soyEspectador || enCola;
+    if (!est.soyEspectador) { rolPedido = Date.now(); est.isReady = false; }
     send({ type: 'set_spectator', spectate: mirar });
 }
 
@@ -295,8 +295,8 @@ function cambiarRol() {
 /** Te han echado: de vuelta a la lista de salas, con el aviso. */
 function onKicked() {
     forgetLobby();
-    isReady = false;
-    soyEspectador = false;
+    est.isReady = false;
+    est.soyEspectador = false;
     aplicarModoEspectador();
     agToast({ kind: 'warning', title: t('kick.you_title'), message: t('kick.you_msg'), duration: 8000 });
     showScreen('joinScreen');
@@ -304,25 +304,25 @@ function onKicked() {
 }
 
 function onLobbyUpdate(msg) {
-    mirones = msg.spectators ?? 0;
+    est.mirones = msg.spectators ?? 0;
     jugadoresEnSala = msg.players.length;
     // Al acabar la partida el servidor sienta a los mirones: dejas de serlo sin
     // haber hecho nada.
-    const sentado = msg.players.some(p => p.id === currentPlayerId);
-    if (soyEspectador && sentado) {
-        soyEspectador = false;
-        isReady = false;
+    const sentado = msg.players.some(p => p.id === est.currentPlayerId);
+    if (est.soyEspectador && sentado) {
+        est.soyEspectador = false;
+        est.isReady = false;
         aplicarModoEspectador();
-        onEnteredLobby(currentLobbyId);
-    } else if (!soyEspectador && !sentado && msg.status !== 'playing' && Date.now() - rolPedido < 5000) {
+        onEnteredLobby(est.currentLobbyId);
+    } else if (!est.soyEspectador && !sentado && msg.status !== 'playing' && Date.now() - rolPedido < 5000) {
         // Acabas de pasarte a espectador: el servidor te sacó de la mesa.
         rolPedido = 0;
-        soyEspectador = true;
-        isReady = false;
-        seatToken = null;
+        est.soyEspectador = true;
+        est.isReady = false;
+        est.seatToken = null;
         aplicarModoEspectador();
     }
-    enCola = soyEspectador && (msg.queue || []).includes(currentPlayerId);
+    enCola = est.soyEspectador && (msg.queue || []).includes(est.currentPlayerId);
     pintarRol();
 
     // Llegó alguien: ya no hace falta ofrecer bots.
@@ -334,7 +334,7 @@ function onLobbyUpdate(msg) {
     // en cuanto entrar o salir un espectador empezó a difundir uno, esto echaba
     // del tablero a los cuatro jugadores a la vez. La vuelta a la sala al
     // terminar la hace `returnToLobby`, no esto.
-    if (!gameOver && vistaActual !== 'gameScreen' && vistaActual !== 'lobbyScreen') showScreen('lobbyScreen');
+    if (!est.gameOver && vistaActual !== 'gameScreen' && vistaActual !== 'lobbyScreen') showScreen('lobbyScreen');
 }
 
 // ─── Cuenta atrás ─────────────────────────────────────────────────────────
@@ -382,35 +382,35 @@ function onCountdownCancelled(reason) {
 // ─── Inicio de juego ──────────────────────────────────────────────────────
 function onGameStart(msg) {
     emitir('antesDePartida', msg);   // aún con la pantalla de antes
-    allSets = msg.your_sets;       // 6 sets
-    centerCards = msg.center_cards;
+    est.allSets = msg.your_sets;       // 6 sets
+    est.centerCards = msg.center_cards;
     // El que vuelve a media partida recibe el set en el que estaba. Ponerlo a 0
     // a secas dejaba al cliente mirando el set 0 mientras el servidor te tenía
     // en otro: soltabas del set que él creía, no del que veías.
-    currentSetIndex = msg.current_set ?? 0;
+    est.currentSetIndex = msg.current_set ?? 0;
     // Una partida nueva no arrastra bloqueos ni movimientos a medias.
-    pendingDrop = null;
-    pendingTake = null;
+    est.pendingDrop = null;
+    est.pendingTake = null;
     diag.newGame();
-    centerSlots = [];        // una partida nueva reparte la mesa de cero
+    est.centerSlots = [];        // una partida nueva reparte la mesa de cero
     clearStun();
     clearDebtCountdown();
     resetCombo();
     clearGraceNotices();
-    myFlippedSets = Array(6).fill(false);
+    est.myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
-    verificationSent = false;
+    est.verificationSent = false;
 
     // Registrar oponentes
-    msg.players.filter(n => n !== currentNickname)
+    msg.players.filter(n => n !== est.currentNickname)
                .forEach(name => opponentFlippedSets.set(name, new Map()));
 
     // Quien mira: el orden de la mesa para «Mirando desde». La foto y la tabla de
     // cartas llegan en sus propios mensajes, justo detrás de este.
-    specOrden = msg.players.slice();
-    specState = null;
-    specVista = null;
-    specSet = null;
+    est.specOrden = msg.players.slice();
+    est.specState = null;
+    est.specVista = null;
+    est.specSet = null;
 
     buildSetNav();
     renderCenterCards();
@@ -421,7 +421,7 @@ function onGameStart(msg) {
     startMusic();
     // El silencio se recuerda entre partidas.
     const mb = document.getElementById('muteBtn');
-    if (mb) { mb.textContent = sfxMuted ? '🔇' : '🔊'; }
+    if (mb) { mb.textContent = est.sfxMuted ? '🔇' : '🔊'; }
 
     aplicarModoEspectador();
     showScreen('gameScreen');
@@ -435,9 +435,9 @@ function onGameStart(msg) {
  *  no va a pasar. */
 function aplicarModoEspectador() {
     const board = document.getElementById('gameScreen');
-    if (board) board.classList.toggle('espectador', soyEspectador);
+    if (board) board.classList.toggle('espectador', est.soyEspectador);
     let banda = document.getElementById('espectadorBanda');
-    if (soyEspectador && !banda) {
+    if (est.soyEspectador && !banda) {
         banda = document.createElement('div');
         banda.id = 'espectadorBanda';
         const texto = document.createElement('span');
@@ -455,9 +455,9 @@ function aplicarModoEspectador() {
         banda.append(texto, jugar, salir);
         board.prepend(banda);
         pintarRol();
-    } else if (!soyEspectador && banda) {
+    } else if (!est.soyEspectador && banda) {
         banda.remove();
     }
-    if (!soyEspectador) resetEspectador();
+    if (!est.soyEspectador) resetEspectador();
 }
 

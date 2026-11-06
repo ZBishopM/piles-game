@@ -11,8 +11,7 @@
 // Si algún día se quieren muestras de verdad, el sitio por donde entrar es
 // `playSfx`: misma llamada, otro reproductor.
 let audioCtx = null;
-let sfxMuted = false;
-try { sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
+try { est.sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
 
 /** El navegador no deja sonar nada hasta que el usuario toca algo. */
 function unlockAudio() {
@@ -25,7 +24,7 @@ document.addEventListener('pointerdown', unlockAudio, { once: true });
 
 /** Una nota. `type` da el color, la envolvente da el golpe. */
 function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }) {
-    if (!audioCtx || sfxMuted) return;
+    if (!audioCtx || est.sfxMuted) return;
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
     const amp = audioCtx.createGain();
@@ -44,7 +43,7 @@ function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null
 
 /** Ruido corto, para lo que no es musical (soltar una carta, un choque). */
 function noise({ dur = 0.08, gain = 0.12, hp = 800 }) {
-    if (!audioCtx || sfxMuted) return;
+    if (!audioCtx || est.sfxMuted) return;
     const t = audioCtx.currentTime;
     const n = Math.floor(audioCtx.sampleRate * dur);
     const buf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
@@ -116,7 +115,7 @@ const SFX = {
 };
 
 function playSfx(name, arg) {
-    if (sfxMuted || !audioCtx) return;
+    if (est.sfxMuted || !audioCtx) return;
     try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
 }
 

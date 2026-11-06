@@ -36,12 +36,12 @@ function clearStun() {
 }
 
 function onSwapConflict(players, cardId, durationMs) {
-    const isParticipant = players.includes(currentNickname);
+    const isParticipant = players.includes(est.currentNickname);
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
     // carta se guarda aparte para el overlay: al acabar la pelea ya no estará
     // en el centro.
-    const card = centerCards.find(c => c && c.id === cardId) || null;
+    const card = est.centerCards.find(c => c && c.id === cardId) || null;
     // El id viene en el mensaje: se marca aunque la carta ya no esté en nuestra
     // copia del centro, y `qte_resolved` lo desmarcará por ese mismo id.
     qteBlockedCards.add(cardId);
@@ -50,30 +50,30 @@ function onSwapConflict(players, cardId, durationMs) {
     // media tuya lo pisaba: el overlay propio dejaba de recibir su
     // `qte_update`/`qte_resolved` y se cerraba cuando se resolvía la ajena.
     if (isParticipant) {
-        qtePlayers = players;
-        qteMyCardId = cardId;
-        qteContestedCard = card;
+        est.qtePlayers = players;
+        est.qteMyCardId = cardId;
+        est.qteContestedCard = card;
         // El hueco donde está, que es el que ocupa en pantalla: hace falta para
         // animar el vuelo si la ganas.
-        qteContestedIndex = card ? centerSlots.indexOf(card.id) : null;
+        est.qteContestedIndex = card ? est.centerSlots.indexOf(card.id) : null;
     }
     // Un movimiento propio a medias queda anulado por la pelea: ibas a coger
     // esa carta y ahora hay que ganársela. Para quien la estaba pidiendo, el
     // overlay que entra a continuación es la respuesta a su toque. Una pelea
     // por OTRA carta no toca lo tuyo.
-    if (isParticipant || pendingTake?.card.id === cardId) {
-        pendingDrop = null;
-        pendingTake = null;
+    if (isParticipant || est.pendingTake?.card.id === cardId) {
+        est.pendingDrop = null;
+        est.pendingTake = null;
         clearPending();
     }
     renderCenterCards();
 
     if (isParticipant) {
         // ── Overlay completo para participantes ──
-        qteActive = true;
+        est.qteActive = true;
         playSfx('fight');
 
-        const rival = players.find(p => p !== currentNickname) || '';
+        const rival = players.find(p => p !== est.currentNickname) || '';
         document.getElementById('qteTitle').textContent = t('qte.title');
         const desc = document.getElementById('qteDesc');
         const rivalEl = document.createElement('strong');
@@ -82,18 +82,18 @@ function onSwapConflict(players, cardId, durationMs) {
 
         const cardSlot = document.getElementById('qteCard');
         cardSlot.innerHTML = '';
-        if (qteContestedCard) cardSlot.appendChild(buildCard(qteContestedCard));
+        if (est.qteContestedCard) cardSlot.appendChild(buildCard(est.qteContestedCard));
 
         const scoresDiv = document.getElementById('qteScores');
         scoresDiv.innerHTML = '';
         players.forEach(name => {
             const div = document.createElement('div');
-            div.className = 'qte-player-score' + (name === currentNickname ? ' is-me' : '');
+            div.className = 'qte-player-score' + (name === est.currentNickname ? ' is-me' : '');
             div.id = `qte-score-${name}`;
             // El apodo como texto, nunca como HTML: el servidor no lo filtra.
             const nombre = document.createElement('div');
             nombre.className = 'qte-name';
-            nombre.textContent = name === currentNickname ? t('qte.me', { nick: name }) : name;
+            nombre.textContent = name === est.currentNickname ? t('qte.me', { nick: name }) : name;
             const cuenta = document.createElement('div');
             cuenta.className = 'qte-count';
             cuenta.id = `qte-n-${name}`;
@@ -111,11 +111,11 @@ function onSwapConflict(players, cardId, durationMs) {
         const fill = document.getElementById('qteTimerFill');
         fill.style.width = '100%';
         const start = Date.now();
-        if (qteTimerInterval) clearInterval(qteTimerInterval);
-        qteTimerInterval = setInterval(() => {
+        if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
+        est.qteTimerInterval = setInterval(() => {
             const pct = Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100);
             fill.style.width = pct + '%';
-            if (pct <= 0) clearInterval(qteTimerInterval);
+            if (pct <= 0) clearInterval(est.qteTimerInterval);
         }, 50);
 
         document.getElementById('qteOverlay').classList.add('active');
@@ -198,7 +198,7 @@ function cerrarAvisoPelea(cardId) {
 function esMiPelea(cardId) {
     if (cardId === undefined || cardId === null) return true;
     // Peleando yo, solo cuenta la mía: las ajenas ya no la pisan.
-    if (qteMyCardId !== null) return qteMyCardId === cardId;
+    if (est.qteMyCardId !== null) return est.qteMyCardId === cardId;
     return qteBlockedCards.has(cardId);
 }
 
@@ -244,8 +244,8 @@ function onQteTiebreak(cardId, round, ms) {
         return;
     }
     // Participante.
-    if (!qteActive || qteMyCardId !== cardId) return;
-    const marcador = qtePlayers
+    if (!est.qteActive || est.qteMyCardId !== cardId) return;
+    const marcador = est.qtePlayers
         .map(n => document.getElementById(`qte-n-${n}`)?.textContent ?? '0').join(' – ');
     const titulo = document.getElementById('qteTitle');
     titulo.textContent = t('qte.tie_title');
@@ -253,15 +253,15 @@ function onQteTiebreak(cardId, round, ms) {
     document.getElementById('qteBox').classList.add('tie');
     document.getElementById('qteDesc').textContent =
         t(round > 1 ? 'qte.tie_desc_round' : 'qte.tie_desc', { score: marcador, round });
-    qtePlayers.forEach(n => {
+    est.qtePlayers.forEach(n => {
         const el = document.getElementById(`qte-n-${n}`);
         if (el) el.textContent = '0';
     });
     playSfx('tiebreak');
     const fill = document.getElementById('qteTimerFill');
     fill.style.width = '100%';
-    if (qteTimerInterval) clearInterval(qteTimerInterval);
-    qteTimerInterval = bar(fill);
+    if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
+    est.qteTimerInterval = bar(fill);
     clearTimeout(qteTieLabelTimer);
     qteTieLabelTimer = setTimeout(() => {
         titulo.classList.remove('tie');
@@ -271,7 +271,7 @@ function onQteTiebreak(cardId, round, ms) {
 let qteTieLabelTimer = null;
 
 function onQteResolved(winnerName, info) {
-    const wasParticipant = qtePlayers.includes(currentNickname);
+    const wasParticipant = est.qtePlayers.includes(est.currentNickname);
     clearTimeout(qteTieLabelTimer);
 
     if (!wasParticipant) {
@@ -280,13 +280,13 @@ function onQteResolved(winnerName, info) {
         return;
     }
 
-    const iWon = winnerName === currentNickname;
+    const iWon = winnerName === est.currentNickname;
     playSfx(iWon ? 'fightWon' : 'fightLost');
     // Si ganaste, el swap_success que viene detrás animará la carta desde el
     // centro hasta tu set. Se guarda de dónde sale antes de que el tablero
     // cambie debajo.
-    qteWonSlot = iWon && qteContestedCard
-        ? { card: qteContestedCard, index: qteContestedIndex }
+    est.qteWonSlot = iWon && est.qteContestedCard
+        ? { card: est.qteContestedCard, index: est.qteContestedIndex }
         : null;
 
     document.getElementById('qteClickBtn').style.display = 'none';
@@ -294,9 +294,9 @@ function onQteResolved(winnerName, info) {
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
     if (rendirse) rendirse.hidden = true;
-    if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
+    if (est.qteTimerInterval) { clearInterval(est.qteTimerInterval); est.qteTimerInterval = null; }
 
-    qtePlayers.forEach(name => {
+    est.qtePlayers.forEach(name => {
         const box = document.getElementById(`qte-score-${name}`);
         if (box) box.classList.add(name === winnerName ? 'won' : 'lost');
         // Clicks finales de cada uno (los manda el servidor; viejo = se queda el último marcador).
@@ -313,25 +313,25 @@ function onQteResolved(winnerName, info) {
         document.getElementById('qteDesc').textContent = t('qte.sudden');
     }
 
-    qteActive = false;   // no se admiten más clicks mientras se ve el resultado
-    if (qteResultTimer) clearTimeout(qteResultTimer);
-    qteResultTimer = setTimeout(() => {
-        qteResultTimer = null;
+    est.qteActive = false;   // no se admiten más clicks mientras se ve el resultado
+    if (est.qteResultTimer) clearTimeout(est.qteResultTimer);
+    est.qteResultTimer = setTimeout(() => {
+        est.qteResultTimer = null;
         closeQteOverlay();
     }, info?.random ? FIGHT_RESULT_MS + 900 : FIGHT_RESULT_MS);
 }
 
 function closeQteOverlay() {
-    qteActive = false;
+    est.qteActive = false;
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
     if (rendirse) rendirse.hidden = true;
     // Solo la carta de ESTA pelea: si se vaciara el conjunto entero, cerrar la
     // tuya desmarcaría la carta de la pelea que siguen teniendo otros dos.
-    if (qteContestedCard) qteBlockedCards.delete(qteContestedCard.id);
+    if (est.qteContestedCard) qteBlockedCards.delete(est.qteContestedCard.id);
     renderCenterCards();
-    if (qteTimerInterval) { clearInterval(qteTimerInterval); qteTimerInterval = null; }
-    if (qteResultTimer) { clearTimeout(qteResultTimer); qteResultTimer = null; }
+    if (est.qteTimerInterval) { clearInterval(est.qteTimerInterval); est.qteTimerInterval = null; }
+    if (est.qteResultTimer) { clearTimeout(est.qteResultTimer); est.qteResultTimer = null; }
 
     // Cerrar overlay de participante
     const overlay = document.getElementById('qteOverlay');
@@ -344,17 +344,17 @@ function closeQteOverlay() {
 
     // El aviso de espectador se cierra por carta desde `qte_resolved`, que
     // llega siempre. Aquí solo se limpia el de la tuya por si acaso.
-    if (qteContestedCard) cerrarAvisoPelea(qteContestedCard.id);
+    if (est.qteContestedCard) cerrarAvisoPelea(est.qteContestedCard.id);
 
-    qtePlayers = [];
-    qteContestedCard = null;
-    qteContestedIndex = null;
-    qteMyCardId = null;
+    est.qtePlayers = [];
+    est.qteContestedCard = null;
+    est.qteContestedIndex = null;
+    est.qteMyCardId = null;
     emitir('closeQteOverlay');
 }
 
 function sendQteClick() {
-    if (qteActive) send({ type: 'qte_click' });
+    if (est.qteActive) send({ type: 'qte_click' });
 }
 
 // ─── Ceder la carta que se está peleando ─────────────────────────────────
@@ -384,7 +384,7 @@ function cancelGiveUpHold() {
         // la vez "me rindo" y un click de la pelea, que es contradictorio.
         e.stopPropagation();
         e.preventDefault();
-        if (!qteActive) return;
+        if (!est.qteActive) return;
         // Capturar el puntero: el círculo mide 52 px y un pulgar apoyado 700 ms
         // se mueve. Sin esto el primer temblor salía del botón, saltaba
         // `pointerleave` y se cortaba la cuenta sin que se notara por qué.
@@ -412,7 +412,7 @@ function cancelGiveUpHold() {
 // pelea a golpes de dedo, esperar al `click` completo (que exige soltar) pierde
 // pulsaciones y llega tarde.
 document.getElementById('qteOverlay').addEventListener('pointerdown', (e) => {
-    if (!qteActive) return;
+    if (!est.qteActive) return;
     e.preventDefault();
     sendQteClick();
     const overlay = e.currentTarget;
@@ -422,7 +422,7 @@ document.getElementById('qteOverlay').addEventListener('pointerdown', (e) => {
 
 // Spacebar como atajo durante QTE
 document.addEventListener('keydown', (e) => {
-    if (qteActive && (e.code === 'Space' || e.code === 'Enter') && e.target.tagName !== 'INPUT') {
+    if (est.qteActive && (e.code === 'Space' || e.code === 'Enter') && e.target.tagName !== 'INPUT') {
         e.preventDefault();
         sendQteClick();
     }

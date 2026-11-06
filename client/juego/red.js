@@ -17,17 +17,17 @@ const diag = (() => {
     let listo = false;            // ¿hay asiento en el servidor para recibirlas?
 
     function enviar(kind, detail, hace) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        if (!est.ws || est.ws.readyState !== WebSocket.OPEN) return false;
         if (hace > 1500) detail = { ...detail, hace_ms: hace };
         let texto = JSON.stringify(detail);
         if (texto.length > DETALLE_MAX) detail = { recortada: true, kind };
-        ws.send(JSON.stringify({ type: 'client_note', kind, detail }));
+        est.ws.send(JSON.stringify({ type: 'client_note', kind, detail }));
         return true;
     }
 
     return {
         note(kind, detail = {}) {
-            if (!currentLobbyId) return;               // sin sala no hay grabación
+            if (!est.currentLobbyId) return;               // sin sala no hay grabación
             const ahora = Date.now();
             // El límite es por tipo Y evento: `ws:open` y `ws:rejoin_ok` ocurren
             // con milisegundos de diferencia y son cosas distintas.
@@ -73,25 +73,25 @@ document.addEventListener('visibilitychange', () => diag.note('vis', { hidden: d
 function clientStateSample() {
     const hand = [];
     for (let s = 0; s < 6; s++) {
-        const set = allSets[s] || [];
+        const set = est.allSets[s] || [];
         for (let i = 0; i < 4; i++) hand.push(set[i] ? set[i].id : null);
     }
     const ahora = Date.now();
     return {
         hand,
-        center: centerCards.map(c => c.id),
+        center: est.centerCards.map(c => c.id),
         owes: owesCard(),
-        qte: qteActive,
+        qte: est.qteActive,
         stun_ms: Math.max(0, stunnedUntil - ahora),
-        p_drop_ms: pendingDrop ? ahora - pendingDrop.t : null,
-        p_take_ms: pendingTake ? ahora - pendingTake.t : null,
+        p_drop_ms: est.pendingDrop ? ahora - est.pendingDrop.t : null,
+        p_take_ms: est.pendingTake ? ahora - est.pendingTake.t : null,
         blocked: qteBlockedCards.size,
         vis: !document.hidden,
-        ws: ws ? ws.readyState : -1,
+        ws: est.ws ? est.ws.readyState : -1,
     };
 }
 setInterval(() => {
-    if (document.getElementById('gameScreen')?.classList.contains('active') && !gameOver) {
+    if (document.getElementById('gameScreen')?.classList.contains('active') && !est.gameOver) {
         diag.note('state', clientStateSample());
     }
 }, 5000);
@@ -118,7 +118,7 @@ window.addEventListener('DOMContentLoaded', () => {
         if (seat && localStorage.getItem('piles_nickname')) {
             if (Date.now() - (seat.seen || 0) < SEAT_FRESH_MS) {
                 pendingRejoinCode = seat.lobby;
-                seatToken = seat.token || null;
+                est.seatToken = seat.token || null;
             } else {
                 writeSeat(null);   // demasiado viejo: ese asiento ya no existe
             }
@@ -158,7 +158,7 @@ function handleJoinDeepLink() {
     // Limpiar la URL para que un F5 no reintente unirse a una sala vieja.
     history.replaceState({}, '', location.pathname);
 
-    codigoPendiente = code;
+    est.codigoPendiente = code;
     showScreen('joinScreen');
 
     // Con nombre ya guardado no hay nada que preguntar: entrar directo en
@@ -166,8 +166,6 @@ function handleJoinDeepLink() {
     if (localStorage.getItem('piles_nickname')) pendingAutoJoin = true;
 }
 let pendingAutoJoin = false;
-/** El código del enlace ?join=, hasta entrar con él. */
-let codigoPendiente = '';
 
 // ─── Volver a la sala tras una desconexión ────────────────────────────────
 // Al reconectar se abre un WebSocket nuevo, y el servidor le asigna otro
@@ -182,9 +180,8 @@ let codigoPendiente = '';
 // siga pareciendo viva. Antes se volvía por apodo y solo si el servidor ya
 // había notado la caída; tras un corte de red eso tardó ~100 s (2026-09-30) y
 // cada reintento chocaba con "Ya hay alguien llamado…".
+// (Estado en `est.rejoinInFlight` y `est.seatToken`.)
 let pendingRejoinCode = null;
-let rejoinInFlight = false;
-let seatToken = null;
 
 // El asiento vive en el NAVEGADOR (localStorage), no en la pestaña: sobrevive
 // a cerrar la pestaña o el navegador y volver dentro del plazo. Coste: una
@@ -210,16 +207,16 @@ function rememberLobby(lobbyId) {
     // El secreto llega en un mensaje aparte justo después (`seat_token`); si
     // ya había uno de esta misma sala, se conserva.
     const prev = readSeat();
-    if (prev && prev.lobby !== lobbyId) seatToken = null;   // el de otra sala no vale
-    else if (prev && !seatToken) seatToken = prev.token || null;
-    writeSeat({ lobby: lobbyId, token: seatToken, seen: Date.now() });
+    if (prev && prev.lobby !== lobbyId) est.seatToken = null;   // el de otra sala no vale
+    else if (prev && !est.seatToken) est.seatToken = prev.token || null;
+    writeSeat({ lobby: lobbyId, token: est.seatToken, seen: Date.now() });
 }
 
 /** Te vas de verdad (o la sala ya no existe): se olvida aquí y en el navegador. */
 function forgetLobby() {
     pendingRejoinCode = null;
-    currentLobbyId = '';
-    seatToken = null;
+    est.currentLobbyId = '';
+    est.seatToken = null;
     writeSeat(null);
     diag.clear();
 }
@@ -228,32 +225,32 @@ function forgetLobby() {
  *  navegador ya es de la otra. */
 function dropSeatLocally() {
     pendingRejoinCode = null;
-    currentLobbyId = '';
-    seatToken = null;
-    rejoinInFlight = false;
+    est.currentLobbyId = '';
+    est.seatToken = null;
+    est.rejoinInFlight = false;
     diag.clear();
 }
 
 function attemptRejoin() {
     const nickname = (localStorage.getItem('piles_nickname') || '').trim();
     if (!pendingRejoinCode || !nickname) { forgetLobby(); return; }
-    currentNickname = nickname;
-    rejoinInFlight = true;
+    est.currentNickname = nickname;
+    est.rejoinInFlight = true;
     send({ type: 'join_lobby', lobby_id: pendingRejoinCode, nickname,
-           rating_key: ratingKey(), seat_token: seatToken, taunt: getTaunt() || undefined,
-           spectate: (soyEspectador && !enCola) || undefined });
+           rating_key: ratingKey(), seat_token: est.seatToken, taunt: getTaunt() || undefined,
+           spectate: (est.soyEspectador && !enCola) || undefined });
 }
 
 function connectWs() {
     const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
+    est.ws = new WebSocket(`${wsProto}//${window.location.host}/ws`);
 
-    ws.onopen = () => {
-        clearTimeout(reconnectTimer);
+    est.ws.onopen = () => {
+        clearTimeout(est.reconnectTimer);
         diag.notReady();   // hasta que se recupere el asiento
-        diag.note('ws', { ev: 'open', attempt: reconnectAttempt });
-        reconnectAttempt = 0;
-        pendingPongSince = 0;
+        diag.note('ws', { ev: 'open', attempt: est.reconnectAttempt });
+        est.reconnectAttempt = 0;
+        est.pendingPongSince = 0;
         document.getElementById('reconnectOverlay').style.display = 'none';
         // Ping para mantener viva la conexión y, de paso, para medir la ida y
         // vuelta. El servidor no puede medirla: solo el cliente sabe cuándo
@@ -262,54 +259,54 @@ function connectWs() {
         //
         // Cada 3 s jugando y cada 25 s fuera: con 25 s no se puede responder a
         // "¿esto fue lag?", que es justo para lo que se guarda.
-        clearInterval(pingInterval);
-        pingInterval = setInterval(() => {
-            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        clearInterval(est.pingInterval);
+        est.pingInterval = setInterval(() => {
+            if (!est.ws || est.ws.readyState !== WebSocket.OPEN) return;
             // Perro guardián: un ping sin su pong tanto rato es un socket
             // muerto, aunque el navegador no lo sepa. Se mira en cada tic, no
             // solo cuando toca mandar otro ping.
-            if (pendingPongSince && Date.now() - pendingPongSince > PONG_TIMEOUT_MS) {
-                diag.note('pong_timeout', { sin_pong_ms: Date.now() - pendingPongSince });
+            if (est.pendingPongSince && Date.now() - est.pendingPongSince > PONG_TIMEOUT_MS) {
+                diag.note('pong_timeout', { sin_pong_ms: Date.now() - est.pendingPongSince });
                 abandonDeadSocket();
                 return;
             }
             // "Visto hace poco": es lo que dice, al volver a abrir, si el
             // asiento guardado aún puede existir. Solo la pestaña que lo tiene.
-            if (seatToken && currentLobbyId) {
-                writeSeat({ lobby: currentLobbyId, token: seatToken, seen: Date.now() });
+            if (est.seatToken && est.currentLobbyId) {
+                writeSeat({ lobby: est.currentLobbyId, token: est.seatToken, seen: Date.now() });
             }
             const enPartida = document.getElementById('gameScreen')?.classList.contains('active');
-            if (!enPartida && Date.now() - lastPingAt < 25000) return;
-            lastPingAt = Date.now();
-            pingSentAt = performance.now();
-            if (!pendingPongSince) pendingPongSince = Date.now();
-            ws.send(JSON.stringify({ type: 'ping', rtt_ms: lastRtt }));
+            if (!enPartida && Date.now() - est.lastPingAt < 25000) return;
+            est.lastPingAt = Date.now();
+            est.pingSentAt = performance.now();
+            if (!est.pendingPongSince) est.pendingPongSince = Date.now();
+            est.ws.send(JSON.stringify({ type: 'ping', rtt_ms: est.lastRtt }));
         }, 3000);
 
         if (pendingAutoJoin) {
             // Sala abierta desde un enlace/QR con nombre ya guardado.
             pendingAutoJoin = false;
-            joinLobby(codigoPendiente);
+            joinLobby(est.codigoPendiente);
         } else if (pendingRejoinCode) {
             // Reconexión (o F5) estando en una sala: volver a entrar.
             attemptRejoin();
         }
     };
 
-    ws.onerror = () => {
+    est.ws.onerror = () => {
         diag.note('ws', { ev: 'error' });
     };
 
-    ws.onclose = (e) => {
-        clearInterval(pingInterval);
-        pendingPongSince = 0;
+    est.ws.onclose = (e) => {
+        clearInterval(est.pingInterval);
+        est.pendingPongSince = 0;
         diag.notReady();
         diag.note('ws', { ev: 'close', code: e.code, clean: e.wasClean });
         document.getElementById('reconnectOverlay').style.display = 'flex';
         scheduleReconnect();
     };
 
-    ws.onmessage = e => {
+    est.ws.onmessage = e => {
         const msg = JSON.parse(e.data);
         console.log('📨', msg.type, msg);
         handleMsg(msg);
@@ -321,9 +318,9 @@ function connectWs() {
  *  del asiento le quita la sala al servidor aunque este aún vea viva la
  *  conexión vieja. */
 function abandonDeadSocket() {
-    const vieja = ws;
-    clearInterval(pingInterval);
-    pendingPongSince = 0;
+    const vieja = est.ws;
+    clearInterval(est.pingInterval);
+    est.pendingPongSince = 0;
     diag.notReady();
     if (vieja) {
         // Sin manejadores: su `onclose` tardío no puede programar otra reconexión.
@@ -338,44 +335,44 @@ function abandonDeadSocket() {
  *  la sala exista merece la pena seguir probando, y el servidor recicla las
  *  vacías a los 30 min de todas formas. */
 function scheduleReconnect() {
-    clearTimeout(reconnectTimer);
-    reconnectAttempt++;
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttempt - 1), RECONNECT_MAX_DELAY);
+    clearTimeout(est.reconnectTimer);
+    est.reconnectAttempt++;
+    const delay = Math.min(1000 * Math.pow(2, est.reconnectAttempt - 1), RECONNECT_MAX_DELAY);
     document.getElementById('reconnectMsg').textContent =
-        t(currentLobbyId ? 'recon.retry_room' : 'recon.retry', { n: reconnectAttempt });
-    reconnectTimer = setTimeout(connectWs, delay);
+        t(est.currentLobbyId ? 'recon.retry_room' : 'recon.retry', { n: est.reconnectAttempt });
+    est.reconnectTimer = setTimeout(connectWs, delay);
 }
 
 /** El botón del overlay: reintentar ya, sin esperar al backoff. */
 function reconnect() {
-    clearTimeout(reconnectTimer);
-    reconnectAttempt = 0;
+    clearTimeout(est.reconnectTimer);
+    est.reconnectAttempt = 0;
     connectWs();
 }
 
-function send(obj) { ws.send(JSON.stringify(obj)); }
+function send(obj) { est.ws.send(JSON.stringify(obj)); }
 
 // ─── Mensajes del servidor ────────────────────────────────────────────────
 function handleMsg(msg) {
     emitir('antesDeMensaje', msg);   // con el estado de antes de aplicarlo
     switch (msg.type) {
         case 'lobby_created':
-            currentLobbyId = msg.lobby_id;
-            currentPlayerId = msg.player_id;
+            est.currentLobbyId = msg.lobby_id;
+            est.currentPlayerId = msg.player_id;
             onEnteredLobby(msg.lobby_id);
             break;
 
         case 'joined_lobby':
-            currentLobbyId = msg.lobby_id;
-            currentPlayerId = msg.player_id;
-            soyEspectador = !!msg.spectator;
-            if (rejoinInFlight) diag.note('ws', { ev: 'rejoin_ok', espectador: soyEspectador });
+            est.currentLobbyId = msg.lobby_id;
+            est.currentPlayerId = msg.player_id;
+            est.soyEspectador = !!msg.spectator;
+            if (est.rejoinInFlight) diag.note('ws', { ev: 'rejoin_ok', espectador: est.soyEspectador });
             onEnteredLobby(msg.lobby_id);
             break;
 
         case 'seat_token':
             // El secreto del asiento, solo para ti. Con él se vuelve a la sala.
-            seatToken = msg.token;
+            est.seatToken = msg.token;
             writeSeat({ lobby: msg.lobby_id, token: msg.token, seen: Date.now() });
             // Ya hay asiento: las notas que esperaban (lo ocurrido durante la
             // caída) pueden salir y quedar grabadas con la partida.
@@ -420,7 +417,7 @@ function handleMsg(msg) {
 
         case 'set_switched':
             // Solo sincronizar datos; la vista ya se actualizó optimistamente en switchSet()
-            allSets[msg.set_index] = msg.cards;
+            est.allSets[msg.set_index] = msg.cards;
             break;
 
         case 'swap_success':
@@ -462,7 +459,7 @@ function handleMsg(msg) {
             startStun(msg.ms);
             // Si era la respuesta a coger o soltar, esa jugada no se hizo: sin
             // esto se quedaba la carta en fantasma y pedida para siempre.
-            if (pendingTake || pendingDrop) onSwapFailed({ kind: 'gone' });
+            if (est.pendingTake || est.pendingDrop) onSwapFailed({ kind: 'gone' });
             break;
 
         case 'combo_update':
@@ -502,8 +499,8 @@ function handleMsg(msg) {
         case 'sets_resynced':
             // Mismo estado, reenviado: NO se toca la racha ni los sets
             // volteados. Un hueco por una prenda retirada no es culpa tuya.
-            allSets = msg.your_sets;
-            centerCards = msg.center_cards;
+            est.allSets = msg.your_sets;
+            est.centerCards = msg.center_cards;
             renderYourCards();
             renderCenterCards();
             updateSetNav();
@@ -515,10 +512,10 @@ function handleMsg(msg) {
             // así que nada de vuelos: solo se resalta el hueco que cambió.
             // Qué carta es nueva se mira ANTES de sustituir centerCards.
             // Se compara con lo PINTADO, no con `centerCards`.
-            const drawn = new Set(centerSlots.filter(id => id !== null));
+            const drawn = new Set(est.centerSlots.filter(id => id !== null));
             const arrived = msg.center_cards.find(c => !drawn.has(c.id));
-            centerCards = msg.center_cards;
-            mirones = msg.spectators ?? 0;
+            est.centerCards = msg.center_cards;
+            est.mirones = msg.spectators ?? 0;
             renderPlayersProgress(msg.players_progress);
             // El servidor manda este broadcast también a quien hizo el
             // intercambio, justo detrás de su swap_success. Redibujar otra vez
@@ -534,7 +531,7 @@ function handleMsg(msg) {
             if (arrived && qteBlockedCards.size === 0) {
                 // Por hueco, que es lo que se dibuja: el índice dentro de
                 // centerCards ya no coincide con lo que hay en pantalla.
-                const slot = centerSlots.indexOf(arrived.id);
+                const slot = est.centerSlots.indexOf(arrived.id);
                 if (slot !== -1) markLanded('centerCards', slot);
                 flashCenter();   // el centro cambió por alguien que no eres tú
             }
@@ -571,17 +568,17 @@ function handleMsg(msg) {
 
         case 'pong':
             // Keep-alive confirmado, y la medida de la ida y vuelta.
-            pendingPongSince = 0;
-            if (pingSentAt) lastRtt = Math.round(performance.now() - pingSentAt);
+            est.pendingPongSince = 0;
+            if (est.pingSentAt) est.lastRtt = Math.round(performance.now() - est.pingSentAt);
             break;
 
         case 'error':
             console.warn('Error del servidor:', msg.message);
-            if (rejoinInFlight) {
+            if (est.rejoinInFlight) {
                 diag.note('ws', { ev: 'rejoin_fail', msg: String(msg.message).slice(0, 80) });
                 // La sala ya no existe (o el nombre está ocupado). Sin esto
                 // el jugador se quedaba mirando una sala fantasma.
-                rejoinInFlight = false;
+                est.rejoinInFlight = false;
                 forgetLobby();
                 showScreen('homeScreen');
                 agToast({ kind: 'warning', message: t('err.rejoin', { why: srvText(msg, 'err') }) });

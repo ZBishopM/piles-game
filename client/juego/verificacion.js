@@ -1,17 +1,16 @@
 // ─── Verificación ────────────────────────────────────────────────────────
-let verificationSent = false;
 
 /** Enseñar los 6 sets ES pedir la verificación; no hay botón. */
 function checkAutoVerify() {
-    if (verificationSent) return;
-    if (myFlippedSets.length === 6 && myFlippedSets.every(f => f)) {
-        verificationSent = true;
+    if (est.verificationSent) return;
+    if (est.myFlippedSets.length === 6 && est.myFlippedSets.every(f => f)) {
+        est.verificationSent = true;
         send({ type: 'request_verification' });
     }
 }
 
 function openVerifyOverlay(playerName) {
-    if (playerName === currentNickname) {
+    if (playerName === est.currentNickname) {
         // Mi verificación → overlay completo
         const overlay = document.getElementById('verifyOverlay');
         document.getElementById('verifyTitle').textContent = t('verify.mine');
@@ -58,7 +57,7 @@ function openVerifyOverlay(playerName) {
 function revealVerifySet(playerName, setIndex, isValid, cards) {
     const symbol = isValid ? '✅' : '❌';
 
-    if (playerName === currentNickname) {
+    if (playerName === est.currentNickname) {
         // Actualizar mi overlay
         const cardsDiv = document.getElementById(`vcards-${setIndex}`);
         const icon = document.getElementById(`vicon-${setIndex}`);
@@ -85,7 +84,7 @@ function onVerificationSuccess(playerName, position) {
     const medals = ['🥇', '🥈', '🥉'];
     const medal = medals[position - 1] || t('pos.ord', { n: position });
 
-    if (playerName === currentNickname) {
+    if (playerName === est.currentNickname) {
         const footer = document.getElementById('verifyFooter');
         footer.textContent = t('verify.done_me', { medal, pos: position });
         footer.className = 'verify-footer success';
@@ -104,8 +103,8 @@ function onVerificationSuccess(playerName, position) {
 function onVerificationFailed(playerName, failedSets) {
     const failedNames = failedSets.map(i => t('set.n', { n: i + 1 })).join(t('list.sep'));
 
-    if (playerName === currentNickname) {
-        verificationSent = false;  // Permitir un nuevo intento cuando los sets estén completos
+    if (playerName === est.currentNickname) {
+        est.verificationSent = false;  // Permitir un nuevo intento cuando los sets estén completos
         const footer = document.getElementById('verifyFooter');
         footer.textContent = t('verify.fail_me', { list: failedNames });
         footer.className = 'verify-footer failure';
@@ -150,7 +149,7 @@ function clearMatchNotifications() {
     otherVerifications.clear();
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
     qteBlockedCards.clear();
-    qteMyCardId = null;
+    est.qteMyCardId = null;
     emitir('clearMatchNotifications');
 }
 
@@ -187,7 +186,7 @@ function lanzarConfeti() {
 
 function onGameOver(rankings, elo = []) {
     const yaMostrado = document.getElementById('gameOverOverlay').classList.contains('active');
-    gameOver = true;
+    est.gameOver = true;
     stopMusic();
     closeVerifyOverlay();
     clearMatchNotifications();
@@ -225,13 +224,13 @@ function onGameOver(rankings, elo = []) {
     showMyElo(elo);
     claimSessionManagerResult(rankings);
     // Solo si ganas una partida con rivales; un mensaje repetido no relanza.
-    if (!yaMostrado && rankings.length > 1 && rankings.some(e => e.position === 1 && e.nickname === currentNickname)) lanzarConfeti();
+    if (!yaMostrado && rankings.length > 1 && rankings.some(e => e.position === 1 && e.nickname === est.currentNickname)) lanzarConfeti();
 }
 
 /** Tu Elo en el overlay final: gira desde el que tenías hasta el nuevo. */
 function showMyElo(elo) {
     const box = document.getElementById('eloDial');
-    const mio = elo.find(c => c.nickname === currentNickname);
+    const mio = elo.find(c => c.nickname === est.currentNickname);
     if (!mio || typeof agDial !== 'function') {
         box.hidden = true;
         return;

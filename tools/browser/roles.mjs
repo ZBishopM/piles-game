@@ -107,7 +107,7 @@ await fila(M, r4.lobby).click();
 await M.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
 {
-  ok(await M.evaluate(() => soyEspectador === true && enCola === false), 'entras como espectador, sin hacer cola (mirar por gusto)');
+  ok(await M.evaluate(() => est.soyEspectador === true && enCola === false), 'entras como espectador, sin hacer cola (mirar por gusto)');
   ok(await M.locator('#huecoBanda').isVisible() && /Estás mirando/.test(await M.locator('#huecoBanda').textContent()), 'aviso «Estás mirando»');
   ok(!(await M.locator('#readyBtn').isVisible()) && !(await M.locator('#botControls').isVisible()), 'sin botón de «Listo» ni bots');
   const nombres = await M.locator('#playerList .player-name').evaluateAll(es => es.map(e => e.textContent));
@@ -133,9 +133,9 @@ await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
   send(b4, { type: 'leave_lobby' });
   await M.waitForFunction(() => document.getElementById('playerCount').textContent === '1', null, { timeout: 3000 });
   await wait(500);
-  ok(await M.evaluate(() => soyEspectador === true), 'con hueco libre, quien mira por gusto sigue mirando');
+  ok(await M.evaluate(() => est.soyEspectador === true), 'con hueco libre, quien mira por gusto sigue mirando');
   await btn.click();
-  await M.waitForFunction(() => soyEspectador === false, null, { timeout: 3000 });
+  await M.waitForFunction(() => est.soyEspectador === false, null, { timeout: 3000 });
   await M.locator('#readyBtn').waitFor({ state: 'visible', timeout: 3000 });
   ok(/Pasar a espectador/.test(await btn.textContent()) && !(await M.locator('#lobbyScreen').evaluate(e => e.classList.contains('espera-hueco'))),
      '«Quiero jugar» con hueco: te sientas (aparece «Estoy listo») y el botón pasa a «Pasar a espectador»');
@@ -145,7 +145,7 @@ await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
 
   // Y de vuelta a mirar.
   await btn.click();
-  await M.waitForFunction(() => soyEspectador === true, null, { timeout: 3000 });
+  await M.waitForFunction(() => est.soyEspectador === true, null, { timeout: 3000 });
   await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
   ok(/Quiero jugar/.test(await btn.textContent()) && !(await M.locator('#readyBtn').isVisible()), '«Pasar a espectador» te devuelve a mirar');
 }
@@ -155,12 +155,12 @@ await M.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
   await fila(E, r1.lobby).click();
   await E.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
   await E.locator('#readyBtn').waitFor({ state: 'visible', timeout: 3000 });
-  ok(await E.evaluate(() => soyEspectador === false), 'tocar «en espera» con hueco entra a jugar');
+  ok(await E.evaluate(() => est.soyEspectador === false), 'tocar «en espera» con hueco entra a jugar');
   const btn = E.locator('#rolBtn');
   ok(/Pasar a espectador/.test(await btn.textContent()) && await btn.isVisible(), 'con el botón «Pasar a espectador»');
   await foto(E, 'sentado-escritorio');
   await btn.click();
-  await E.waitForFunction(() => soyEspectador === true, null, { timeout: 3000 });
+  await E.waitForFunction(() => est.soyEspectador === true, null, { timeout: 3000 });
   await E.locator('#lobbyScreen.espera-hueco').waitFor({ timeout: 3000 });
   ok(await E.locator('#huecoBanda').isVisible() && /Quiero jugar/.test(await btn.textContent()), 'y pasa a mirar: aviso y «Quiero jugar»');
   await foto(E, 'mirando-escritorio');

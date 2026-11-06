@@ -17,7 +17,7 @@ const browser = await lanzar();
 async function caso(nombre, rankings, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, ...opts });
   const p = await pagina(ctx);
-  await p.evaluate(rs => { currentNickname = 'Yo'; onGameOver(rs, []); }, rankings);
+  await p.evaluate(rs => { est.currentNickname = 'Yo'; onGameOver(rs, []); }, rankings);
   return { p, ctx };
 }
 

@@ -18,11 +18,11 @@ await aPartida(p, 'Peleas');
 const inyectar = m => p.evaluate(m => handleMsg(m), m);
 const estado = () => p.evaluate(() => ({
   overlay: document.getElementById('qteOverlay').classList.contains('active'),
-  qteActive, mia: qteMyCardId, bloqueadas: [...qteBlockedCards],
+  qteActive: est.qteActive, mia: est.qteMyCardId, bloqueadas: [...qteBlockedCards],
   avisos: document.querySelectorAll('#verifyNotifications .qte-battle-notif').length,
 }));
 
-const [X, Y] = await p.evaluate(() => [centerCards[0].id, centerCards[1].id]);
+const [X, Y] = await p.evaluate(() => [est.centerCards[0].id, est.centerCards[1].id]);
 const yo = 'Peleas', bot = '🤖 Bot 1';
 
 // Empieza mi pelea por X…
@@ -78,7 +78,7 @@ for (const [w, h] of [[390, 700], [1280, 800]]) {
   const q = await pagina(c2);
   await aPartida(q, 'Empate');
   const iny = m => q.evaluate(m => handleMsg(m), m);
-  const Z = await q.evaluate(() => centerCards[0].id);
+  const Z = await q.evaluate(() => est.centerCards[0].id);
   const rival = '🤖 Bot 1';
   await iny({ type: 'swap_conflict', players: ['Empate', rival], card_id: Z, qte_duration: 3000 });
   await iny({ type: 'qte_update', card_id: Z, clicks: { Empate: 5, [rival]: 5 } });
@@ -91,7 +91,7 @@ for (const [w, h] of [[390, 700], [1280, 800]]) {
   ok(cero.every(x => x === '0'), `${w}px: marcadores a 0`);
   const vivo = await q.evaluate(() => ({
     live: document.getElementById('qteTitle').getAttribute('aria-live'),
-    activo: document.getElementById('qteOverlay').classList.contains('active') && qteActive,
+    activo: document.getElementById('qteOverlay').classList.contains('active') && est.qteActive,
     caja: document.getElementById('qteBox').getBoundingClientRect().right <= innerWidth,
   }));
   ok(vivo.live === 'polite' && vivo.activo && vivo.caja, `${w}px: aria-live, sigue activo y sin desborde`);
@@ -110,7 +110,7 @@ for (const [w, h] of [[390, 700], [1280, 800]]) {
   await iny({ type: 'swap_conflict', players: ['Empate', rival], card_id: Z, qte_duration: 3000 });
   await iny({ type: 'qte_resolved', card_id: Z, winner: rival });
   await wait(1100);
-  ok(!(await q.evaluate(() => qteActive)), `${w}px: qte_resolved sin los campos nuevos funciona`);
+  ok(!(await q.evaluate(() => est.qteActive)), `${w}px: qte_resolved sin los campos nuevos funciona`);
   // Espectador: aviso reducido.
   await iny({ type: 'swap_conflict', players: ['Pepe', 'Luis'], card_id: Z + 1, qte_duration: 3000 });
   await iny({ type: 'qte_tiebreak', card_id: Z + 1, round: 1, duration: 1000 });
@@ -126,7 +126,7 @@ info(`capturas en ${carpeta}`);
 const c3 = await browser.newContext({ viewport: { width: 390, height: 700 }, reducedMotion: 'reduce' });
 const r = await pagina(c3);
 await aPartida(r, 'Quieto');
-const Zr = await r.evaluate(() => centerCards[0].id);
+const Zr = await r.evaluate(() => est.centerCards[0].id);
 await r.evaluate(Z => { handleMsg({ type: 'swap_conflict', players: ['Quieto', '🤖 Bot 1'], card_id: Z, qte_duration: 3000 }); handleMsg({ type: 'qte_tiebreak', card_id: Z, round: 1, duration: 1000 }); }, Zr);
 ok((await r.evaluate(() => getComputedStyle(document.getElementById('qteTitle')).animationName)) === 'none', 'con movimiento reducido el rótulo no anima');
 await c3.close();

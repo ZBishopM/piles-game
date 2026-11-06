@@ -15,9 +15,9 @@ function buildSetNav() {
 function updateSetNav() {
     const owing = owesCard();
     document.querySelectorAll('.set-btn').forEach((btn, i) => {
-        const flipped = myFlippedSets[i];
+        const flipped = est.myFlippedSets[i];
         btn.className = 'set-btn'
-            + (i === currentSetIndex ? ' active' : '')
+            + (i === est.currentSetIndex ? ' active' : '')
             + (flipped ? ' flipped' : '');
         btn.querySelector('.set-eye').textContent = flipped ? '👁' : '';
         // Se repinta aquí y no solo en updateOwingUi porque esta función
@@ -38,25 +38,25 @@ function updateSetNav() {
 //
 // Aquí cada carta se queda en su hueco. Cuando alguien se la lleva, el hueco
 // se queda vacío en vez de cerrarse, y la siguiente carta soltada ocupa el
-// primer hueco libre. Nada de lo que sigue en la mesa se mueve.
-let centerSlots = [];   // ids de carta, o null si el hueco está libre
+// primer hueco libre. Nada de lo que sigue en la mesa se mueve. Los huecos
+// están en `est.centerSlots`.
 
 function syncCenterSlots() {
-    const present = new Set(centerCards.map(c => c.id));
+    const present = new Set(est.centerCards.map(c => c.id));
     // Los que ya no están dejan su sitio libre.
-    centerSlots = centerSlots.map(id => (id !== null && present.has(id)) ? id : null);
+    est.centerSlots = est.centerSlots.map(id => (id !== null && present.has(id)) ? id : null);
     // Las nuevas van al primer hueco libre; si no hay, al final.
-    const placed = new Set(centerSlots.filter(id => id !== null));
-    for (const card of centerCards) {
+    const placed = new Set(est.centerSlots.filter(id => id !== null));
+    for (const card of est.centerCards) {
         if (placed.has(card.id)) continue;
-        const free = centerSlots.indexOf(null);
-        if (free === -1) centerSlots.push(card.id);
-        else centerSlots[free] = card.id;
+        const free = est.centerSlots.indexOf(null);
+        if (free === -1) est.centerSlots.push(card.id);
+        else est.centerSlots[free] = card.id;
         placed.add(card.id);
     }
     // Recortar huecos del final: eso no mueve nada de lo que queda.
-    while (centerSlots.length && centerSlots[centerSlots.length - 1] === null) {
-        centerSlots.pop();
+    while (est.centerSlots.length && est.centerSlots[est.centerSlots.length - 1] === null) {
+        est.centerSlots.pop();
     }
 }
 
@@ -82,7 +82,7 @@ function renderCenterCards() {
     syncCenterSlots();
     div.innerHTML = '';
 
-    for (const id of centerSlots) {
+    for (const id of est.centerSlots) {
         if (id === null) {
             // Hueco vacío: ocupa sitio para que no se mueva nada, y no se puede
             // tocar.
@@ -91,7 +91,7 @@ function renderCenterCards() {
             div.appendChild(gap);
             continue;
         }
-        const card = centerCards.find(c => c.id === id);
+        const card = est.centerCards.find(c => c.id === id);
         if (!card) continue;
 
         const el = buildCard(card);
@@ -102,15 +102,15 @@ function renderCenterCards() {
         el.classList.add('thrown');
         // La que estás cogiendo sigue marcada aunque el centro se redibuje
         // mientras llega la respuesta (300 ms de ventana de pelea + la red).
-        if (pendingTake?.card.id === card.id) el.classList.add('card-pending');
+        if (est.pendingTake?.card.id === card.id) el.classList.add('card-pending');
         // Peleando: se apaga todo, porque no puedes hacer otra cosa.
         // Mirando: el tablero se queda como estaba. Apagarlo entero mientras
         // pelean otros dos distraía y encima no hacía falta — puedes seguir
         // jugando. Lo único intocable es la carta en disputa.
         if (qteBlockedCards.size) {
             if (qteBlockedCards.has(card.id)) {
-                el.classList.add(qteActive ? 'qte-locked' : 'qte-contested');
-            } else if (qteActive) {
+                el.classList.add(est.qteActive ? 'qte-locked' : 'qte-contested');
+            } else if (est.qteActive) {
                 el.classList.add('qte-waiting');
             }
         }
@@ -125,7 +125,7 @@ function renderCenterCards() {
 function renderYourCards() {
     const div = document.getElementById('yourCards');
     div.innerHTML = '';
-    const set = allSets[currentSetIndex] || [];
+    const set = est.allSets[est.currentSetIndex] || [];
     set.forEach((card, i) => {
         // Un hueco vacío es una carta soltada que aún no se ha repuesto.
         if (!card) {
@@ -160,7 +160,7 @@ function renderPlayersProgress(progress) {
     hud.innerHTML = '';
 
     lastProgress.slice(0, 8).forEach(p => {
-        const esMio = p.nickname === currentNickname;
+        const esMio = p.nickname === est.currentNickname;
         const stripe = document.createElement('div');
         stripe.className = 'hud-stripe'
             + (esMio ? ' is-me' : '')
@@ -204,11 +204,11 @@ function renderPlayersProgress(progress) {
 
     // Saber que te ven es la mitad de que haya espectadores, así que la cuenta
     // se enseña a todos. Con cero —el caso normal— no se enseña nada.
-    if (mirones > 0) {
+    if (est.mirones > 0) {
         const chip = document.createElement('div');
         chip.className = 'hud-stripe mirones';
-        chip.textContent = `👁 ${mirones}`;
-        chip.title = t('hud.watching', { n: mirones });
+        chip.textContent = `👁 ${est.mirones}`;
+        chip.title = t('hud.watching', { n: est.mirones });
         hud.appendChild(chip);
     }
     emitir('renderPlayersProgress', progress);
@@ -218,8 +218,8 @@ function renderPlayersProgress(progress) {
 function misSetsRevelados() {
     const m = new Map();
     for (let i = 0; i < 6; i++) {
-        if (!myFlippedSets[i]) continue;
-        const set = allSets[i] || [];
+        if (!est.myFlippedSets[i]) continue;
+        const set = est.allSets[i] || [];
         const card = set.find(c => c);
         if (card) m.set(i, card);
     }
@@ -522,7 +522,7 @@ function onWaitPoll(nickname, seconds) {
         const el = pintarAviso(nickname, `🔌 ${nickname}`, lineas);
         if (!el) return;
         el.classList.add('wait-poll');
-        if (soyEspectador || voto !== null) return;
+        if (est.soyEspectador || voto !== null) return;
         const botones = document.createElement('div');
         botones.className = 'wait-poll-btns';
         for (const [texto, seguir] of [[t('wait.wait'), true], [t('wait.cancel'), false]]) {
@@ -721,8 +721,8 @@ function fireFrenzy() {
 
 /** Alguien soltó un frenesí. Quien lo paró se entera de que le ha servido. */
 function onFrenzyFired(msg) {
-    const yoParé = (msg.countered || []).includes(currentNickname);
-    const yoLoSolté = msg.player === currentNickname;
+    const yoParé = (msg.countered || []).includes(est.currentNickname);
+    const yoLoSolté = msg.player === est.currentNickname;
     playSfx(yoParé ? 'frenzyCounter' : 'frenzyHit');
 
     const board = document.getElementById('gameScreen');
@@ -736,7 +736,7 @@ function onFrenzyFired(msg) {
     if (yoParé) {
         updateSwapHint(t('frenzy.countered'));
         resetSwapHintLater(2200);
-    } else if (!yoLoSolté && (msg.stunned || []).includes(currentNickname)) {
+    } else if (!yoLoSolté && (msg.stunned || []).includes(est.currentNickname)) {
         // El bloqueo ya se anuncia con su propia barra; aquí solo se dice de
         // quién vino, que es lo que no se sabría.
         updateSwapHint(t('frenzy.by', { nick: msg.player }));

@@ -176,25 +176,25 @@ function onGameCancelled(msg) {
 function returnToLobby() {
     cancelQuickMatchOffer();
     stopMusic();
-    gameOver = false;
-    isReady = false;
+    est.gameOver = false;
+    est.isReady = false;
     document.getElementById('gameOverOverlay').classList.remove('active');
     document.getElementById('confetiLayer')?.remove();
     // Resetear estado de juego
-    allSets = [];
-    centerCards = [];
-    verificationSent = false;
-    myFlippedSets = Array(6).fill(false);
+    est.allSets = [];
+    est.centerCards = [];
+    est.verificationSent = false;
+    est.myFlippedSets = Array(6).fill(false);
     opponentFlippedSets.clear();
-    pendingDrop = null;
-    pendingTake = null;
+    est.pendingDrop = null;
+    est.pendingTake = null;
     clearStun();
     document.getElementById('gameScreen')?.classList.remove('owing');
     document.getElementById('fxLayer').innerHTML = '';
     // Red de seguridad: si algo quedó de la partida anterior, no debe
     // aparecer flotando encima de la siguiente.
     clearMatchNotifications();
-    specState = null; specVista = null; specSet = null;
+    est.specState = null; est.specVista = null; est.specSet = null;
     showScreen('lobbyScreen');
 }
 

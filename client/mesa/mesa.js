@@ -949,7 +949,7 @@ function irA(destino, titulo, o = {}, lobby = true) {
 // ↓ = volver: la última cabecera vuelve a la pila y se reparte el menú anterior.
 const historial = [];
 function volver() {
-    if (pantalla === 'cuenta') { if (isReady) toggleReady(); return; }   // desmarcarse cancela la cuenta (en el servidor)
+    if (pantalla === 'cuenta') { if (est.isReady) toggleReady(); return; }   // desmarcarse cancela la cuenta (en el servidor)
     if (pantalla === 'oferta') { cancelQuickMatchOffer(); cerrarOferta(); return; }
     if (!historial.length) return;
     if (pantalla === 'sala') { conLobby(() => leaveLobby()); }   // salir de la sala de verdad
@@ -987,7 +987,7 @@ function saltarA(destino) {
         retirarMano(); setTimeout(() => repartir(MENUS.inicio, -1), 120);
         return;
     }
-    const titulo = destino === 'sala' ? (currentLobbyId || 'Sala') : { perfil: 'Perfil', tutorial: 'Cómo jugar', crear: 'Crear sala', unirse: 'Unirse' }[destino] ?? destino;
+    const titulo = destino === 'sala' ? (est.currentLobbyId || 'Sala') : { perfil: 'Perfil', tutorial: 'Cómo jugar', crear: 'Crear sala', unirse: 'Unirse' }[destino] ?? destino;
     irA(destino, titulo, {}, false);
 }
 
@@ -1011,7 +1011,7 @@ al('showScreen', id => {
     if (ya) { if (destino === 'sala') sincronizarSala(); return; }
     // Entraste en una sala desde donde la pediste (inicio, crear, unirse): un paso más, sin perder
     // el camino. Desde cualquier otro sitio (F5, enlace, te echaron…), el camino se rehace.
-    if (destino === 'sala' && ['inicio', 'crear', 'unirse', 'visor'].includes(pantalla)) { estado.textContent = ''; irA('sala', currentLobbyId, {}, false); }
+    if (destino === 'sala' && ['inicio', 'crear', 'unirse', 'visor'].includes(pantalla)) { estado.textContent = ''; irA('sala', est.currentLobbyId, {}, false); }
     else saltarA(destino);
 });
 // Sin nombre no se entra en ninguna sala: el campo del nombre tiembla en rojo y se enfoca
@@ -1043,11 +1043,11 @@ const sinEmoji = s => String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu,
 /** Tú primero (asiento 0 de la mesa), luego los demás en el orden del servidor. */
 const ordenSala = () => {
     const js = (ultimaSala?.players ?? []).map(p => ({ ...p, nickname: sinEmoji(p.nickname), nick: p.nickname }));
-    return [...js.filter(p => p.id === currentPlayerId), ...js.filter(p => p.id !== currentPlayerId)];
+    return [...js.filter(p => p.id === est.currentPlayerId), ...js.filter(p => p.id !== est.currentPlayerId)];
 };
 function sincronizarSala(llega = false) {
-    const m = ultimaSala, dentro = !!m && !!currentLobbyId;
-    X.tu = dentro && !soyEspectador ? 0 : -1;
+    const m = ultimaSala, dentro = !!m && !!est.currentLobbyId;
+    X.tu = dentro && !est.soyEspectador ? 0 : -1;
     if (!dentro) {
         ultimaSala = null;
         cartasJug.forEach(c => { pon(c, pilaX(), -260, 20, 1); setTimeout(() => c.remove(), 600); });
@@ -1065,7 +1065,7 @@ function sincronizarSala(llega = false) {
     gente.forEach((p, i) => {
         vistos.add(p.id);
         let c = cartasJug.get(p.id);
-        const tuyo = p.id === currentPlayerId;
+        const tuyo = p.id === est.currentPlayerId;
         const [x, y] = posJugador(i, m.max_players);
         if (!c) {
             c = hacerCarta({}, tuyo ? 'jugador tuya' : 'jugador');
@@ -1080,7 +1080,7 @@ function sincronizarSala(llega = false) {
             }
         } else pon(c, x, y, (i % 2 ? 1 : -1) * 3, .56);
         // Nada que leer: listo = carta salvia con ✓; bot = su icono; tú = «TÚ» en bermellón
-        ponTexto(c, 'palo', tuyo ? (soyEspectador ? 'i:ojo' : 'TÚ') : p.is_ready ? 'i:check' : p.is_bot ? 'i:bot' : '');
+        ponTexto(c, 'palo', tuyo ? (est.soyEspectador ? 'i:ojo' : 'TÚ') : p.is_ready ? 'i:check' : p.is_bot ? 'i:bot' : '');
         c.dataset.nombre = p.nickname; c.querySelector('.nombre').textContent = p.nickname;   // los apodos no se traducen
         ponTexto(c, 'nota', '');
         c.classList.toggle('listo', !!p.is_ready);
@@ -1113,10 +1113,10 @@ function sincronizarSala(llega = false) {
 /** Las cartas de la sala: jugador (listo, bots si cabe alguien, mirar) o espectador (jugar / cola). */
 function menuSala() {
     const m = ultimaSala, cabe = m && m.players.length < m.max_players;
-    MENUS.sala = soyEspectador
+    MENUS.sala = est.soyEspectador
         ? [{ clave: 'rol', palo: 'i:silla', nombre: enCola ? 'Salir de la cola' : 'Quiero jugar', nota: enCola ? 'Te sentarás cuando haya hueco' : 'Pides sitio en la mesa', accion: 'rol' }]
         : [
-            { clave: 'listo', palo: 'i:check', nombre: isReady ? 'Listo ✓' : 'Estoy listo', nota: 'Cuando estén todos, se reparte', accion: 'listo' },
+            { clave: 'listo', palo: 'i:check', nombre: est.isReady ? 'Listo ✓' : 'Estoy listo', nota: 'Cuando estén todos, se reparte', accion: 'listo' },
             ...(cabe ? [{ clave: 'bots', palo: 'i:bot', nombre: 'VS bots', nota: 'Rellenar con bots', ir: 'bots' }] : []),
             { clave: 'mirar', palo: 'i:cambio', nombre: 'Mirar', nota: 'Pasar a espectador', accion: 'rol' },
         ];
@@ -1142,7 +1142,7 @@ campo.addEventListener('keydown', e => {
 // Un aviso corto encima de la mano. En la sala va al chat, como línea gris: ahí no tapa nada
 // y queda escrito.
 const aviso = (txt, ms = 1600) => {
-    if (currentLobbyId && ['sala', 'bots', 'qr', 'echar', 'votar'].includes(pantalla)) { decir('', txt, true); return; }
+    if (est.currentLobbyId && ['sala', 'bots', 'qr', 'echar', 'votar'].includes(pantalla)) { decir('', txt, true); return; }
     estado.textContent = txt; clearTimeout(aviso.t);
     aviso.t = setTimeout(() => { aviso.t = 0; estado.textContent = ''; }, ms);
 };
@@ -1253,13 +1253,13 @@ function preparaMenu(destino, o = {}) {
     if (destino === 'perfil') MENUS.perfil[1].nota = TAUNTS.find(b => b.id === getTaunt())?.name ?? tl('taunt.none');
 }
 function alCambiar(antes, ahora, lobby) {
-    if (PERFIL.has(ahora) && !currentLobbyId) {
+    if (PERFIL.has(ahora) && !est.currentLobbyId) {
         X.nombres = [nombre.value.trim() || T('Tú'), 'Beto', 'Coca', 'Dani']; X.tu = 0;
     } else if (!EN_SALA.has(ahora) || ahora === 'sala') sincronizarSala();
     X.marca = ahora === 'echar' || ahora === 'votar' ? marcaVoto : -1;   // a quién se vota echar, en bermellón
     formas(ahora);
     if (lobby) alinearLobby(ahora);
-    if (ahora === 'unirse') { if (ws?.readyState === WebSocket.OPEN) refreshLobbies(); pintarMesas(); }
+    if (ahora === 'unirse') { if (est.ws?.readyState === WebSocket.OPEN) refreshLobbies(); pintarMesas(); }
     else if (ahora !== 'visor') X.mesas = null;
     if (antes === 'sm') X.placa = null;
     if (ahora === 'sm') X.placa = { txt: smCodeGuardado(), ok: !!smCodeGuardado() };
@@ -1280,10 +1280,10 @@ function alElegirCarta() {
 // QR de la sala: lo forman las cartas del centro, vistas desde arriba (se puede escanear).
 // La matriz la da el servidor (/api/qr/:sala/matriz), el mismo QR que el SVG de siempre.
 async function mostrarQR() {
-    if (!currentLobbyId) return;
+    if (!est.currentLobbyId) return;
     escena.camara('qr');
     try {
-        const r = await fetch(`/api/qr/${encodeURIComponent(currentLobbyId)}/matriz`);
+        const r = await fetch(`/api/qr/${encodeURIComponent(est.currentLobbyId)}/matriz`);
         if (!r.ok) throw new Error(r.status);
         const { n, m } = await r.json(), borde = 2, filas = [];
         if (pantalla !== 'qr') return;
@@ -1342,8 +1342,8 @@ function alMensaje(msg) {
             sincronizarSala(llega);
             break;
         }
-        case 'chat': decir(sinEmoji(msg.from), msg.text, false, msg.from === currentNickname); break;
-        case 'chat_history': chatLog.length = 0; (msg.messages ?? []).forEach(l => chatLog.push({ quien: sinEmoji(l.from), txt: l.text, sistema: false, tuyo: l.from === currentNickname })); pintarChat(); break;
+        case 'chat': decir(sinEmoji(msg.from), msg.text, false, msg.from === est.currentNickname); break;
+        case 'chat_history': chatLog.length = 0; (msg.messages ?? []).forEach(l => chatLog.push({ quien: sinEmoji(l.from), txt: l.text, sistema: false, tuyo: l.from === est.currentNickname })); pintarChat(); break;
         case 'kick_poll': alVoto(msg); break;
         case 'kick_poll_ended': alFinVoto(msg); break;
         case 'kicked': ultimaSala = null; break;
@@ -1356,11 +1356,11 @@ function alVoto(msg) {
     marcaVoto = i >= 0 && i < 4 ? i : -1;
     X.marca = marcaVoto;
     if (msg.yes?.length) X.voto = { a: Math.max(0, marcaVoto), t0: escena.ahora() };
-    const puedo = !soyEspectador && msg.voters.includes(currentNickname) && !msg.yes.includes(currentNickname);
+    const puedo = !est.soyEspectador && msg.voters.includes(est.currentNickname) && !msg.yes.includes(est.currentNickname);
     MENUS.votar = puedo
         ? [{ clave: 'si', palo: 'i:fuera', nombre: T('Sí, fuera {n}', { n: quien }), nota: T('{y} de {t} a favor', { y: msg.yes.length, t: msg.voters.length }), accion: 'votoSi' },
            { clave: 'no', palo: 'i:volver', nombre: 'Que se quede', nota: 'Con un no, se queda', accion: 'votoNo' }]
-        : [{ clave: 'espera', palo: 'i:reloj', nombre: msg.nickname === currentNickname ? '¿Te echan?' : 'Votando…', nota: T('{y} de {t} a favor', { y: msg.yes.length, t: msg.voters.length }), accion: 'nada' }];
+        : [{ clave: 'espera', palo: 'i:reloj', nombre: msg.nickname === est.currentNickname ? '¿Te echan?' : 'Votando…', nota: T('{y} de {t} a favor', { y: msg.yes.length, t: msg.voters.length }), accion: 'nada' }];
     if (pantalla === 'votar') refrescarMano('votar');
     else if (EN_SALA.has(pantalla) && pantalla !== 'cuenta') {
         while (pantalla !== 'sala' && EN_SALA.has(historial.at(-1))) deshacerSinAnimar();
@@ -1520,7 +1520,7 @@ function formas(p = pantalla) {
         pon3(0, M, ZONA, col, 72, `<span class="rotulo">${T('Código')}</span><button class="grande" data-act="codigo"><span class="num">______</span></button>`, 'cod');
         pon3(1, M, ZONA + 72 + SEP, col, 44, `<button class="grande" data-act="escanear">${ico('camara')} ${T('Escanear QR')}</button>`, 'esc');
     }
-    if (enSala && currentLobbyId && !(p === 'qr' && !an)) {
+    if (enSala && est.currentLobbyId && !(p === 'qr' && !an)) {
         // En la sala no hay franja de estado (se ve en las cartas y en el chip): el chat llega hasta
         // la mano. Entre los jugadores y el chat queda el hueco donde se ve la pelea por la carta (al
         // menos 120 px): la cámara de la sala se centra en él.
@@ -1536,8 +1536,8 @@ function formas(p = pantalla) {
             `<span class="rotulo">${T('Chat de la sala')}</span><div class="log" aria-live="polite"></div><button class="escribe" data-act="chat">${T('Escribe aquí :D')}</button>`, 'chat')) pintarChat();
         // El chip de la sala: su clasificación (FUN = con bots, GLORY = solo personas), el código y el QR
         const qw = an ? col : Math.min(162, w - 2 * M - R.cabw - SEP), pool = ultimaSala?.pool === 'fun' ? 'fun' : 'glory';
-        if (pon3(1, w - M - qw, FILA2, qw, 40, `<button class="grande" data-act="qr" aria-label="QR"><span class="pool" data-pool="${pool}" title="${T(pool === 'fun' ? 'For fun · con bots' : 'For glory · solo personas')}">${pool === 'fun' ? 'FUN' : 'GLORY'}</span><span class="cod"></span>${ico('qr')}</button>`, `codsala:${currentLobbyId}:${pool}`))
-            PZ[1].querySelector('.cod').textContent = currentLobbyId;
+        if (pon3(1, w - M - qw, FILA2, qw, 40, `<button class="grande" data-act="qr" aria-label="QR"><span class="pool" data-pool="${pool}" title="${T(pool === 'fun' ? 'For fun · con bots' : 'For glory · solo personas')}">${pool === 'fun' ? 'FUN' : 'GLORY'}</span><span class="cod"></span>${ico('qr')}</button>`, `codsala:${est.currentLobbyId}:${pool}`))
+            PZ[1].querySelector('.cod').textContent = est.currentLobbyId;
     }
     if (p === 'perfil') {
         // Los dos Elos uno encima del otro, en la columna de las piezas (como crear o unirse)
@@ -1566,12 +1566,12 @@ function actuar(act, b) {
     else if (act === 'dif') { setBotDifficulty(DIFS[b.dataset.v] ?? 'normal'); marca(); }
     else if (act === 'idioma') { marca(); setTimeout(() => window.PilesI18n?.setLang(IDIOMAS[b.dataset.v]), 300); }
     else if (act === 'escanear') irA('visor', 'Escanear QR');
-    else if (act === 'qr' && currentLobbyId && pantalla !== 'qr') irA('qr', 'Invitar');
+    else if (act === 'qr' && est.currentLobbyId && pantalla !== 'qr') irA('qr', 'Invitar');
     else if (act === 'codigo') pedir('ABC123', 6, v => entrarCodigo(v), txt => {
         b.querySelector('.num').textContent = txt.padEnd(6, '_');
         if (txt.length === 6) { cerrarCampo(); entrarCodigo(txt); }
     });
-    else if (act === 'chat' && currentLobbyId) pedir(T('Escribe aquí :D'), 300, txt => sendChat(txt));
+    else if (act === 'chat' && est.currentLobbyId) pedir(T('Escribe aquí :D'), 300, txt => sendChat(txt));
 }
 document.addEventListener('click', e => { const b = e.target.closest('#escenario .pieza [data-act]'); if (b) actuar(b.dataset.act, b); });
 function entrarCodigo(cod) {
@@ -1653,7 +1653,7 @@ function accion(a, c, o = {}) {
         return;
     }
     if (a === 'smBorrar') { clearSmCode(); X.placa = { txt: '', ok: false }; salta(c); return; }
-    if (!currentLobbyId) return;
+    if (!est.currentLobbyId) return;
     if (a === 'listo') { toggleReady(); vibrar(20); menuSala(); refrescarMano('sala'); return; }
     if (a === 'rol') { cambiarRol(); seVa(c); return; }
     if (a === 'ofertaBots') { acceptBotsOffer(); cerrarOferta(); return; }
@@ -1670,7 +1670,7 @@ function accion(a, c, o = {}) {
     if (a === 'echar') { send({ type: 'start_kick', target: o.id }); salta(c); deshacer(); return; }   // llega kick_poll: a votar
     if (a === 'votoSi' || a === 'votoNo') { send({ type: 'kick_vote', yes: a === 'votoSi' }); seVa(c); return; }
     if (a === 'copiar') {
-        const link = joinLinkFor(currentLobbyId);
+        const link = joinLinkFor(est.currentLobbyId);
         navigator.clipboard?.writeText(link).then(() => aviso(T('Enlace copiado')), () => aviso(link, 4000));
         salta(c); return;
     }
@@ -1756,8 +1756,8 @@ esc.addEventListener('pointerup', e => {
         // La carta de otra persona en la sala: proponer echarla (solo quien lleva más tiempo sentado)
         const jug = bajo?.closest('.carta.jugador'), id = jug?.dataset.id;
         const p2 = ultimaSala?.players.find(x => x.id === id);
-        if (pantalla === 'sala' && p2 && id !== currentPlayerId) {
-            if (!p2.is_bot && ultimaSala.oldest === currentPlayerId && !soyEspectador && ultimaSala.status === 'waiting')
+        if (pantalla === 'sala' && p2 && id !== est.currentPlayerId) {
+            if (!p2.is_bot && ultimaSala.oldest === est.currentPlayerId && !est.soyEspectador && ultimaSala.status === 'waiting')
                 irA('echar', 'Echar', { id, nick: sinEmoji(p2.nickname), idx: ordenSala().findIndex(x => x.id === id) });
             else salta(jug);
             return;
@@ -1793,7 +1793,7 @@ nombre.addEventListener('keydown', e => e.stopPropagation());
 // Conexión: la lámpara parpadea y todo se congela sin color mientras no hay WebSocket
 let conectado = null;
 setInterval(() => {
-    const ok = !!ws && ws.readyState === WebSocket.OPEN;
+    const ok = !!est.ws && est.ws.readyState === WebSocket.OPEN;
     if (ok === conectado) return;
     conectado = ok;
     X.cortado = !ok; escena.congelar(!ok);

@@ -82,12 +82,12 @@ async function sesion(ancho, alto, nombre) {
   ok(p.errores.length === 0, `sin errores de página (${p.errores.join(' | ')})`);
 
   // Silencio activado.
-  await p.evaluate(() => { sfxMuted = true; });
+  await p.evaluate(() => { est.sfxMuted = true; });
   const antes = await osc(p);
   await botones.first().click();
   ok(await osc(p) === antes, 'en silencio no suena');
   ok((await p.locator('#tauntStatus').textContent()) === 'Silencio activado', 'dice «Silencio activado»');
-  await p.evaluate(() => { sfxMuted = false; });
+  await p.evaluate(() => { est.sfxMuted = false; });
 
   // El valor viaja en el primer mensaje al servidor.
   await p.getByRole('button', { name: 'Atrás' }).click();
@@ -113,17 +113,17 @@ async function sesion(ancho, alto, nombre) {
   await f({ taunt: 'honk', by: 'Ana' });
   ok(await osc(p) === o0, 'una segunda en <2 s no suena');
   ok(await toasts() === t0, 'ni avisa (sin sonido, sin burla visible)');
-  await p.evaluate(() => { tauntLastAt = -Infinity; sfxMuted = true; });
+  await p.evaluate(() => { tauntLastAt = -Infinity; est.sfxMuted = true; });
   await f({ taunt: 'honk', by: 'Ana' });
   ok(await osc(p) === o0 && await toasts() === t0, 'en silencio ni suena ni avisa');
-  await p.evaluate(() => { sfxMuted = false; });
+  await p.evaluate(() => { est.sfxMuted = false; });
   await p.evaluate(() => { tauntLastAt = -Infinity; });
   o0 = await osc(p);
   await f({ taunt: 'inventada', by: 'Ana' });
   await f({});
   ok(await osc(p) === o0, 'id desconocido o sin taunt: nada');
   // En pelea o aturdido no suena.
-  await p.evaluate(() => { qtePlayers = [currentNickname]; });
+  await p.evaluate(() => { est.qtePlayers = [est.currentNickname]; });
   await f({ taunt: 'honk', by: 'Ana' });
   ok(await osc(p) === o0, 'en pelea no suena');
   ok(p.errores.length === 0, `sin errores de página (${p.errores.join(' | ')})`);

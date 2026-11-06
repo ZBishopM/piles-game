@@ -24,7 +24,7 @@ async function pestana(nick, url, viewport = { width: 1100, height: 900 }) {
   return p;
 }
 /** Los ids de las 4 cartas del set abierto (null = hueco) de una pestaña que JUEGA. */
-const suyas = (p, set) => p.evaluate(s => allSets[s ?? currentSetIndex].map(c => (c ? c.id : null)), set ?? null);
+const suyas = (p, set) => p.evaluate(s => est.allSets[s ?? est.currentSetIndex].map(c => (c ? c.id : null)), set ?? null);
 /** Lo que se pinta en una fila de cartas del espectador. */
 const pintadas = (p, sel) => p.locator(`${sel} > *`).evaluateAll(es => es.map(e => (e.dataset.cardId !== undefined ? Number(e.dataset.cardId) : null)));
 const mismas = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -97,7 +97,7 @@ await S.screenshot({ path: path.join(capturas, 'uno-a-uno.png') });
 await S.locator('.spec-seat', { hasText: 'Todos' }).click();
 ok((await S.locator('#specAll .spec-mini-set').count()) === 12, '«Todos»: 6 sets de cada uno = 12 minisets');
 const todasAna = await S.locator('#specAll .spec-player').first().locator('.card').evaluateAll(es => es.map(e => (e.dataset.cardId !== undefined ? Number(e.dataset.cardId) : null)));
-const todasSuyas = await A.evaluate(() => allSets.flat().map(c => (c ? c.id : null)));
+const todasSuyas = await A.evaluate(() => est.allSets.flat().map(c => (c ? c.id : null)));
 ok(todasAna.length === 24 && mismas(todasAna, todasSuyas), 'y las 24 cartas de Ana, en su orden, son las suyas');
 ok((await S.locator('#specAll .spec-player').count()) === 2 && (await S.locator('#specAll .card').count()) === 48, '48 cartas en total (2 × 24)');
 await S.screenshot({ path: path.join(capturas, 'todos.png') });
@@ -111,7 +111,7 @@ await S.locator('#specCards .card-empty').waitFor({ timeout: 2500 });
 ok(await S.locator('#specEstado').textContent().then(t => /debe una carta \(set 1, hueco 1\)/.test(t)), 'Ana suelta una carta: Caro ve el hueco y «debe una carta (set 1, hueco 1)»');
 await S.locator('.spec-seat', { hasText: 'Todos' }).click();
 ok((await S.locator('#specAll .spec-player').first().locator('.card-empty').count()) === 1, 'y en «Todos» el hueco también');
-await A.evaluate(id => send({ type: 'take_card', card_id: centerCards.find(c => c.id !== id).id }), cartaSoltada);
+await A.evaluate(id => send({ type: 'take_card', card_id: est.centerCards.find(c => c.id !== id).id }), cartaSoltada);
 await S.locator('.spec-seat', { hasText: 'Ana' }).click();
 await S.waitForFunction(() => document.querySelectorAll('#specCards .card-empty').length === 0, null, { timeout: 4000 });
 ok(await S.locator('#specEstado').textContent().then(t => /sin deuda/.test(t)), 'Ana coge otra: el hueco se tapa y vuelve a «sin deuda»');
@@ -142,7 +142,7 @@ await B.evaluate(() => leaveLobby());
 await S.locator('#lobbyScreen.active').waitFor({ timeout: 45000 });
 ok(true, 'al acabar la partida Caro está en la sala de espera, sin hacer nada');
 await wait(500);
-ok(await S.evaluate(() => soyEspectador === false), 'ya no es espectador: se ha sentado a la mesa');
+ok(await S.evaluate(() => est.soyEspectador === false), 'ya no es espectador: se ha sentado a la mesa');
 const nombres = await S.locator('#playerList .player-name').evaluateAll(es => es.map(e => e.textContent));
 ok(nombres.includes('Ana') && nombres.includes('Caro'), `la lista de la sala: ${nombres.join(', ')}`);
 ok(await S.locator('#readyBtn').isVisible(), 'con su botón de «Listo» para la siguiente');

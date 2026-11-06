@@ -91,7 +91,7 @@ function getTaunt() {
  *  límite de una cada 2 s; en juego no hay prisa por oírla dos veces seguidas. */
 function playTaunt(id, preview = false) {
     const t = TAUNTS.find(x => x.id === id);
-    if (!t || sfxMuted) return false;
+    if (!t || est.sfxMuted) return false;
     unlockAudio();
     if (!audioCtx) return false;
     if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});

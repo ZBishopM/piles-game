@@ -17,7 +17,7 @@ await p.evaluate(() => { window.__xss = undefined; });
 await aPartida(p, 'Mirón');
 
 const inyectar = m => p.evaluate(m => handleMsg(m), m);
-const [X, Y] = await p.evaluate(() => [centerCards[0].id, centerCards[1].id]);
+const [X, Y] = await p.evaluate(() => [est.centerCards[0].id, est.centerCards[1].id]);
 const malo = '<img src=x onerror=window.__xss=1>';
 
 await inyectar({ type: 'swap_conflict', players: [malo, 'Luis'], card_id: X, qte_duration: 4000 });
@@ -80,7 +80,7 @@ ok(await oferta(q1), 'tras 12 s solo, la oferta de bots aparece');
 // b) «Seguir buscando» la cierra y no vuelve con el siguiente lobby_update.
 await q1.getByRole('button', { name: /Seguir buscando/ }).click();
 ok(await q1.evaluate(() => cameFromQuickMatch === false), 'descartar la oferta apaga cameFromQuickMatch');
-await q1.evaluate(() => handleMsg({ type: 'lobby_update', players: [{ id: currentPlayerId, nickname: 'Rapido' }], max_players: 4 }));
+await q1.evaluate(() => handleMsg({ type: 'lobby_update', players: [{ id: est.currentPlayerId, nickname: 'Rapido' }], max_players: 4 }));
 await wait(13000);
 ok(!(await oferta(q1)), 'un lobby_update con un jugador no la reabre tras descartarla');
 

@@ -23,7 +23,7 @@ function musicBeatMs() {
 }
 
 function musicTick() {
-    if (sfxMuted || !audioCtx) return;
+    if (est.sfxMuted || !audioCtx) return;
     const paso = musicStep++;
     const compas = paso % 4;
 
@@ -61,7 +61,7 @@ function musicTick() {
 }
 
 function startMusic() {
-    if (musicTimer || sfxMuted) return;
+    if (musicTimer || est.sfxMuted) return;
     unlockAudio();
     if (!audioCtx) return;
     musicStep = 0;
@@ -86,14 +86,14 @@ function musicFromCombo(multX100, frenzyReady) {
 }
 
 function toggleMute() {
-    sfxMuted = !sfxMuted;
-    try { localStorage.setItem('piles.mute', sfxMuted ? '1' : '0'); } catch { /* modo privado */ }
+    est.sfxMuted = !est.sfxMuted;
+    try { localStorage.setItem('piles.mute', est.sfxMuted ? '1' : '0'); } catch { /* modo privado */ }
     const btn = document.getElementById('muteBtn');
     if (btn) {
-        btn.textContent = sfxMuted ? '🔇' : '🔊';
-        btn.title = t(sfxMuted ? 'game.unmute' : 'game.mute');
+        btn.textContent = est.sfxMuted ? '🔇' : '🔊';
+        btn.title = t(est.sfxMuted ? 'game.unmute' : 'game.mute');
     }
-    if (sfxMuted) { stopMusic(); }
+    if (est.sfxMuted) { stopMusic(); }
     else { unlockAudio(); playSfx('take'); if (document.getElementById('gameScreen')?.classList.contains('active')) startMusic(); }
     emitir('toggleMute');
 }

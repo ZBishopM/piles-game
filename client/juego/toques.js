@@ -114,7 +114,7 @@ function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
 function showGhost(card) {
     const div = document.getElementById('yourCards');
     if (!div) return;
-    const slot = (allSets[currentSetIndex] || []).findIndex(c => !c);
+    const slot = (est.allSets[est.currentSetIndex] || []).findIndex(c => !c);
     if (slot === -1 || !div.children[slot]) return;
     const ghost = buildCard(card);
     ghost.classList.add('card-ghost');
@@ -160,9 +160,9 @@ function refuseTap(el) {
 // Un espectador no juega. El servidor ya lo ignora; esto es para que la
 // interfaz no prometa algo que no va a pasar.
 bindTap(document.getElementById('centerCards'),
-        (v, el) => { if (!soyEspectador) onCenterCardClick(Number(v), el); }, 'center');
+        (v, el) => { if (!est.soyEspectador) onCenterCardClick(Number(v), el); }, 'center');
 bindTap(document.getElementById('yourCards'),
-        (v, el) => { if (!soyEspectador) onPlayerCardClick(Number(v), el); }, 'own', { alSoltar: true });
+        (v, el) => { if (!est.soyEspectador) onPlayerCardClick(Number(v), el); }, 'own', { alSoltar: true });
 
 // ─── Intercambio de cartas ────────────────────────────────────────────────
 // No hay intercambio 1↔1: tocar una carta tuya la suelta al centro, y tocar
@@ -177,16 +177,16 @@ function onPlayerCardClick(index, el) {
     // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
     // quieto: sigues jugando con tus cartas y con el resto del centro.
     // Debiendo una carta no se puede soltar otra: primero se tapa el hueco.
-    if (qteActive || isStunned() || owesCard()) return refuseTap(el);
+    if (est.qteActive || isStunned() || owesCard()) return refuseTap(el);
     // Ya soltaste una y el servidor aún no ha contestado: otro toque no añade
     // nada. Antes cada toque mandaba otro `drop_card`, el servidor rechazaba
     // los sobrantes ("Coge una carta del centro antes de soltar otra") y su
     // `swap_failed` borraba el estado pendiente de lo que SÍ estabas haciendo
     // (visto 4 veces en dos partidas, con 3 duplicados en el mismo milisegundo).
-    if (enVuelo(pendingDrop)) return;
-    const card = (allSets[currentSetIndex] || [])[index];
+    if (enVuelo(est.pendingDrop)) return;
+    const card = (est.allSets[est.currentSetIndex] || [])[index];
     if (!card) return;
-    pendingDrop = { index, card, t: Date.now() };
+    est.pendingDrop = { index, card, t: Date.now() };
     markPending(el);
     playSfx('drop', card.id);
     send({ type: 'drop_card', my_card_index: index });
@@ -203,13 +203,13 @@ function onCenterCardClick(cardId, el) {
     const rechazo = (why) => {
         if (owesCard()) {
             diag.note('tap_refused', {
-                why, qte: qteActive, stun_ms: Math.max(0, stunnedUntil - Date.now()),
-                blocked: qteBlockedCards.size, p_take_ms: pendingTake ? Date.now() - pendingTake.t : null,
+                why, qte: est.qteActive, stun_ms: Math.max(0, stunnedUntil - Date.now()),
+                blocked: qteBlockedCards.size, p_take_ms: est.pendingTake ? Date.now() - est.pendingTake.t : null,
             });
         }
         return refuseTap(el);
     };
-    if (qteActive) return rechazo('qte');
+    if (est.qteActive) return rechazo('qte');
     if (isStunned()) return rechazo('stun');
     if (qteBlockedCards.has(cardId)) return rechazo('blocked');
     // Solo se coge para tapar un hueco: sin deuda no hay dónde meterla. Es el
@@ -219,11 +219,11 @@ function onCenterCardClick(cardId, el) {
     // segundo toque no añade nada. Antes solo se miraba la misma carta; pedir
     // otra mandaba otro `take_card`, el servidor lo rechazaba y su
     // `swap_failed` borraba la carta fantasma de la primera.
-    if (enVuelo(pendingTake)) return;
-    const card = centerCards.find(c => c.id === cardId);
+    if (enVuelo(est.pendingTake)) return;
+    const card = est.centerCards.find(c => c.id === cardId);
     if (!card) return;
     // El hueco donde estaba, para animar el vuelo desde ahí.
-    pendingTake = { centerIndex: centerSlots.indexOf(cardId), card, t: Date.now() };
+    est.pendingTake = { centerIndex: est.centerSlots.indexOf(cardId), card, t: Date.now() };
     markPending(el);
     showGhost(card);
     // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
@@ -234,19 +234,19 @@ function onCenterCardClick(cardId, el) {
 /** Movimiento confirmado. La carta vuela de donde salió a donde ha llegado:
  *  al centro si la soltaste, a tu hueco si la cogiste o ganaste la pelea. */
 function onSwapSuccess(msg) {
-    const drop = pendingDrop;
-    const take = pendingTake;
-    const wonFight = !drop && !take && qteWonSlot !== null;
+    const drop = est.pendingDrop;
+    const take = est.pendingTake;
+    const wonFight = !drop && !take && est.qteWonSlot !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
     const fromMine = drop ? cardRectAt('yourCards', drop.index) : null;
     const fromCenter = take ? cardRectAt('centerCards', take.centerIndex)
-        : (wonFight ? cardRectAt('centerCards', qteWonSlot.index) : null);
+        : (wonFight ? cardRectAt('centerCards', est.qteWonSlot.index) : null);
 
-    const oldSet = (allSets[msg.set_index] || []).slice();
+    const oldSet = (est.allSets[msg.set_index] || []).slice();
 
-    if (msg.your_new_set) allSets[msg.set_index] = msg.your_new_set;
-    centerCards = msg.center_cards;
+    if (msg.your_new_set) est.allSets[msg.set_index] = msg.your_new_set;
+    est.centerCards = msg.center_cards;
     renderYourCards();
     renderCenterCards();
     updateSetNav();
@@ -256,22 +256,22 @@ function onSwapSuccess(msg) {
         // vuelo es todo el "has ganado" que hace falta.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) {
-            flyCard(qteWonSlot.card, fromCenter, 'yourCards', slot, true);
+            flyCard(est.qteWonSlot.card, fromCenter, 'yourCards', slot, true);
         }
-        qteWonSlot = null;
+        est.qteWonSlot = null;
     } else if (drop) {
         // Soltada: vuela de tu set al hueco del centro que le haya tocado. Ya
         // no es "la última": con los huecos fijos ocupa el primero libre, que
         // puede estar en medio de la mesa.
-        const landed = centerSlots.indexOf(drop.card.id);
+        const landed = est.centerSlots.indexOf(drop.card.id);
         if (landed !== -1) flyCard(drop.card, fromMine, 'centerCards', landed);
     } else if (take) {
         // Cogida: del centro al hueco que había quedado libre.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) flyCard(take.card, fromCenter, 'yourCards', slot);
     }
-    pendingDrop = null;
-    pendingTake = null;
+    est.pendingDrop = null;
+    est.pendingTake = null;
     clearPending();
     updateOwingUi();
 }
@@ -287,13 +287,13 @@ function onSwapSuccess(msg) {
  *  carta, estás verificando—, y eso lo marca el servidor con `kind`, no el
  *  texto: decidir comparando el texto ya rompió esto una vez. */
 function onSwapFailed(msg) {
-    pendingDrop = null;
-    pendingTake = null;
+    est.pendingDrop = null;
+    est.pendingTake = null;
     rollbackGhost();
     clearPending();
     emitir('onSwapFailed', msg);   // aquí y no al final: lo de abajo sale antes en casi todos los casos
 
-    if (qtePlayers.includes(currentNickname) || isStunned()) return;
+    if (est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
 
     // Los mensajes viejos no traen `kind`; se tratan como antes.
     const kind = msg.kind || 'rule';
@@ -303,7 +303,7 @@ function onSwapFailed(msg) {
         // Burla del que se la llevó (solo si estás jugando; en pelea o aturdido ya
         // se salió arriba).
         // Sin texto: suena su burla y destella su franja del marcador (partida/partida.js).
-        if (msg.taunt && !soyEspectador) playTaunt(msg.taunt);
+        if (msg.taunt && !est.soyEspectador) playTaunt(msg.taunt);
         return;
     }
     if (!msg.reason) return;
@@ -326,13 +326,12 @@ function findChangedSlot(oldCards, newCards) {
 // ─── Soltar y coger ───────────────────────────────────────────────────────
 // Soltar deja un hueco en tu set y añade la carta al centro, donde cualquiera
 // puede cogerla. Hasta taparlo no se puede soltar otra, ni intercambiar, ni
-// mostrar sets — el servidor lo comprueba igualmente.
-let pendingDrop = null;
-let pendingTake = null;
+// mostrar sets — el servidor lo comprueba igualmente. Lo que espera respuesta:
+// `est.pendingDrop` y `est.pendingTake`.
 
 /** ¿Hay algún hueco sin tapar en alguno de mis sets? */
 function owesCard() {
-    return allSets.some(set => (set || []).some(card => !card));
+    return est.allSets.some(set => (set || []).some(card => !card));
 }
 
 /** Refleja en el tablero si debes una carta: tus cartas se apagan y el centro
@@ -380,12 +379,12 @@ function updateSwapHint(texto) {
 
 // ─── Cambio de set ────────────────────────────────────────────────────────
 function switchSet(index) {
-    if (index === currentSetIndex) return;
+    if (index === est.currentSetIndex) return;
     // Debiendo una carta no se cambia de set: el hueco se quedaría en un set
     // que no estás viendo. El servidor también lo rechaza.
     if (owesCard()) return;
-    const antes = currentSetIndex;
-    currentSetIndex = index;
+    const antes = est.currentSetIndex;
+    est.currentSetIndex = index;
     clearSelection();
     send({ type: 'switch_set', set_index: index });
     // Una carta que aún vuela hacia tu mano iba al hueco del set de antes:
@@ -398,14 +397,14 @@ function switchSet(index) {
 // ─── Voltear sets ─────────────────────────────────────────────────────────
 // `i`: el set fijado al empezar el gesto. El revelado espera 1 s; si en ese rato
 // cambiabas de set, se volteaba el nuevo en vez del que pediste.
-function flipCurrentSet(i = currentSetIndex) {
+function flipCurrentSet(i = est.currentSetIndex) {
     send({ type: 'flip_set', set_index: i });
 }
 
 function updateFlipBtn() {
     const btn = document.getElementById('flipBtn');
     if (!btn) return;
-    const flipped = myFlippedSets[currentSetIndex];
+    const flipped = est.myFlippedSets[est.currentSetIndex];
     // Texto corto: ahora comparte línea con el título de la sección. La
     // explicación completa va en el title, para no romper el layout.
     btn.textContent = t(flipped ? 'game.hide' : 'game.flip');
@@ -416,8 +415,8 @@ function updateFlipBtn() {
 function onSetFlipped(playerName, setIndex, cards) {
     const isFlipped = cards.length > 0;
 
-    if (playerName === currentNickname) {
-        myFlippedSets[setIndex] = isFlipped;
+    if (playerName === est.currentNickname) {
+        est.myFlippedSets[setIndex] = isFlipped;
         updateSetNav();
     } else {
         if (!opponentFlippedSets.has(playerName)) {
@@ -442,16 +441,6 @@ function onSetFlipped(playerName, setIndex, cards) {
 // primera: el aviso de la primera se quedaba colgado en pantalla para siempre,
 // porque ya no quedaba nada que lo apuntara para poder borrarlo.
 const qteNotifs = new Map();
-let qtePlayers = [];        // Jugadores en la pelea actual
-let qteContestedCard = null;   // La carta por la que se pelea
-let qteMyCardId = null;        // Su id, aunque la carta ya no esté en el centro:
-                               // sin esto, mi pelea no se reconoce como mía si
-                               // el centro cambió justo al empezar.
-let qteContestedIndex = null;  // En qué hueco del centro estaba
-let qteWonSlot = null;         // Si ganaste: carta y hueco de origen, para el vuelo
-let qteResultTimer = null;     // Temporizador del resultado — separado de
-                               // qteTimerInterval, que lo comparten la cuenta
-                               // atrás del participante y la del espectador.
 
 /** Cuánto dura el resultado en pantalla antes de volver al tablero. */
 const FIGHT_RESULT_MS = 800;

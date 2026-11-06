@@ -224,10 +224,10 @@ for (const L of IDIOMAS) {
   // Jugadas rechazadas con su código: el aviso del tablero sale traducido.
   await A.evaluate(() => {
     window.__m = [];
-    const o = ws.onmessage;
-    ws.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'swap_failed' || m.type === 'error') __m.push(m); } catch { /* */ } o(e); };
+    const o = est.ws.onmessage;
+    est.ws.onmessage = e => { try { const m = JSON.parse(e.data); if (m.type === 'swap_failed' || m.type === 'error') __m.push(m); } catch { /* */ } o(e); };
   });
-  await A.evaluate(() => send({ type: 'take_card', card_id: centerCards[0].id }));
+  await A.evaluate(() => send({ type: 'take_card', card_id: est.centerCards[0].id }));
   await A.waitForFunction(() => __m.some(m => m.type === 'swap_failed'), null, { timeout: 3000 });
   const sf = await A.evaluate(() => { const m = __m.find(m => m.type === 'swap_failed'); return { code: m.code, texto: srvText(m, 'swapfail'), esperado: t('swapfail.no_debt') }; });
   ok(sf.code === 'no_debt' && sf.texto === sf.esperado && (L === 'es' || !/Suelta/.test(sf.texto)), `[${L}] swap_failed real (coger sin deber) llega con su code y sale traducido: «${sf.texto}»`);
@@ -240,7 +240,7 @@ for (const L of IDIOMAS) {
 
   // Pelea y desempate (lo que no se puede provocar a voluntad), inyectados.
   await A.evaluate(() => { document.querySelectorAll('.ag-toast').forEach(e => e.remove()); });
-  const carta = await A.evaluate(() => centerCards[0].id);
+  const carta = await A.evaluate(() => est.centerCards[0].id);
   await inyectar(A, { type: 'swap_conflict', players: ['Ana', '🤖 Bot 1'], card_id: carta, qte_duration: 6000 });
   await inyectar(A, { type: 'qte_update', card_id: carta, clicks: { 'Ana': 3, '🤖 Bot 1': 2 } });
   await revisar(A, L, 'pelea (overlay)'); await sinDesborde(A, L, 'pelea'); await foto(A, L, 'pelea', MOV);

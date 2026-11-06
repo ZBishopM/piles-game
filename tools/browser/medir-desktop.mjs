@@ -26,7 +26,7 @@ for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 900 }, {
   const res = await page.evaluate(() => {
     const carta = (id, t) => ({ id, clothing_type: t, name: 'x' + t });
     const sets = Array.from({ length: 6 }, (_, s) => Array.from({ length: 4 }, (_, i) => carta(s * 4 + i, 2 + s)));
-    currentNickname = 'Ana';
+    est.currentNickname = 'Ana';
     const salida = [];
     for (const n of [4, 6, 8]) {
       let peor = -99, ejemplo = '';

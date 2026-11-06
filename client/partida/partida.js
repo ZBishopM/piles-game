@@ -47,7 +47,7 @@
     });
 
     // ── Iconos en vez de emoji y de rótulos ───────────────────────────────────────
-    const pintarMute = () => { const b = document.getElementById('muteBtn'); if (b) b.innerHTML = ico(sfxMuted ? 'mudo' : 'altavoz'); };
+    const pintarMute = () => { const b = document.getElementById('muteBtn'); if (b) b.innerHTML = ico(est.sfxMuted ? 'mudo' : 'altavoz'); };
     al('toggleMute', pintarMute);
     al('onGameStart', pintarMute);
     pintarMute();
@@ -58,8 +58,8 @@
     // En la pelea, tu contador lleva tu nombre a secas (en bermellón, por CSS), sin «⭐ … (Tú)».
     // La pelea de otros: nombres sin emoji, espadas y números (sin «0 clicks»).
     al('onSwapConflict', (players, cardId) => {
-        if (players.includes(currentNickname)) {
-            document.querySelectorAll('#qteScores .qte-name').forEach(n => (n.textContent = sinEmoji(n.closest('.is-me') ? currentNickname : n.textContent)));
+        if (players.includes(est.currentNickname)) {
+            document.querySelectorAll('#qteScores .qte-name').forEach(n => (n.textContent = sinEmoji(n.closest('.is-me') ? est.currentNickname : n.textContent)));
             return;
         }
         const n = qteNotifs.get(cardId); if (!n) return;
@@ -74,7 +74,7 @@
     al('renderPlayersProgress', () => {
         document.querySelectorAll('#hud .hud-name').forEach(n => { n.dataset.nick = n.textContent; n.textContent = sinEmoji(n.textContent); });
         const chip = document.querySelector('#hud .hud-stripe.mirones');
-        if (chip) chip.innerHTML = `${ico('ojo')}${mirones}`;
+        if (chip) chip.innerHTML = `${ico('ojo')}${est.mirones}`;
     });
     // Los avisos de otros (se cayó, se fue, volvió): un icono en vez del emoji
     al('pintarAviso', (el, nick, titulo) => {
@@ -91,7 +91,7 @@
         owe_card: 'hueco', empty_slot: 'hueco', no_debt: 'hueco', card_gone: 'cruz' };
     al('onSwapFailed', msg => {
         if ((msg.kind || 'rule') === 'gone') { if (msg.by) destello(msg.by); return; }
-        if (!msg.reason || qtePlayers.includes(currentNickname) || isStunned()) return;
+        if (!msg.reason || est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
         const fila = ['owe_card', 'verifying'].includes(msg.code) ? 'yourCards' : 'centerCards';
         avisoIco(MOTIVO[msg.code] ?? 'cruz', document.getElementById(fila));
     });
@@ -104,7 +104,7 @@
     // Frenesí: destella quién lo soltó; si el tuyo lo paró, un escudo
     al('onFrenzyFired', msg => {
         destello(msg.player);
-        if ((msg.countered || []).includes(currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
+        if ((msg.countered || []).includes(est.currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
     });
 
     // ── Gestos que siguen al dedo y se deshacen hasta llegar ──────────────────────
@@ -130,7 +130,7 @@
         al('onSwapConflict', () => { sinCopia(cede); cede = null; bandera.classList.remove('cerca'); });
         al('closeQteOverlay', () => { sinCopia(cede); cede = null; qte.querySelectorAll('.card.cede').forEach(e => e.remove()); hueco.style.visibility = ''; });
         qte.addEventListener('pointerdown', e => {
-            if (!qteActive || bandera.hidden || e.target.closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
+            if (!est.qteActive || bandera.hidden || e.target.closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
             const f = bandera.getBoundingClientRect();
             cede = { id: e.pointerId, x: e.clientX, y: e.clientY, d: Math.max(120, f.top + f.height / 2 - e.clientY), hecho: false, copia: null };
             try { qte.setPointerCapture(e.pointerId); } catch { /* */ }
@@ -171,7 +171,7 @@
     let sube = null;   // { id, x, y, d, hecho, movido }
     if (racha && rayo) {
         racha.addEventListener('pointerdown', e => {
-            if (rayo.hidden || soyEspectador) return;
+            if (rayo.hidden || est.soyEspectador) return;
             sube = { id: e.pointerId, x: e.clientX, y: e.clientY, d: Math.max(40, e.clientY - 8), hecho: false, movido: false };
             try { racha.setPointerCapture(e.pointerId); } catch { /* */ }
             rayo.classList.add('sostenido');
@@ -362,7 +362,7 @@
     function seLaLleva(m) {
         const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`), dest = franja(m.by);
         if (!el || !dest) { destello(m.by); return; }
-        const card = centerCards.find(c => c.id === m.card_id) ?? { id: m.card_id, clothing_type: 0 };
+        const card = est.centerCards.find(c => c.id === m.card_id) ?? { id: m.card_id, clothing_type: 0 };
         const a = el.getBoundingClientRect(), b = dest.getBoundingClientRect();
         const e = copia(card, a), s = Math.max(.15, b.height / a.height);
         const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
@@ -378,7 +378,7 @@
         sinAterrizar.add(m.card_id);
         requestAnimationFrame(() => {   // ya redibujado el centro: la carta nueva tiene su hueco
             const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
-            const card = centerCards.find(c => c.id === m.card_id);
+            const card = est.centerCards.find(c => c.id === m.card_id);
             if (!el || !card) { sinAterrizar.delete(m.card_id); return; }
             const b = el.getBoundingClientRect(), a = { left: orig.left + orig.width / 2 - b.width * .2, top: orig.top, width: b.width * .4, height: b.height * .4 };
             const e = copia(card, b);
@@ -425,7 +425,7 @@
         if (rebote && ida) s.el.animate([{ translate: ida }, { translate: '0 0' }], { duration: 280, easing: 'cubic-bezier(.3, 1.6, .5, 1)' });
     }
     const jugar = (fila, valor, el) => {
-        if (soyEspectador || valor == null) return;
+        if (est.soyEspectador || valor == null) return;
         if (fila === 'yourCards') onPlayerCardClick(valor, el); else onCenterCardClick(valor, el);
     };
     // Soltada donde cuenta: se queda ahí hasta que contesta el servidor, y el vuelo sale de ahí
@@ -435,7 +435,7 @@
         s.el.classList.remove('sostenida', 'casi');
         s.el.classList.add('soltada');
         jugar(s.fila, s.valor, s.el);
-        const mia = s.fila === 'yourCards' ? pendingDrop?.index === s.valor : pendingTake?.card.id === s.valor;
+        const mia = s.fila === 'yourCards' ? est.pendingDrop?.index === s.valor : est.pendingTake?.card.id === s.valor;
         if (!mia) return aSuSitio(s);
         setTimeout(() => { if (s.el.isConnected && s.el.classList.contains('soltada')) aSuSitio(s); }, 2500);   // sin respuesta
     }
@@ -451,15 +451,15 @@
             const zona = document.getElementById('centerCards').getBoundingClientRect();
             sostenida = { fila, el: valida ? el : null, valor: valida ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona, r0: valida ? el.getBoundingClientRect() : null };
             try { row.setPointerCapture(e.pointerId); } catch { /* */ }
-            if (valida && !soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
+            if (valida && !est.soyEspectador) { el.classList.add('sostenida'); row.classList.add('arrastrando'); }
         }, true);
         row.addEventListener('pointermove', e => {
             const s = sostenida;
-            if (!s || s.id !== e.pointerId || s.hecho || soyEspectador) return;
+            if (!s || s.id !== e.pointerId || s.hecho || est.soyEspectador) return;
             const dx = e.clientX - s.x, dy = e.clientY - s.y;
             // ↓ sobre tu mano: la mano se hace tabla (el revelado). Se decide una vez, al moverse.
             if (!s.modo && Math.hypot(dx, dy) > TOQUE_PX) {
-                s.modo = fila === 'yourCards' && dy > 0 && dy > Math.abs(dx) * 1.2 && allSets.length ? 'tabla' : 'carta';
+                s.modo = fila === 'yourCards' && dy > 0 && dy > Math.abs(dx) * 1.2 && est.allSets.length ? 'tabla' : 'carta';
                 if (s.modo === 'tabla') { if (s.el) aSuSitio(s, false); abrirTablas(s); }
             }
             if (s.modo === 'tabla') return moverTablas(s, e);
@@ -482,8 +482,8 @@
             if (toque) return jugar(fila, s.valor, s.el);
             if (fila !== 'yourCards') return;
             if (Math.abs(dx) >= LADO && Math.abs(dx) > Math.abs(dy) * 1.3) {
-                const i = currentSetIndex - Math.sign(dx);
-                if (i >= 0 && i < allSets.length) switchSet(i);
+                const i = est.currentSetIndex - Math.sign(dx);
+                if (i >= 0 && i < est.allSets.length) switchSet(i);
             }
         };
         row.addEventListener('pointerup', fin, true);
@@ -505,7 +505,7 @@
         const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
         const capa = document.createElement('div');
         capa.id = 'tablas';
-        const els = allSets.map(set => {
+        const els = est.allSets.map(set => {
             const t = document.createElement('div');
             t.className = 'tabla';
             Object.assign(t.style, { left: `${cx - w / 2}px`, top: `${cy - h / 2}px`, width: `${w}px`, height: `${h}px` });
@@ -523,7 +523,7 @@
         mano.classList.add('en-tabla');
         // El recorrido que queda hasta el borde de abajo: un tercio para hacerse tabla, el resto gira
         const queda = innerHeight - s.y - 12, entra = lim(queda * .3, 20, 60);
-        tablas = { capa, els, rev: myFlippedSets.slice(), w, k0: r.width / w, cur: currentSetIndex, sel: currentSetIndex,
+        tablas = { capa, els, rev: est.myFlippedSets.slice(), w, k0: r.width / w, cur: est.currentSetIndex, sel: est.currentSetIndex,
             e: 0, f: 0, ox: 0, entra, giro: Math.max(50, queda - entra), fija: owesCard(), hecho: false };
         zumba(8);
     }
@@ -585,7 +585,7 @@
 
     al('antesDeMensaje', msg => {
         const m = msg?.type === 'game_update' ? msg.moved : null;
-        const otro = m && (m.by !== currentNickname || soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
+        const otro = m && (m.by !== est.currentNickname || est.soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
         // Te la quitan de la mano: la que sostenías en el centro se la lleva otro → su burla
         if (otro && otro.kind === 'take' && sostenida?.fila === 'centerCards' && sostenida.valor === otro.card_id) {
             sostenida.hecho = true; aSuSitio(sostenida, false);
@@ -637,7 +637,7 @@
     const quieto = () => REDUCED_MOTION?.matches;
 
     function columna(nick) {
-        const v = verifs.get(nick), mia = nick === currentNickname;
+        const v = verifs.get(nick), mia = nick === est.currentNickname;
         const c = document.createElement('section');
         c.className = 'vcol' + (mia ? ' mia' : ''); c.dataset.nick = nick;
         const cab = document.createElement('h3'); cab.className = 'vcab'; cab.textContent = sinEmoji(nick);
@@ -732,7 +732,7 @@
 
     al('openVerifyOverlay', nick => {
         verifs.set(nick, { res: Array(6).fill(null), fin: null });
-        if (nick === currentNickname) {
+        if (nick === est.currentNickname) {
             // Los que ya estaban verificando entran a la vez; los que terminaron, fuera
             for (const [n, v] of verifs) if (n !== nick && v.fin) verifs.delete(n);
             columnas.textContent = '';
