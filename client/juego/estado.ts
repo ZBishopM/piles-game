@@ -10,6 +10,14 @@ type Timer = ReturnType<typeof setTimeout>;
 
 // El rótulo de las cartas en pelea sale del CSS (::after): se lee de esta variable.
 document.documentElement.style.setProperty('--t-peleada', JSON.stringify(t('card.fought')));
+/** Un elemento de lobby.html que tiene que estar: si falta, error claro aquí y no un
+ *  «cannot read properties of null» lejos. Para los opcionales, getElementById y `?.`. */
+export function porId<T extends HTMLElement = HTMLElement>(id: string): T {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`falta #${id} en lobby.html`);
+    return el as T;
+}
+
 /** Tu nombre: el campo de la mesa (#nombre). La mesa lo guarda en piles_nickname al escribir. */
 export const miNombre = () => (document.querySelector<HTMLInputElement>('#nombre')?.value ?? '').trim();
 

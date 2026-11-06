@@ -1,6 +1,7 @@
 // ─── Elo en el perfil y vincular la cuenta ────────────────────────────────
 import { emitir } from './bus.js';
-import { miNombre, est, opponentFlippedSets } from './estado.js';
+import { miNombre, est, opponentFlippedSets, porId, type Msg } from './estado.js';
+import type { RankingEntry } from '../tipos/RankingEntry';
 import { srvText } from './red.js';
 import { cancelQuickMatchOffer, closeCountdown } from './sala.js';
 import { IS_BETA, resetCombo } from './tablero.js';
@@ -10,17 +11,20 @@ import { closeVerifyOverlay, clearMatchNotifications } from './verificacion.js';
 
 const SM_BASE = 'https://gamesessions.danassistantassistant.website';
 
-export async function fetchElo(key) {
+/** Lo que da /api/elo/:key: rating y partidas por clasificación. */
+type EloRec = Partial<Record<'fun' | 'glory', { r: number; n: number }>>;
+
+export async function fetchElo(key: string): Promise<EloRec | null> {
     const res = await fetch(`/api/elo/${encodeURIComponent(key)}`);
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
 }
 
-const played = rec => !!rec && (!!rec.fun || !!rec.glory);
-const eloLine = rec => ['fun', 'glory']
+const played = (rec: EloRec | null) => !!rec && (!!rec.fun || !!rec.glory);
+const eloLine = (rec: EloRec | null) => (['fun', 'glory'] as const)
     .filter(p => rec?.[p])
-    .map(p => `${p === 'fun' ? 'For fun' : 'For glory'} ${rec[p].r} (${t('elo.games', { n: rec[p].n })})`)
+    .map(p => `${p === 'fun' ? 'For fun' : 'For glory'} ${rec![p]!.r} (${t('elo.games', { n: rec![p]!.n })})`)
     .join(' · ');
 
 // ─── Código de Session Manager ───────────────────────────────────────────
@@ -28,7 +32,7 @@ const eloLine = rec => ['fun', 'glory']
 // cambies o lo borres. Lo escribe la mesa (Perfil → Session Manager).
 export const smCodeGuardado = () => (localStorage.getItem('piles_sm_code') || '').trim();
 /** Guarda el código y, si tiene forma de código, vincula también el Elo. */
-export function setSmCode(code) {
+export function setSmCode(code: string | null | undefined) {
     const v = (code || '').trim().toUpperCase();
     if (!v) { clearSmCode(); return; }
     localStorage.setItem('piles_sm_code', v);
@@ -40,17 +44,17 @@ export function clearSmCode() {
 }
 
 /** Pregunta con el diálogo de Elo. Resuelve con 'a' o 'b'. */
-function askEloChoice({ title, text, a, b }) {
-    const box = document.getElementById('eloChoice');
-    document.getElementById('eloChoiceTitle').textContent = title;
-    document.getElementById('eloChoiceText').textContent = text;
-    const btnA = document.getElementById('eloChoiceA');
-    const btnB = document.getElementById('eloChoiceB');
+function askEloChoice({ title, text, a, b }: { title: string; text: string; a: string; b: string }): Promise<'a' | 'b'> {
+    const box = porId('eloChoice');
+    porId('eloChoiceTitle').textContent = title;
+    porId('eloChoiceText').textContent = text;
+    const btnA = porId('eloChoiceA');
+    const btnB = porId('eloChoiceB');
     btnA.textContent = a;
     btnB.textContent = b;
     box.hidden = false;
     return new Promise(resolve => {
-        const done = choice => { box.hidden = true; btnA.onclick = btnB.onclick = null; resolve(choice); };
+        const done = (choice: 'a' | 'b') => { box.hidden = true; btnA.onclick = btnB.onclick = null; resolve(choice); };
         btnA.onclick = () => done('a');
         btnB.onclick = () => done('b');
     });
@@ -58,7 +62,7 @@ function askEloChoice({ title, text, a, b }) {
 
 /** Al pegar un código de Session Manager: pasa el Elo de este navegador a la
  *  cuenta, o se queda el de la cuenta, según lo que haya y lo que elijas. */
-async function linkAccountElo(code) {
+async function linkAccountElo(code: string) {
     if (!/^[A-Z2-9]{6,12}$/.test(code)) return;
     let player;
     try {
@@ -73,7 +77,7 @@ async function linkAccountElo(code) {
     const anonId = localStorage.getItem('piles_anon_id');
     const anon = anonId ? `anon:${anonId}` : null;
 
-    let del_navegador = null, de_la_cuenta = null;
+    let del_navegador: EloRec | null = null, de_la_cuenta: EloRec | null = null;
     try {
         [del_navegador, de_la_cuenta] = await Promise.all([anon ? fetchElo(anon) : null, fetchElo(account)]);
     } catch {
@@ -125,7 +129,7 @@ function unlinkAccountElo() {
 // already computed here) so it counts toward their session-manager
 // profile. No effect on anonymous play — nothing is sent without a code.
 // See pb_hooks/piles_claim.pb.js in the session-manager repo.
-export function claimSessionManagerResult(rankings) {
+export function claimSessionManagerResult(rankings: RankingEntry[]) {
     // En beta no se reclama nada: no hace falta cuenta de Session Manager y
     // las partidas de prueba no deben sumar en perfiles reales.
     if (IS_BETA) return;
@@ -167,7 +171,7 @@ export function claimSessionManagerResult(rankings) {
         });
 }
 
-export function onGameCancelled(msg) {
+export function onGameCancelled(msg: Msg<'game_cancelled'>) {
     stopMusic();
     // Cerrar overlays activos del juego
     closeVerifyOverlay();
@@ -187,7 +191,7 @@ export function returnToLobby() {
     stopMusic();
     est.gameOver = false;
     est.isReady = false;
-    document.getElementById('gameOverOverlay').classList.remove('active');
+    porId('gameOverOverlay').classList.remove('active');
     document.getElementById('confetiLayer')?.remove();
     // Resetear estado de juego
     est.allSets = [];
@@ -199,7 +203,7 @@ export function returnToLobby() {
     est.pendingTake = null;
     clearStun();
     document.getElementById('gameScreen')?.classList.remove('owing');
-    document.getElementById('fxLayer').innerHTML = '';
+    porId('fxLayer').innerHTML = '';
     // Red de seguridad: si algo quedó de la partida anterior, no debe
     // aparecer flotando encima de la siguiente.
     clearMatchNotifications();
@@ -212,9 +216,9 @@ export function returnToLobby() {
  *  o 'gameScreen'. Solo la partida es una pantalla del DOM; el resto lo pinta la
  *  mesa, que escucha `showScreen` para ir a su menú. */
 export let vistaActual = 'homeScreen';
-export function showScreen(id) {
+export function showScreen(id: string) {
     vistaActual = id;
-    document.getElementById('gameScreen').classList.toggle('active', id === 'gameScreen');
+    porId('gameScreen').classList.toggle('active', id === 'gameScreen');
     if (id !== 'lobbyScreen') closeCountdown();   // la partida (o salir) cierra la cuenta atrás
     emitir('showScreen', id);
 }

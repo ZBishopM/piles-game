@@ -31,9 +31,15 @@
     miNombre: () => miNombre,
     opponentFlippedSets: () => opponentFlippedSets,
     otherVerifications: () => otherVerifications,
+    porId: () => porId,
     qteBlockedCards: () => qteBlockedCards
   });
   document.documentElement.style.setProperty("--t-peleada", JSON.stringify(t("card.fought")));
+  function porId(id) {
+    const el = document.getElementById(id);
+    if (!el) throw new Error(`falta #${id} en lobby.html`);
+    return el;
+  }
   var miNombre = () => (document.querySelector("#nombre")?.value ?? "").trim();
   var est = {
     ws: null,
@@ -164,7 +170,7 @@
     versionDelServidor: () => versionDelServidor
   });
 
-  // ../client/juego/espectador.js
+  // ../client/juego/espectador.ts
   var espectador_exports = {};
   __export(espectador_exports, {
     onSpectatorCards: () => onSpectatorCards,
@@ -1175,7 +1181,7 @@
   var qteNotifs = /* @__PURE__ */ new Map();
   var FIGHT_RESULT_MS = 800;
 
-  // ../client/juego/verificacion.js
+  // ../client/juego/verificacion.ts
   var verificacion_exports = {};
   __export(verificacion_exports, {
     checkAutoVerify: () => checkAutoVerify,
@@ -1188,7 +1194,7 @@
     revealVerifySet: () => revealVerifySet
   });
 
-  // ../client/juego/cuenta.js
+  // ../client/juego/cuenta.ts
   var cuenta_exports = {};
   __export(cuenta_exports, {
     claimSessionManagerResult: () => claimSessionManagerResult,
@@ -1225,11 +1231,11 @@
     unlinkAccountElo();
   }
   function askEloChoice({ title, text, a, b }) {
-    const box = document.getElementById("eloChoice");
-    document.getElementById("eloChoiceTitle").textContent = title;
-    document.getElementById("eloChoiceText").textContent = text;
-    const btnA = document.getElementById("eloChoiceA");
-    const btnB = document.getElementById("eloChoiceB");
+    const box = porId("eloChoice");
+    porId("eloChoiceTitle").textContent = title;
+    porId("eloChoiceText").textContent = text;
+    const btnA = porId("eloChoiceA");
+    const btnB = porId("eloChoiceB");
     btnA.textContent = a;
     btnB.textContent = b;
     box.hidden = false;
@@ -1345,7 +1351,7 @@
     stopMusic();
     est.gameOver = false;
     est.isReady = false;
-    document.getElementById("gameOverOverlay").classList.remove("active");
+    porId("gameOverOverlay").classList.remove("active");
     document.getElementById("confetiLayer")?.remove();
     est.allSets = [];
     est.centerCards = [];
@@ -1356,7 +1362,7 @@
     est.pendingTake = null;
     clearStun();
     document.getElementById("gameScreen")?.classList.remove("owing");
-    document.getElementById("fxLayer").innerHTML = "";
+    porId("fxLayer").innerHTML = "";
     clearMatchNotifications();
     est.specState = null;
     est.specVista = null;
@@ -1366,7 +1372,7 @@
   var vistaActual = "homeScreen";
   function showScreen(id) {
     vistaActual = id;
-    document.getElementById("gameScreen").classList.toggle("active", id === "gameScreen");
+    porId("gameScreen").classList.toggle("active", id === "gameScreen");
     if (id !== "lobbyScreen") closeCountdown();
     emitir("showScreen", id);
   }
@@ -1379,7 +1385,7 @@
     }
   };
 
-  // ../client/juego/verificacion.js
+  // ../client/juego/verificacion.ts
   function checkAutoVerify() {
     if (est.verificationSent) return;
     if (est.myFlippedSets.length === 6 && est.myFlippedSets.every((f) => f)) {
@@ -1389,12 +1395,12 @@
   }
   function openVerifyOverlay(playerName) {
     if (playerName === est.currentNickname) {
-      const overlay = document.getElementById("verifyOverlay");
-      document.getElementById("verifyTitle").textContent = t("verify.mine");
-      document.getElementById("verifyFooter").textContent = "";
-      document.getElementById("verifyFooter").className = "verify-footer";
-      document.getElementById("verifyCloseBtn").style.display = "none";
-      const setsDiv = document.getElementById("verifySets");
+      const overlay = porId("verifyOverlay");
+      porId("verifyTitle").textContent = t("verify.mine");
+      porId("verifyFooter").textContent = "";
+      porId("verifyFooter").className = "verify-footer";
+      porId("verifyCloseBtn").style.display = "none";
+      const setsDiv = porId("verifySets");
       setsDiv.innerHTML = "";
       for (let i = 0; i < 6; i++) {
         const row = document.createElement("div");
@@ -1408,7 +1414,7 @@
       }
       overlay.classList.add("active");
     } else {
-      const area = document.getElementById("verifyNotifications");
+      const area = porId("verifyNotifications");
       const previous = otherVerifications.get(playerName);
       if (previous) previous.remove();
       const notif = document.createElement("div");
@@ -1451,10 +1457,10 @@
     const medals = ["\u{1F947}", "\u{1F948}", "\u{1F949}"];
     const medal = medals[position - 1] || t("pos.ord", { n: position });
     if (playerName === est.currentNickname) {
-      const footer = document.getElementById("verifyFooter");
+      const footer = porId("verifyFooter");
       footer.textContent = t("verify.done_me", { medal, pos: position });
       footer.className = "verify-footer success";
-      document.getElementById("verifyCloseBtn").style.display = "block";
+      porId("verifyCloseBtn").style.display = "block";
     } else {
       const notif = otherVerifications.get(playerName);
       if (notif) {
@@ -1469,10 +1475,10 @@
     const failedNames = failedSets.map((i) => t("set.n", { n: i + 1 })).join(t("list.sep"));
     if (playerName === est.currentNickname) {
       est.verificationSent = false;
-      const footer = document.getElementById("verifyFooter");
+      const footer = porId("verifyFooter");
       footer.textContent = t("verify.fail_me", { list: failedNames });
       footer.className = "verify-footer failure";
-      document.getElementById("verifyCloseBtn").style.display = "block";
+      porId("verifyCloseBtn").style.display = "block";
     } else {
       const notif = otherVerifications.get(playerName);
       if (notif) {
@@ -1484,7 +1490,7 @@
     emitir("onVerificationFailed", playerName, failedSets);
   }
   function closeVerifyOverlay() {
-    document.getElementById("verifyOverlay").classList.remove("active");
+    porId("verifyOverlay").classList.remove("active");
   }
   function dismissVerifyNotif(playerName, notif, delayMs) {
     setTimeout(() => {
@@ -1495,7 +1501,7 @@
     }, delayMs);
   }
   function clearMatchNotifications() {
-    document.getElementById("verifyNotifications").innerHTML = "";
+    porId("verifyNotifications").innerHTML = "";
     otherVerifications.clear();
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
     qteBlockedCards.clear();
@@ -1531,13 +1537,13 @@
     setTimeout(() => layer.remove(), 4200);
   }
   function onGameOver(rankings, elo = []) {
-    const yaMostrado = document.getElementById("gameOverOverlay").classList.contains("active");
+    const yaMostrado = porId("gameOverOverlay").classList.contains("active");
     est.gameOver = true;
     stopMusic();
     closeVerifyOverlay();
     clearMatchNotifications();
     resetCombo();
-    const list = document.getElementById("rankingList");
+    const list = porId("rankingList");
     list.innerHTML = "";
     const titulo = document.querySelector("#gameOverOverlay h2");
     if (titulo) titulo.textContent = sinEmoji(t("over.title"));
@@ -1561,13 +1567,13 @@
       }
       list.appendChild(div);
     });
-    document.getElementById("gameOverOverlay").classList.add("active");
+    porId("gameOverOverlay").classList.add("active");
     showMyElo(elo);
     claimSessionManagerResult(rankings);
     if (!yaMostrado && rankings.length > 1 && rankings.some((e) => e.position === 1 && e.nickname === est.currentNickname)) lanzarConfeti();
   }
   function showMyElo(elo) {
-    const box = document.getElementById("eloDial");
+    const box = porId("eloDial");
     const mio = elo.find((c) => c.nickname === est.currentNickname);
     if (!mio || typeof agDial !== "function") {
       box.hidden = true;
@@ -2122,7 +2128,7 @@
     }
   }
 
-  // ../client/juego/espectador.js
+  // ../client/juego/espectador.ts
   var specCards = {};
   function sinEmoji(s) {
     return String(s ?? "").replace(/\p{Extended_Pictographic}️?/gu, "").replace(/\s+/g, " ").trim();
@@ -2170,7 +2176,8 @@
     const nicks = specNicks();
     if (!nicks.length) return;
     if (est.specVista !== "*" && !nicks.includes(est.specVista)) est.specVista = nicks[0];
-    const seats = document.getElementById("specSeats");
+    const vista = est.specVista;
+    const seats = porId("specSeats");
     seats.replaceChildren();
     const quien = document.createElement("span");
     quien.className = "quien";
@@ -2192,23 +2199,23 @@
     };
     nicks.forEach((n) => seats.append(boton(n, n)));
     seats.append(boton("*", t("spec.all")));
-    const todos = est.specVista === "*";
-    document.getElementById("specSingle").hidden = todos;
-    document.getElementById("specAll").hidden = !todos;
+    const todos = vista === "*";
+    porId("specSingle").hidden = todos;
+    porId("specAll").hidden = !todos;
     if (todos) renderSpectatorTodos(nicks);
-    else renderSpectatorUno(est.specState.players[est.specVista]);
+    else renderSpectatorUno(est.specState.players[vista]);
   }
   function renderSpectatorUno(p) {
     if (!p) return;
-    document.getElementById("specLabel").textContent = t("spec.sets_of", { nick: est.specVista });
+    porId("specLabel").textContent = t("spec.sets_of", { nick: est.specVista });
     const actual = est.specSet ?? p.cur;
-    const nav = document.getElementById("specSetNav");
+    const nav = porId("specSetNav");
     nav.replaceChildren();
     for (let i = 0; i < 6; i++) {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "set-btn" + (i === actual ? " active" : "") + (p.flip[i] ? " flipped" : "");
-      b.dataset.set = i;
+      b.dataset.set = String(i);
       b.append(t("set.n", { n: i + 1 }));
       const ojo = document.createElement("span");
       ojo.className = "set-eye";
@@ -2220,9 +2227,9 @@
       };
       nav.append(b);
     }
-    const fila = document.getElementById("specCards");
+    const fila = porId("specCards");
     fila.replaceChildren(...(p.sets[actual] || []).map(specCard));
-    const estado = document.getElementById("specEstado");
+    const estado = porId("specEstado");
     estado.replaceChildren();
     const dato = (texto, fuerte) => {
       const s = document.createElement("span");
@@ -2243,10 +2250,11 @@
     if (est.specSet !== null && est.specSet !== p.cur) dato(t("spec.theirs", { set: p.cur + 1 }));
   }
   function renderSpectatorTodos(nicks) {
-    const cont = document.getElementById("specAll");
+    const cont = porId("specAll");
+    const players = est.specState.players;
     cont.replaceChildren();
     nicks.forEach((n) => {
-      const p = est.specState.players[n];
+      const p = players[n];
       const bloque = document.createElement("div");
       bloque.className = "spec-player";
       const cab = document.createElement("div");

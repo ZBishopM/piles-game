@@ -2,13 +2,15 @@
 // El servidor manda la tabla de cartas (`spectator_cards`, una vez) y la mano
 // de todos por ids (`spectator_state`, cada ~200 ms si algo cambió). Con eso se
 // pinta el tablero de cualquier jugador con las mismas cartas del juego.
-import { est } from './estado.js';
+import { est, porId, type Msg } from './estado.js';
+import type { SpectatorCard } from '../tipos/SpectatorCard';
+import type { SpectatorPlayer } from '../tipos/SpectatorPlayer';
 import { cardName, buildCard, formatMult } from './tablero.js';
 
-let specCards = {};        // id → { c: prenda, n: nombre }
+let specCards: Record<number, SpectatorCard> = {};   // id → { c: prenda, n: nombre }
 
 /** Sin emoji, como en la mesa (los nombres de bot y algunos textos de i18n traen uno). */
-export function sinEmoji(s) {
+export function sinEmoji(s: unknown): string {
     return String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu, '').replace(/\s+/g, ' ').trim();
 }
 
@@ -20,12 +22,12 @@ export function resetEspectador() {
     document.getElementById('specAll')?.replaceChildren();
 }
 
-export function onSpectatorCards(msg) {
+export function onSpectatorCards(msg: Msg<'spectator_cards'>) {
     specCards = msg.cards || {};
     renderSpectator();
 }
 
-export function onSpectatorState(msg) {
+export function onSpectatorState(msg: Msg<'spectator_state'>) {
     est.specState = msg;
     renderSpectator();
 }
@@ -38,14 +40,14 @@ function specNicks() {
 }
 
 /** Una carta por su id, con el sprite del juego. `null` = hueco (carta soltada). */
-function specCard(id) {
+function specCard(id: number | null | undefined): HTMLElement {
     if (id === null || id === undefined) {
         const gap = document.createElement('div');
         gap.className = 'card card-empty';
         gap.title = t('spec.gap');
         return gap;
     }
-    const info = specCards[id] || {};
+    const info: Partial<SpectatorCard> = specCards[id] || {};
     const el = buildCard({ id, clothing_type: info.c ?? 0, name: info.n ?? '' });
     el.title = `${cardName(info.c, info.n) || t('card.generic')} · #${id}`;
     return el;
@@ -57,16 +59,17 @@ function renderSpectator() {
     if (!board || !board.classList.contains('espectador')) return;
     const nicks = specNicks();
     if (!nicks.length) return;
-    if (est.specVista !== '*' && !nicks.includes(est.specVista)) est.specVista = nicks[0];
+    if (est.specVista !== '*' && !nicks.includes(est.specVista!)) est.specVista = nicks[0];
+    const vista = est.specVista!;
 
     // ── Mirando desde ──
-    const seats = document.getElementById('specSeats');
+    const seats = porId('specSeats');
     seats.replaceChildren();
     const quien = document.createElement('span');
     quien.className = 'quien';
     quien.textContent = t('spec.from');
     seats.append(quien);
-    const boton = (valor, texto) => {
+    const boton = (valor: string, texto: string) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'spec-seat' + (est.specVista === valor ? ' active' : '');
@@ -79,27 +82,27 @@ function renderSpectator() {
     nicks.forEach(n => seats.append(boton(n, n)));
     seats.append(boton('*', t('spec.all')));
 
-    const todos = est.specVista === '*';
-    document.getElementById('specSingle').hidden = todos;
-    document.getElementById('specAll').hidden = !todos;
-    if (todos) renderSpectatorTodos(nicks); else renderSpectatorUno(est.specState.players[est.specVista]);
+    const todos = vista === '*';
+    porId('specSingle').hidden = todos;
+    porId('specAll').hidden = !todos;
+    if (todos) renderSpectatorTodos(nicks); else renderSpectatorUno(est.specState.players[vista]);
 
     // Las cartas peleadas del centro, que `renderCenterCards` ya marca por su cuenta.
 }
 
 /** El tablero de un jugador, como lo ve él: sus 6 sets, el abierto, su deuda. */
-function renderSpectatorUno(p) {
+function renderSpectatorUno(p: SpectatorPlayer | undefined) {
     if (!p) return;
-    document.getElementById('specLabel').textContent = t('spec.sets_of', { nick: est.specVista });
+    porId('specLabel').textContent = t('spec.sets_of', { nick: est.specVista });
     const actual = est.specSet ?? p.cur;
 
-    const nav = document.getElementById('specSetNav');
+    const nav = porId('specSetNav');
     nav.replaceChildren();
     for (let i = 0; i < 6; i++) {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'set-btn' + (i === actual ? ' active' : '') + (p.flip[i] ? ' flipped' : '');
-        b.dataset.set = i;
+        b.dataset.set = String(i);
         b.append(t('set.n', { n: i + 1 }));
         const ojo = document.createElement('span');
         ojo.className = 'set-eye';
@@ -109,12 +112,12 @@ function renderSpectatorUno(p) {
         nav.append(b);
     }
 
-    const fila = document.getElementById('specCards');
+    const fila = porId('specCards');
     fila.replaceChildren(...(p.sets[actual] || []).map(specCard));
 
-    const estado = document.getElementById('specEstado');
+    const estado = porId('specEstado');
     estado.replaceChildren();
-    const dato = (texto, fuerte) => {
+    const dato = (texto: string, fuerte?: string) => {
         const s = document.createElement('span');
         s.append(texto);
         if (fuerte !== undefined) { const b = document.createElement('b'); b.textContent = fuerte; s.append(b); }
@@ -130,11 +133,12 @@ function renderSpectatorUno(p) {
 }
 
 /** Los sets de cada jugador en miniatura, todos a la vez. */
-function renderSpectatorTodos(nicks) {
-    const cont = document.getElementById('specAll');
+function renderSpectatorTodos(nicks: string[]) {
+    const cont = porId('specAll');
+    const players = est.specState!.players;
     cont.replaceChildren();
     nicks.forEach(n => {
-        const p = est.specState.players[n];
+        const p = players[n];
         const bloque = document.createElement('div');
         bloque.className = 'spec-player';
         const cab = document.createElement('div');

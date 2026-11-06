@@ -1,6 +1,9 @@
 // ─── Verificación ────────────────────────────────────────────────────────
 import { emitir } from './bus.js';
-import { est, otherVerifications, qteBlockedCards } from './estado.js';
+import { est, otherVerifications, qteBlockedCards, porId } from './estado.js';
+import type { CardInfo } from '../tipos/CardInfo';
+import type { EloChange } from '../tipos/EloChange';
+import type { RankingEntry } from '../tipos/RankingEntry';
 import { send } from './red.js';
 import { sinEmoji } from './espectador.js';
 import { applyCardSprite, cardName, REDUCED_MOTION, resetCombo } from './tablero.js';
@@ -20,16 +23,16 @@ export function checkAutoVerify() {
     }
 }
 
-export function openVerifyOverlay(playerName) {
+export function openVerifyOverlay(playerName: string) {
     if (playerName === est.currentNickname) {
         // Mi verificación → overlay completo
-        const overlay = document.getElementById('verifyOverlay');
-        document.getElementById('verifyTitle').textContent = t('verify.mine');
-        document.getElementById('verifyFooter').textContent = '';
-        document.getElementById('verifyFooter').className = 'verify-footer';
-        document.getElementById('verifyCloseBtn').style.display = 'none';
+        const overlay = porId('verifyOverlay');
+        porId('verifyTitle').textContent = t('verify.mine');
+        porId('verifyFooter').textContent = '';
+        porId('verifyFooter').className = 'verify-footer';
+        porId('verifyCloseBtn').style.display = 'none';
 
-        const setsDiv = document.getElementById('verifySets');
+        const setsDiv = porId('verifySets');
         setsDiv.innerHTML = '';
         for (let i = 0; i < 6; i++) {
             const row = document.createElement('div');
@@ -44,7 +47,7 @@ export function openVerifyOverlay(playerName) {
         overlay.classList.add('active');
     } else {
         // Verificación ajena → notificación pequeña en segundo plano
-        const area = document.getElementById('verifyNotifications');
+        const area = porId('verifyNotifications');
         // Tras fallar se puede reintentar: sin esto la notificación anterior
         // de ese jugador se quedaba huérfana en pantalla al reemplazarla en
         // el Map, y ya nadie la borraba.
@@ -58,14 +61,14 @@ export function openVerifyOverlay(playerName) {
                 ${Array.from({length:6}, (_, i) => `<span id="vnotif-${esc(playerName)}-${i}" title="${esc(t('set.n', { n: i + 1 }))}">⏳</span>`).join('')}
             </div>
         `;
-        notif.querySelector('.vnotif-header').textContent = t('verify.other', { nick: playerName });
+        notif.querySelector('.vnotif-header')!.textContent = t('verify.other', { nick: playerName });
         area.appendChild(notif);
         otherVerifications.set(playerName, notif);
     }
     emitir('openVerifyOverlay', playerName);
 }
 
-export function revealVerifySet(playerName, setIndex, isValid, cards) {
+export function revealVerifySet(playerName: string, setIndex: number, isValid: boolean, cards: CardInfo[]) {
     const symbol = isValid ? '✅' : '❌';
 
     if (playerName === est.currentNickname) {
@@ -91,40 +94,40 @@ export function revealVerifySet(playerName, setIndex, isValid, cards) {
     emitir('revealVerifySet', playerName, setIndex, isValid, cards);
 }
 
-export function onVerificationSuccess(playerName, position) {
+export function onVerificationSuccess(playerName: string, position: number) {
     const medals = ['🥇', '🥈', '🥉'];
     const medal = medals[position - 1] || t('pos.ord', { n: position });
 
     if (playerName === est.currentNickname) {
-        const footer = document.getElementById('verifyFooter');
+        const footer = porId('verifyFooter');
         footer.textContent = t('verify.done_me', { medal, pos: position });
         footer.className = 'verify-footer success';
-        document.getElementById('verifyCloseBtn').style.display = 'block';
+        porId('verifyCloseBtn').style.display = 'block';
     } else {
         const notif = otherVerifications.get(playerName);
         if (notif) {
             notif.classList.add('success');
-            notif.querySelector('.vnotif-header').textContent = t('verify.done_other', { medal, nick: playerName, pos: position });
+            notif.querySelector('.vnotif-header')!.textContent = t('verify.done_other', { medal, nick: playerName, pos: position });
             dismissVerifyNotif(playerName, notif, 5000);
         }
     }
     emitir('onVerificationSuccess', playerName, position);
 }
 
-export function onVerificationFailed(playerName, failedSets) {
+export function onVerificationFailed(playerName: string, failedSets: number[]) {
     const failedNames = failedSets.map(i => t('set.n', { n: i + 1 })).join(t('list.sep'));
 
     if (playerName === est.currentNickname) {
         est.verificationSent = false;  // Permitir un nuevo intento cuando los sets estén completos
-        const footer = document.getElementById('verifyFooter');
+        const footer = porId('verifyFooter');
         footer.textContent = t('verify.fail_me', { list: failedNames });
         footer.className = 'verify-footer failure';
-        document.getElementById('verifyCloseBtn').style.display = 'block';
+        porId('verifyCloseBtn').style.display = 'block';
     } else {
         const notif = otherVerifications.get(playerName);
         if (notif) {
             notif.classList.add('failure');
-            notif.querySelector('.vnotif-header').textContent = t('verify.fail_other', { nick: playerName, list: failedNames });
+            notif.querySelector('.vnotif-header')!.textContent = t('verify.fail_other', { nick: playerName, list: failedNames });
             dismissVerifyNotif(playerName, notif, 4000);
         }
     }
@@ -132,7 +135,7 @@ export function onVerificationFailed(playerName, failedSets) {
 }
 
 export function closeVerifyOverlay() {
-    document.getElementById('verifyOverlay').classList.remove('active');
+    porId('verifyOverlay').classList.remove('active');
 }
 
 /** Programa el borrado de una notificación de verificación ajena.
@@ -141,7 +144,7 @@ export function closeVerifyOverlay() {
  * volvió a verificar mientras corría el temporizador, el `delete` a secas
  * borraba la entrada NUEVA y dejaba su notificación flotando para siempre.
  */
-function dismissVerifyNotif(playerName, notif, delayMs) {
+function dismissVerifyNotif(playerName: string, notif: HTMLElement, delayMs: number) {
     setTimeout(() => {
         notif.remove();
         if (otherVerifications.get(playerName) === notif) {
@@ -156,7 +159,7 @@ function dismissVerifyNotif(playerName, notif, delayMs) {
  *  llegaba nunca y la notificación se quedaba en pantalla — incluso en la
  *  siguiente ronda. Al cerrar la partida se limpian todas. */
 export function clearMatchNotifications() {
-    document.getElementById('verifyNotifications').innerHTML = '';
+    porId('verifyNotifications').innerHTML = '';
     otherVerifications.clear();
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
     qteBlockedCards.clear();
@@ -172,7 +175,7 @@ function lanzarConfeti() {
     layer.id = 'confetiLayer';
     layer.setAttribute('aria-hidden', 'true');
     const colores = ['#a9b689', '#f7d51d', '#d6208f', '#ffffff'];
-    const r = (a, b) => a + Math.random() * (b - a);
+    const r = (a: number, b: number) => a + Math.random() * (b - a);
     const vw = window.innerWidth, vh = window.innerHeight;
     for (let i = 0; i < 48; i++) {
         const c = document.createElement('i');
@@ -195,14 +198,14 @@ function lanzarConfeti() {
     setTimeout(() => layer.remove(), 4200);
 }
 
-export function onGameOver(rankings, elo = []) {
-    const yaMostrado = document.getElementById('gameOverOverlay').classList.contains('active');
+export function onGameOver(rankings: RankingEntry[], elo: EloChange[] = []) {
+    const yaMostrado = porId('gameOverOverlay').classList.contains('active');
     est.gameOver = true;
     stopMusic();
     closeVerifyOverlay();
     clearMatchNotifications();
     resetCombo();
-    const list = document.getElementById('rankingList');
+    const list = porId('rankingList');
     list.innerHTML = '';
     const titulo = document.querySelector('#gameOverOverlay h2');
     if (titulo) titulo.textContent = sinEmoji(t('over.title'));
@@ -231,7 +234,7 @@ export function onGameOver(rankings, elo = []) {
         }
         list.appendChild(div);
     });
-    document.getElementById('gameOverOverlay').classList.add('active');
+    porId('gameOverOverlay').classList.add('active');
     showMyElo(elo);
     claimSessionManagerResult(rankings);
     // Solo si ganas una partida con rivales; un mensaje repetido no relanza.
@@ -239,8 +242,8 @@ export function onGameOver(rankings, elo = []) {
 }
 
 /** Tu Elo en el overlay final: gira desde el que tenías hasta el nuevo. */
-function showMyElo(elo) {
-    const box = document.getElementById('eloDial');
+function showMyElo(elo: EloChange[]) {
+    const box = porId('eloDial');
     const mio = elo.find(c => c.nickname === est.currentNickname);
     if (!mio || typeof agDial !== 'function') {
         box.hidden = true;
@@ -257,7 +260,7 @@ function showMyElo(elo) {
         top3Before: !!mio.top3_before,
         top3After: !!mio.top3_after,
         onStep: () => playSfx(glory ? 'dialGlory' : 'dialFun'),
-        onRank: e => playSfx(e.dir === 'up' ? 'rankUp' : 'rankDown'),
+        onRank: (e: { dir: 'up' | 'down' }) => playSfx(e.dir === 'up' ? 'rankUp' : 'rankDown'),
     }), 450);
 }
 
