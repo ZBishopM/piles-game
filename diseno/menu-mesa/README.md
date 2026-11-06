@@ -13,7 +13,7 @@ describe el diseño.
 |---|---|
 | `siluetas.py` → `siluetas.webp` | Figuras de cuerpo entero (Blender). Se copia a `client/mesa/`. |
 | `brazos.py` → `brazos.webp` | Solo el brazo, para la pelea por la carta (Blender). Se copia a `client/mesa/`. |
-| `manos-siluetas.json`, `anclas-brazos.json` | Dónde cae la mano en cada fotograma. Ya van copiados dentro de `client/mesa/mesa.js` (`MANOS`, `ANC`); los JSON son la fuente por si se vuelve a renderizar. |
+| `manos-siluetas.json`, `anclas-brazos.json` | Dónde cae la mano en cada fotograma. Ya van copiados dentro de `client/mesa/escena.js` (`MANOS`, `ANC`); los JSON son la fuente por si se vuelve a renderizar. |
 
 ## Las figuras: Blender + MPFB
 
@@ -258,7 +258,11 @@ quedan como nombres de vista (`vistaActual`, `showScreen(id)`). La lógica (`cli
 
 | Archivo | Qué es |
 |---|---|
-| `client/mesa/mesa.js` | La escena, el diccionario (`DIC`) y la interfaz conectada. Módulo ES: importa de `client/juego/` lo que usa; va en `client/dist/piles.js` (tras editarlo, `pnpm build` en tools/). |
+| `client/mesa/mesa.js` | La interfaz conectada: cartas, piezas, gestos. Importa de `client/juego/` lo que usa. |
+| `client/mesa/escena.js` | La partida de fondo (canvas): `escena.ir()`, `escena.X`… |
+| `client/mesa/dic.js` | Los textos (`DIC`, `T()`). |
+
+Los tres son módulos ES y van en `client/dist/piles.js`: tras editarlos, `pnpm build` en tools/.
 | `client/mesa/mesa.css` | Estilos, todos bajo `#escenario` (las variables también). |
 | `client/mesa/siluetas.webp`, `brazos.webp` | Las hojas de sprites (archivos aparte, cacheables). |
 
