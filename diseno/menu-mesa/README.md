@@ -1,28 +1,19 @@
 # Menú en la mesa
 
-Prototipo del nuevo menú de Piles: cada opción es una carta y, de fondo, una partida de
-cuatro personas a cámara lenta cuya cámara cambia con cada menú. Se ve publicado en
-<https://claude.ai/artifact/FBdguCXa621gQyVxUvB1wT>.
-
-En el prototipo (`mesa.html`) todo lo de la sala es **simulado**. En el juego va conectado:
-`client/mesa/` (ver «Conectado con Piles», al final).
+El menú de Piles: cada opción es una carta y, de fondo, una partida de cuatro personas a
+cámara lenta cuya cámara cambia con cada menú. Empezó como un prototipo aparte
+(`mesa.html`, simulado; publicado en <https://claude.ai/artifact/FBdguCXa621gQyVxUvB1wT>).
+**El prototipo ya no existe** (se retiró en la limpieza de 2026-11, está en el historial de
+git): el código es `client/mesa/` (ver «Conectado con Piles», al final). Lo que sigue
+describe el diseño.
 
 ## Archivos
 
 | Archivo | Qué es |
 |---|---|
-| `mesa.html` | La fuente: HTML, CSS y JS en un archivo, con cuatro huecos (`__AGA_CSS__`, `__AGA_JS__`, `__SIL__`, `__BRAZO__`). |
-| `construir.nu` | Rellena los huecos y deja `mesa.final.html` (≈ 940 kB, no se sube a git). |
-| `siluetas.py` → `siluetas.webp` | Figuras de cuerpo entero (Blender). |
-| `brazos.py` → `brazos.webp` | Solo el brazo, para la pelea por la carta (Blender). |
-| `manos-siluetas.json`, `anclas-brazos.json` | Dónde cae la mano en cada fotograma. Ya van copiados dentro de `mesa.html` (`MANOS`, `ANC`); los JSON son la fuente por si se vuelve a renderizar. |
-
-```nu
-nu diseno/menu-mesa/construir.nu   # → diseno/menu-mesa/mesa.final.html
-```
-
-Los diales de Elo son `client/agapornis-ui/dial.*` y `rank.*` tal cual, incrustados por
-`construir.nu`. El QR usa `qrcode-generator@1.4.4` desde jsDelivr (lo único que va por red).
+| `siluetas.py` → `siluetas.webp` | Figuras de cuerpo entero (Blender). Se copia a `client/mesa/`. |
+| `brazos.py` → `brazos.webp` | Solo el brazo, para la pelea por la carta (Blender). Se copia a `client/mesa/`. |
+| `manos-siluetas.json`, `anclas-brazos.json` | Dónde cae la mano en cada fotograma. Ya van copiados dentro de `client/mesa/mesa.js` (`MANOS`, `ANC`); los JSON son la fuente por si se vuelve a renderizar. |
 
 ## Las figuras: Blender + MPFB
 
@@ -258,18 +249,16 @@ chat ya escrito.
 
 ## Conectado con Piles (`client/mesa/`)
 
-El menú en la mesa sustituye en `lobby.html` a las pantallas `homeScreen`, `profileScreen`,
+El menú en la mesa sustituye a las pantallas `homeScreen`, `profileScreen`,
 `howToPlayScreen`, `hostScreen`, `joinScreen` y `lobbyScreen`, que **ya no existen**: sus ids
-quedan como nombres de vista (`vistaActual`, `showScreen(id)`). La lógica de `lobby.html`
+quedan como nombres de vista (`vistaActual`, `showScreen(id)`). La lógica (`client/juego/`)
 —WebSocket, asiento, reconexión, Elo, votos— recibe los datos como argumentos
 (`createLobby(n)`, `joinLobby(código)`, `sendChat(texto)`, `setSmCode`…), sin campos ocultos.
 `gameScreen` (la partida) es la única pantalla del DOM.
 
 | Archivo | Qué es |
 |---|---|
-| `client/mesa/ui.part.js` | **La interfaz conectada** (se edita aquí). |
-| `client/mesa/juntar.nu` | Junta la escena de `diseno/menu-mesa/mesa.html` + `ui.part.js` + el diccionario en `mesa.js`. |
-| `client/mesa/mesa.js` | Generado: no se edita. Todo dentro de una IIFE (no choca con los globales de `lobby.html`). |
+| `client/mesa/mesa.js` | La escena, el diccionario (`DIC`) y la interfaz conectada. Todo dentro de una IIFE (no choca con los globales de `client/juego/`). |
 | `client/mesa/mesa.css` | Estilos, todos bajo `#escenario` (las variables también). |
 | `client/mesa/siluetas.webp`, `brazos.webp` | Las hojas de sprites (archivos aparte, cacheables). |
 
@@ -293,7 +282,7 @@ Cómo se engancha a la lógica (`client/juego/`):
   **Las pruebas viejas de `tools/browser` que pulsan las pantallas de menú ya no valen para el
   menú**; las de la partida, sí.
 
-| En el prototipo | En `lobby.html` (función → mensaje) |
+| En el menú | En `client/juego/` (función → mensaje) |
 |---|---|
 | Partida rápida | `quickMatch()` → `quick_match`; oferta de bots: `armQuickMatchOffer`, `acceptBotsOffer` |
 | Crear sala (tambor, pública/privada) | `createLobby()` → `create_lobby`; `setVisibility` |
@@ -318,4 +307,3 @@ Cómo se engancha a la lógica (`client/juego/`):
 - Al mirar no hay figura fantasma tuya.
 - Sólo hay 4 asientos dibujados (tú y los tres primeros), aunque la sala sea de hasta 8.
 - El perfil sin sala enseña nombres de ejemplo en las otras sillas (no hay endpoint del top global).
-- En el prototipo publicado todo es simulado (tecla D: corte de conexión).

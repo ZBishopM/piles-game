@@ -1,5 +1,5 @@
-// El menú en la mesa (diseno/menu-mesa/README.md). Generado por juntar.nu: se edita ui.part.js
-// (la interfaz) o diseno/menu-mesa/mesa.html (la escena), no este archivo.
+// El menú en la mesa (diseno/menu-mesa/README.md): la escena de fondo, el diccionario y la
+// interfaz conectada al juego (client/juego/), dentro de una IIFE para no chocar con sus globales.
 'use strict';
 (() => {
 // ── La partida de fondo: cuatro personas jugando a cámara lenta ─────────────────
