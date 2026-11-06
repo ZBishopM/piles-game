@@ -223,7 +223,20 @@
     const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
     const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
     for (const l of ['lampara', 'neon', 'faros', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
-    envolver('switchSet', barrer);
+    // Cambiar de set: la mano nueva entra deslizando desde el lado del set elegido y rebota
+    // un poco al llegar (antes la cortaba el barrido negro y se sentía brusco)
+    const cambiar = window.switchSet;
+    if (typeof cambiar === 'function') window.switchSet = function (i) {
+        const antes = currentSetIndex;
+        const r = cambiar.apply(this, arguments);
+        if (currentSetIndex !== antes && !REDUCED_MOTION?.matches) {
+            const x = (currentSetIndex > antes ? 1 : -1) * Math.min(innerWidth * .5, 260);
+            document.getElementById('yourCards')?.animate(
+                [{ translate: `${x}px 0`, opacity: 0, easing: 'cubic-bezier(.3, .6, .4, 1)' }, { translate: `${-x * .07}px 0`, opacity: 1, offset: .65, easing: 'ease-in-out' }, { translate: '0 0' }],
+                { duration: 440 });
+        }
+        return r;
+    };
     envolver('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
     envolver('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
