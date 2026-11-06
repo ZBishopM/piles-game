@@ -3076,7 +3076,7 @@
     return PilesI18n.has(key) ? t(key, msg.args || {}) : fallback;
   }
 
-  // ../client/mesa/dic.js
+  // ../client/mesa/dic.ts
   var DIC = {
     "Partida r\xE1pida": ["Quick match", "\u5FEB\u901F\u5339\u914D"],
     "Te sienta en una mesa ya": ["Seats you at a table now", "\u9A6C\u4E0A\u7ED9\u4F60\u5B89\u6392\u4E00\u5F20\u684C\u5B50"],
@@ -3280,15 +3280,15 @@
   var LENGUA = { es: -1, en: 0, zh: 1 }[window.PilesI18n?.lang] ?? -1;
   function T(s, v = {}) {
     const r = LENGUA < 0 ? s : DIC[s]?.[LENGUA] ?? s;
-    return String(r).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? "");
+    return String(r).replace(/\{(\w+)\}/g, (_, k) => String(v[k] ?? ""));
   }
   var IDIOMAS = { ES: "es", EN: "en", "\u4E2D\u6587": "zh" };
 
-  // ../client/mesa/escena.js
+  // ../client/mesa/escena.ts
   var escena = (() => {
-    const cv = document.getElementById("juego"), g = cv.getContext("2d");
+    const cv = porId("juego"), g = cv.getContext("2d");
     const DIS = { x: -0.86, z: 0.66 };
-    const CAMS = {
+    const CAMS0 = {
       // yaw/pitch/roll en rad, distancia, centro en pantalla (0..1), punto al que mira (mx, mz)
       inicio: { yaw: 0.35, pitch: 0.62, dist: 3.3, cy: 0.42, roll: -0.1, mx: 0, mz: 0 },
       crear: { yaw: 1.6, pitch: 0.18, dist: 2.3, cy: 0.4, roll: 0.22, mx: 0.3, mz: 0 },
@@ -3321,7 +3321,7 @@
       // Empieza la partida: contrapicado hacia quien ganó la carta (asiento 0), que la alza
       partida: { yaw: Math.PI, pitch: 0.1, dist: 2.5, cy: 0.52, roll: -0.12, mx: 0, mz: 0.6, my: 0.85 }
     };
-    for (const c of Object.values(CAMS)) c.my ??= 0.2;
+    const CAMS = Object.fromEntries(Object.entries(CAMS0).map(([k, c]) => [k, { my: 0.2, ...c }]));
     let cam = { ...CAMS.inicio }, meta = { ...CAMS.inicio }, actual = "inicio";
     let t2 = 6, tMeta = 6, disputa = 0, disputaMeta = 0, reloj = 0;
     let gana = -1, chispas = [], anillos = [], estall\u00F3 = false;
@@ -3352,7 +3352,7 @@
       const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
       return k * k * (3 - 2 * k);
     };
-    let C, R, U, F, foco;
+    let C = [], R = [], U = [], F = [], foco = 1;
     function preparar() {
       const cp = Math.cos(cam.pitch), yaw = cam.yaw + 0.05 * Math.sin(reloj * 0.23);
       C = [cam.mx + Math.sin(yaw) * cp * cam.dist, Math.sin(cam.pitch) * cam.dist + cam.my, cam.mz + Math.cos(yaw) * cp * cam.dist];
@@ -3406,7 +3406,7 @@
           const guarda = [t2, X2.ocupados];
           OX = m.x;
           OZ = m.z;
-          t2 += m.desfase;
+          t2 += m.desfase ?? 0;
           X2.ocupados = m.ocup;
           principal = false;
           quietos = !m.jugando;
@@ -3538,10 +3538,11 @@
     function deLaSilla(a, p) {
       const cu = base(a, p), { fw, ld } = ejes(a);
       const P = (adelante, lado, y) => [cu.x + fw[0] * adelante + ld[0] * lado, y, cu.z + fw[1] * adelante + ld[1] * lado];
-      if (p === 0 && X2.placa) {
+      const placa = X2.placa;
+      if (p === 0 && placa) {
         const o = P(-0.44, 0.2, 0.3), ex = [ld[0] * -0.4, 0, ld[1] * -0.4], ey = [0, -0.18, 0];
         enPlano(o, ex, ey, 400, 180, () => {
-          const ok = X2.placa.ok;
+          const ok = placa.ok;
           g.fillStyle = ok ? "#a9b689" : "#1c1f16";
           g.fillRect(0, 0, 400, 180);
           g.strokeStyle = "#a9b689";
@@ -3558,7 +3559,7 @@
           g.font = "800 30px Geist, sans-serif";
           g.fillText("SESSION MANAGER", 200, 54);
           g.font = "900 54px Geist, monospace";
-          g.fillText(X2.placa.txt || "\xB7 \xB7 \xB7 \xB7 \xB7 \xB7", 200, 118);
+          g.fillText(placa.txt || "\xB7 \xB7 \xB7 \xB7 \xB7 \xB7", 200, 118);
           g.font = "700 24px Geist, sans-serif";
           g.fillText(T(ok ? "\u2713 VINCULADO" : "pega tu c\xF3digo"), 200, 158);
         });
@@ -3627,7 +3628,7 @@
       if (!V) return;
       const h = 0.42;
       const P = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, z]) => proy(x, 0.02, z));
-      if (V.video?.readyState >= 2) {
+      if (V.video && V.video.readyState >= 2) {
         const xs = P.map((q) => q[0]), ys = P.map((q) => q[1]);
         g.save();
         g.beginPath();
@@ -3978,7 +3979,7 @@
       const rojo = principal && (p === X2.tu || p === X2.marca) && c[2] > 1;
       const r = (rojo ? 3.5 : 1.5) * devicePixelRatio, alfa = g.globalAlpha;
       g.globalAlpha = (rojo ? 1 : 0.6) * alfa;
-      g.drawImage(rojo ? bordeRojo : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
+      g.drawImage(rojo ? bordeRojo ?? borde : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
       g.globalAlpha = alfa;
       g.drawImage(SIL, col * CW, fila * CH, CW, CH, -wpx / 2, -hpx, wpx, hpx);
       g.restore();
@@ -3992,12 +3993,12 @@
         };
         if (carta.mano) enMano.push({ ...dedos(col), rot: a.a + Math.PI / 2 });
         else {
-          const u = carta.vuela, s2 = dedos(11), dx = Math.sin(carta.giro) * 0.15, dz = Math.cos(carta.giro) * 0.1;
+          const u = carta.vuela ?? 0, giro = carta.giro ?? 0, s2 = dedos(11), dx = Math.sin(giro) * 0.15, dz = Math.cos(giro) * 0.1;
           enMano.push({
             x: lerp(s2.x, dx, u),
             y: lerp(s2.y, 0.01, u) + Math.sin(u * Math.PI) * 0.1,
             z: lerp(s2.z, dz, u),
-            rot: a.a + Math.PI / 2 + u * (3 + carta.giro * 6)
+            rot: a.a + Math.PI / 2 + u * (3 + giro * 6)
           });
         }
       }
@@ -4071,7 +4072,7 @@
         }
         const n = matriz.length, m = matriz[0].length, celdas = [];
         for (let r = 0; r < n; r++) for (let c = 0; c < m; c++) if (!huecos2 || matriz[r][c]) celdas.push({ x: (c - (m - 1) / 2) * s2, z: (r - (n - 1) / 2) * s2, c: matriz[r][c] });
-        if (!huecos2) celdas.sort((a, b) => a.c - b.c);
+        if (!huecos2) celdas.sort((a, b) => Number(a.c) - Number(b.c));
         X2.mosaico = { celdas, s: s2, t0: reloj, huecos: huecos2 };
       },
       /** Solo una cámara (sin cambiar de profundidad ni de partida). */

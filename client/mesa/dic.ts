@@ -1,7 +1,7 @@
 // Los textos del menú en la mesa: clave = el texto en español, [inglés, chino].
 // ── Idioma: el de lobby.html (cambiarlo recarga la página, como siempre) ─────────────
 // Los textos de aquí: clave = el texto en español, [inglés, chino]; {x} se sustituye.
-export const DIC = {
+export const DIC: Record<string, [string, string]> = {
     'Partida rápida': ['Quick match', '快速匹配'], 'Te sienta en una mesa ya': ['Seats you at a table now', '马上给你安排一张桌子'],
     'Crear sala': ['Create room', '创建房间'], 'Tú eliges jugadores y quién entra': ['You choose players and who gets in', '你决定人数和谁能进'],
     'Unirse': ['Join', '加入房间'], 'Salas abiertas, código o QR': ['Open rooms, code or QR', '公开房间、代码或二维码'],
@@ -87,9 +87,9 @@ export const DIC = {
     'Entrarás a mirar': ['You will watch', '你将观战'], 'Entrarás a jugar': ['You will play', '你将上场'], 'Sala': ['Room', '房间'],
     'Código': ['Code', '代码'], 'Enlace copiado': ['Link copied', '链接已复制'],
 };
-const LENGUA = { es: -1, en: 0, zh: 1 }[window.PilesI18n?.lang] ?? -1;
-export function T(s, v = {}) {
+const LENGUA = ({ es: -1, en: 0, zh: 1 } as Record<string, number>)[window.PilesI18n?.lang] ?? -1;
+export function T(s: string, v: Record<string, unknown> = {}): string {
     const r = LENGUA < 0 ? s : (DIC[s]?.[LENGUA] ?? s);
-    return String(r).replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
+    return String(r).replace(/\{(\w+)\}/g, (_, k: string) => String(v[k] ?? ''));
 }
 export const IDIOMAS = { ES: 'es', EN: 'en', '中文': 'zh' };

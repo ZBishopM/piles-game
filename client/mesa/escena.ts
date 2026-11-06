@@ -5,12 +5,38 @@
 // despacio solo y, al navegar, corre hacia delante (entrar) o hacia atrás (volver), así
 // que la partida se rebobina de verdad. Cada menú tiene su cámara.
 import { T } from './dic.js';
+import { porId } from '../juego/estado.js';
+
+type Pt = { x: number; z: number };
+type P3 = { x: number; y: number; z: number };
+type V3 = [number, number, number];
+type Asiento = Pt & { a: number };
+/** Cámara: yaw/pitch/roll en rad, distancia, centro en pantalla (cy, 0..1) y punto al que mira. */
+type Cam = { yaw: number; pitch: number; dist: number; cy: number; roll: number; mx: number; mz: number; my: number };
+type Pool = 'fun' | 'glory';
+type Mesa = Pt & { ocup: boolean[]; desfase: number; jugando: boolean };
+/** Una carta de una figura: en la mano, o volando al centro (u de 0 a 1, con su giro). */
+type Carta = { mano?: boolean; vuela?: number; giro?: number };
+/** Lo de cada menú dentro de la escena: lo escribe la interfaz (mesa.js). */
+export interface MenuEnEscena {
+    mosaico: { celdas: { x: number; z: number; c: boolean }[]; s: number; t0: number; huecos: boolean; salen?: number } | null;
+    visor: { video: HTMLVideoElement | null; t0: number } | null;
+    listos: boolean[]; ocupados: boolean[]; llegada: number[];
+    nombres: string[] | null;
+    elo: { v: number; pool: Pool; top3?: boolean }[] | null;
+    anclas: { x?: number; y?: number; s?: number; ok?: boolean }[];
+    placa: { txt: string; ok: boolean } | null;
+    burla: number;
+    voto: { a: number; t0: number } | null;
+    mesas: Mesa[] | null;
+    cortado: boolean; apagon: number; tu: number; marca: number;
+}
 
 export const escena = (() => {
-    const cv = document.getElementById('juego'), g = cv.getContext('2d');
+    const cv = porId<HTMLCanvasElement>('juego'), g = cv.getContext('2d')!;
     // La carta que dos se disputan en «¡A JUGAR!» (entre los asientos 0 y 1)
     const DIS = { x: -0.86, z: 0.66 };   // cerca del borde, entre los dos: se alcanza sin estirar de más
-    const CAMS = {   // yaw/pitch/roll en rad, distancia, centro en pantalla (0..1), punto al que mira (mx, mz)
+    const CAMS0: Record<string, Omit<Cam, 'my'> & { my?: number }> = {   // yaw/pitch/roll en rad, distancia, centro en pantalla (0..1), punto al que mira (mx, mz)
         inicio:  { yaw: 0.35, pitch: 0.62, dist: 3.3, cy: 0.42, roll: -0.10, mx: 0, mz: 0 },
         crear:   { yaw: 1.60, pitch: 0.18, dist: 2.3, cy: 0.40, roll: 0.22, mx: 0.3, mz: 0 },
         unirse:  { yaw: -1.25, pitch: 1.12, dist: 2.4, cy: 0.40, roll: -0.32, mx: -0.2, mz: 0.2 },
@@ -41,17 +67,19 @@ export const escena = (() => {
         // Empieza la partida: contrapicado hacia quien ganó la carta (asiento 0), que la alza
         partida: { yaw: Math.PI, pitch: 0.10, dist: 2.5, cy: 0.52, roll: -0.12, mx: 0, mz: 0.6, my: 0.85 },
     };
-    for (const c of Object.values(CAMS)) c.my ??= 0.2;   // altura del punto al que mira
-    let cam = { ...CAMS.inicio }, meta = { ...CAMS.inicio }, actual = 'inicio';
+    const CAMS: Record<string, Cam> = Object.fromEntries(Object.entries(CAMS0).map(([k, c]) => [k, { my: 0.2, ...c }]));   // my: altura del punto al que mira
+    let cam: Cam = { ...CAMS.inicio }, meta: Cam = { ...CAMS.inicio }, actual = 'inicio';
     let t = 6, tMeta = 6, disputa = 0, disputaMeta = 0, reloj = 0;
-    let gana = -1, chispas = [], anillos = [], estalló = false;
-    let nuestras = [];   // cartas del menú soltadas en el centro de la mesa (las 6 últimas)   // la victoria: desde cuándo, y sus partículas
+    type Chispa = { x: number; y: number; vx: number; vy: number; vida: number; total: number; peso: number; ancho: number; color: string };
+    type Anillo = { x: number; y: number; radio: number; vida: number; total: number };
+    let gana = -1, chispas: Chispa[] = [], anillos: Anillo[] = [], estalló = false;
+    let nuestras: (Pt & { rot: number; dorso: boolean })[] = [];   // cartas del menú soltadas en el centro de la mesa (las 6 últimas)   // la victoria: desde cuándo, y sus partículas
     // Segundos de partida por segundo real. En el inicio (con el nombre) todos juegan rápido,
     // recogiendo y lanzando; desde la primera opción elegida, tiempo bala.
     const RAPIDO = 1.5, BALA = 0.3;
     let vel = RAPIDO, velMeta = RAPIDO, tv = 0;   // tv: reloj de los gestos sueltos, al mismo ritmo
     // Dónde está el cuerpo: en la disputa, los dos se echan hacia la carta
-    function base(a, p) {
+    function base(a: Pt, p: number): Pt {
         const b = { x: a.x * 0.98, z: a.z * 0.98 };
         if (p > 1 || disputa < 0.01) return b;
         const dx = DIS.x - b.x, dz = DIS.z - b.z, n = Math.hypot(dx, dz);
@@ -60,18 +88,18 @@ export const escena = (() => {
 
     let s = 1532;   // azar con semilla: la misma partida cada vez
     const rnd = () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
-    const ACC = [];
+    const ACC: { t: number; p: number; toma: boolean; giro: number }[] = [];
     for (let k = 0; k < 1600; k++) ACC.push({ t: 1 + k * 0.75 + rnd() * 0.3, p: Math.floor(rnd() * 4), toma: rnd() < 0.5, giro: rnd() * 0.6 - 0.3 });
 
-    const ASIENTOS = [0, 1, 2, 3].map(p => { const a = Math.PI / 2 + p * Math.PI / 2; return { x: Math.cos(a) * 1.95, z: Math.sin(a) * 1.45, a }; });
+    const ASIENTOS: Asiento[] = [0, 1, 2, 3].map(p => { const a = Math.PI / 2 + p * Math.PI / 2; return { x: Math.cos(a) * 1.95, z: Math.sin(a) * 1.45, a }; });
     // Medio ancho y medio alto de una carta: a escala de las manos de las figuras (6,3 × 8,8 cm)
     const CW_M = 0.05, CH_M = 0.07;
-    const lerp = (a, b, k) => a + (b - a) * k;
+    const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
     const ROJO = '#e8402a';   // el acento (--acento): tú, lo que se juega y quién gana
-    const suave = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+    const suave = (a: number, b: number, x: number) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
 
     // Cámara que mira al centro de la mesa desde (yaw, pitch, dist)
-    let C, R, U, F, foco;
+    let C: number[] = [], R: number[] = [], U: number[] = [], F: number[] = [], foco = 1;
     function preparar() {
         const cp = Math.cos(cam.pitch), yaw = cam.yaw + 0.05 * Math.sin(reloj * 0.23);   // deriva lenta: la cámara respira
         C = [cam.mx + Math.sin(yaw) * cp * cam.dist, Math.sin(cam.pitch) * cam.dist + cam.my, cam.mz + Math.cos(yaw) * cp * cam.dist];
@@ -82,14 +110,14 @@ export const escena = (() => {
         foco = cv.height * 0.95;
     }
     let OX = 0, OZ = 0;   // desplazamiento de la mesa que se dibuja (las otras salas de «Unirse»)
-    function proy(x, y, z) {
+    function proy(x: number, y: number, z: number): V3 {
         const v = [x + OX - C[0], y - C[1], z + OZ - C[2]];
         const d = v[0] * F[0] + v[1] * F[1] + v[2] * F[2];
         const px = v[0] * R[0] + v[1] * R[1] + v[2] * R[2], py = v[0] * U[0] + v[1] * U[1] + v[2] * U[2];
         const sx = px / d * foco, sy = py / d * foco, cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);   // roll: plano holandés
         return [cv.width / 2 + sx * cr - sy * sr, cv.height * cam.cy - (sx * sr + sy * cr), d];
     }
-    function quad(cx, y, cz, w, h, rot, relleno, borde) {   // una carta tumbada en la mesa
+    function quad(cx: number, y: number, cz: number, w: number, h: number, rot: number, relleno: string, borde: string | null) {   // una carta tumbada en la mesa
         const c = Math.cos(rot), sn = Math.sin(rot);
         const p = [[-w, -h], [w, -h], [w, h], [-w, h]].map(([a, b]) => proy(cx + a * c - b * sn, y, cz + a * sn + b * c));
         if (p.some(q => q[2] < 0.08)) return;   // detrás de la cámara
@@ -98,7 +126,7 @@ export const escena = (() => {
         if (borde) { g.strokeStyle = borde; g.lineWidth = 1.2 * devicePixelRatio; g.stroke(); }
     }
 
-    function dibujar(dt) {
+    function dibujar(dt: number) {
         // Estela: el cuadro anterior se borra a medias (cámara lenta). Se borra a transparente,
         // no se pinta de negro: los fragmentos del fondo quedan DETRÁS de la mesa, no encima.
         g.globalCompositeOperation = 'destination-out';
@@ -114,11 +142,11 @@ export const escena = (() => {
         }
         // Las mesas, de la más lejana a la más cercana. Las otras (salas de «Unirse») viven en
         // otro punto de la misma línea de tiempo y no tienen nombres, disputa ni objetos de menú.
-        const mesas = [{ x: 0, z: 0 }, ...(X.mesas ?? [])].map(m => ({ ...m, d: proy(m.x, 0, m.z)[2] })).sort((a, b) => b.d - a.d);
+        const mesas = [{ x: 0, z: 0 } as Pt & Partial<Mesa>, ...(X.mesas ?? [])].map(m => ({ ...m, d: proy(m.x, 0, m.z)[2] })).sort((a, b) => b.d - a.d);
         for (const m of mesas) {
             if (m.d < 0.3) continue;
             if (m.ocup) {   // otra sala
-                const guarda = [t, X.ocupados]; OX = m.x; OZ = m.z; t += m.desfase; X.ocupados = m.ocup; principal = false; quietos = !m.jugando;
+                const guarda: [number, boolean[]] = [t, X.ocupados]; OX = m.x; OZ = m.z; t += m.desfase ?? 0; X.ocupados = m.ocup; principal = false; quietos = !m.jugando;
                 unaMesa(-1);
                 [t, X.ocupados] = guarda; OX = OZ = 0; principal = true; quietos = false;
             } else unaMesa(e);
@@ -140,7 +168,7 @@ export const escena = (() => {
     }
 
     // ── Lo de cada menú, dentro de la escena ──────────────────────────────────────
-    const X = {
+    const X: MenuEnEscena = {
         mosaico: null,                        // cartas que forman una figura vista desde arriba (QR, 3-2-1)
         visor: null,                          // el visor del escáner de QR: { video, t0 }
         listos: [false, false, false, false], // lámpara encendida sobre quien está listo
@@ -158,24 +186,24 @@ export const escena = (() => {
         marca: -1,                            // asiento señalado (a quién votas echar): también en bermellón
     };
     let principal = true, quietos = false;   // quietos: sala en espera, nadie lanza
-    const RANGOS = {
+    const RANGOS: Record<Pool, [string, string][]> = {
         fun: [['Cartón', '#b89a6e'], ['Juguete', '#ffd23f'], ['Latón', '#d9c35a'], ['Caucho', '#8a8a8a'], ['Plástico', '#4fe3d3'],
             ['Gominola', '#ff8ab8'], ['Dulce', '#ff6b7a'], ['Confeti', '#b794ff'], ['Payaso', '#ff7a70']],
         glory: [['Hierro oxidado', '#b06a38'], ['Bronce', '#d9914d'], ['Plata', '#cdd5df'], ['Oro', '#f2cb5c'], ['Platino', '#bfe3ff'],
             ['Diamante', '#8fc0ff'], ['Máster', '#ffe27a'], ['Gran máster', '#ffb8d2'], ['Top 3 global', '#ffe08a']],
     };
-    const MINS = [null, 1001, 1100, 1200, 1300, 1400, 1500, 1600];   // los de agapornis-ui/rank.js
-    function rango(v, pool, top3 = false) {
-        let i = 0; for (let k = 1; k < MINS.length; k++) if (v >= MINS[k]) i = k;
+    const MINS: (number | null)[] = [null, 1001, 1100, 1200, 1300, 1400, 1500, 1600];   // los de agapornis-ui/rank.js
+    function rango(v: number, pool: Pool, top3 = false) {
+        let i = 0; for (let k = 1; k < MINS.length; k++) if (v >= MINS[k]!) i = k;
         if (top3 && v >= 1600) i = 8;
         return RANGOS[pool][i];
     }
     // ponytail: Elo de ejemplo del top global; en Piles vendrá del mismo endpoint que los nombres
-    const ELO_TOP = [{ v: 1724, pool: 'glory', top3: true }, { v: 1688, pool: 'glory', top3: true }, { v: 1651, pool: 'glory', top3: true }, { v: 1604, pool: 'glory' }];
+    const ELO_TOP: { v: number; pool: Pool; top3?: boolean }[] = [{ v: 1724, pool: 'glory', top3: true }, { v: 1688, pool: 'glory', top3: true }, { v: 1651, pool: 'glory', top3: true }, { v: 1604, pool: 'glory' }];
     X.elo = ELO_TOP.map(e => ({ ...e }));
 
     // Polígono en 3D (lista de puntos), relleno y borde
-    function poli(pts, relleno, borde, ancho = 1.2) {
+    function poli(pts: number[][], relleno: string | null, borde: string | null, ancho = 1.2) {
         const p = pts.map(q => proy(q[0], q[1], q[2]));
         if (p.some(q => q[2] < 0.08)) return;
         g.beginPath(); p.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
@@ -184,7 +212,7 @@ export const escena = (() => {
     }
     // Dibuja en un plano del mundo: origen o, ejes ex y ey (vectores 3D de largo ancho y alto);
     // fn pinta en coordenadas locales de ancho×alto px.
-    function enPlano(o, ex, ey, ancho, alto, fn) {
+    function enPlano(o: V3, ex: number[], ey: number[], ancho: number, alto: number, fn: () => void) {
         const P = proy(...o), A = proy(o[0] + ex[0], o[1] + ex[1], o[2] + ex[2]), B = proy(o[0] + ey[0], o[1] + ey[1], o[2] + ey[2]);
         if (P[2] < 0.1 || A[2] < 0.1 || B[2] < 0.1) return;
         g.save();
@@ -193,13 +221,13 @@ export const escena = (() => {
         g.restore();
     }
     // Ejes de un asiento: fw hacia el centro, ld de lado (en el suelo)
-    function ejes(a) { const n = Math.hypot(a.x, a.z), fw = [-a.x / n, -a.z / n]; return { fw, ld: [fw[1], -fw[0]] }; }
+    function ejes(a: Pt) { const n = Math.hypot(a.x, a.z), fw = [-a.x / n, -a.z / n]; return { fw, ld: [fw[1], -fw[0]] }; }
 
     // La silla, con las medidas de la de las figuras (siluetas.py, ×1,5): asiento a −0,45,
     // respaldo de −0,39 a 0,57, 0,43 por detrás del centro del cuerpo
-    function silla(a, p, alfa = 1) {
+    function silla(a: Pt, p: number, alfa = 1) {
         const cu = base(a, p), { fw, ld } = ejes(a);
-        const P = (adelante, lado, y) => [cu.x + fw[0] * adelante + ld[0] * lado, y, cu.z + fw[1] * adelante + ld[1] * lado];
+        const P = (adelante: number, lado: number, y: number): V3 => [cu.x + fw[0] * adelante + ld[0] * lado, y, cu.z + fw[1] * adelante + ld[1] * lado];
         g.globalAlpha = alfa;
         for (const [f, l] of [[0.18, 0.3], [0.18, -0.3], [-0.42, 0.3], [-0.42, -0.3]]) poli([P(f, l, -1.18), P(f, l, -0.45), P(f + 0.02, l, -0.45), P(f + 0.02, l, -1.18)], '#141610', 'rgba(169,182,137,0.35)');
         poli([P(0.21, 0.35, -0.45), P(0.21, -0.35, -0.45), P(-0.45, -0.35, -0.45), P(-0.45, 0.35, -0.45)], '#1c1f16', 'rgba(169,182,137,0.6)');
@@ -207,25 +235,26 @@ export const escena = (() => {
         g.globalAlpha = 1;
     }
     // La placa de Session Manager, en la cara de atrás de tu respaldo
-    function deLaSilla(a, p) {
+    function deLaSilla(a: Pt, p: number) {
         const cu = base(a, p), { fw, ld } = ejes(a);
-        const P = (adelante, lado, y) => [cu.x + fw[0] * adelante + ld[0] * lado, y, cu.z + fw[1] * adelante + ld[1] * lado];
-        if (p === 0 && X.placa) {   // placa en la cara de atrás de tu respaldo
+        const P = (adelante: number, lado: number, y: number): V3 => [cu.x + fw[0] * adelante + ld[0] * lado, y, cu.z + fw[1] * adelante + ld[1] * lado];
+        const placa = X.placa;
+        if (p === 0 && placa) {   // placa en la cara de atrás de tu respaldo
             const o = P(-0.44, 0.2, 0.3), ex = [ld[0] * -0.4, 0, ld[1] * -0.4], ey = [0, -0.18, 0];
             enPlano(o, ex, ey, 400, 180, () => {
-                const ok = X.placa.ok;
+                const ok = placa.ok;
                 g.fillStyle = ok ? '#a9b689' : '#1c1f16'; g.fillRect(0, 0, 400, 180);
                 g.strokeStyle = '#a9b689'; g.lineWidth = 6; g.strokeRect(3, 3, 394, 174);
                 for (const [x, y] of [[18, 18], [382, 18], [18, 162], [382, 162]]) { g.beginPath(); g.arc(x, y, 6, 0, 7); g.fillStyle = ok ? '#4b5320' : '#a9b689'; g.fill(); }
                 g.fillStyle = ok ? '#0b0c09' : '#a9b689'; g.textAlign = 'center';
                 g.font = '800 30px Geist, sans-serif'; g.fillText('SESSION MANAGER', 200, 54);
-                g.font = '900 54px Geist, monospace'; g.fillText(X.placa.txt || '· · · · · ·', 200, 118);
+                g.font = '900 54px Geist, monospace'; g.fillText(placa.txt || '· · · · · ·', 200, 118);
                 g.font = '700 24px Geist, sans-serif'; g.fillText(T(ok ? '✓ VINCULADO' : 'pega tu código'), 200, 158);
             });
         }
     }
     // Lámpara colgada sobre quien está listo, y su luz en la mesa
-    function lampara(a, p) {
+    function lampara(a: Pt, p: number) {
         if (!X.listos[p] || cam.pitch > 1.2) return;
         const { fw } = ejes(a), cu = base(a, p);
         const L = proy(cu.x + fw[0] * 0.5, 1.45, cu.z + fw[1] * 0.5), cuerda = proy(cu.x + fw[0] * 0.5, 3, cu.z + fw[1] * 0.5);
@@ -264,7 +293,7 @@ export const escena = (() => {
         const V = X.visor; if (!V) return;
         const h = 0.42;
         const P = [[-h, -h], [h, -h], [h, h], [-h, h]].map(([x, z]) => proy(x, 0.02, z));
-        if (V.video?.readyState >= 2) {
+        if (V.video && V.video.readyState >= 2) {
             const xs = P.map(q => q[0]), ys = P.map(q => q[1]);
             g.save(); g.beginPath(); P.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.clip();
             g.globalAlpha = 0.9; g.drawImage(V.video, Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
@@ -292,14 +321,14 @@ export const escena = (() => {
         });
     }
 
-    function unaMesa(e) {
+    function unaMesa(e: number) {
         // Quien queda detrás del centro se dibuja antes que la mesa: la mesa le tapa las piernas
         const dc = proy(0, 0, 0)[2];
         const gente = ASIENTOS.map((a, p) => estadoDe(a, p)).sort((x, y) => y.d - x.d);
         for (const q of gente) if (q.d > dc) figura(q, e);
         // Mesa maciza: canto de 9 cm (de lado se ve que tiene grosor) y tablero opaco con luz de lámpara
         const c0 = proy(0, 0, 0), GR = 0.09;
-        const aro = (y, i) => { const a = i / 64 * Math.PI * 2; return proy(Math.cos(a) * 1.7, y, Math.sin(a) * 1.2); };
+        const aro = (y: number, i: number) => { const a = i / 64 * Math.PI * 2; return proy(Math.cos(a) * 1.7, y, Math.sin(a) * 1.2); };
         if (cam.pitch < 1.3) {
             g.beginPath();
             for (let i = 0; i <= 64; i++) { const [x, y] = aro(0, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
@@ -357,8 +386,8 @@ export const escena = (() => {
     // Lanza la carta como una apuesta de póker. Columnas de la hoja: 0-5 la recoge junto al
     // pecho (lento), 6-11 golpe de muñeca (acelera hasta soltarla en ac.t), 20-23 vuelve directo
     // al reposo. La carta sale de entre sus dedos y vuela sola, girando, al centro.
-    function estadoDe(a, p) {
-        let col = -1, carta = null;   // carta: { en mano } o { vuela: u, giro }
+    function estadoDe(a: Asiento, p: number) {
+        let col = -1, carta: Carta | null = null;   // carta: { en mano } o { vuela: u, giro }
         if (!quietos && !(p < 2 && disputa > 0.05)) for (const ac of ACC) {   // en la disputa, los dos no lanzan
             if (ac.p !== p || t < ac.t - 0.9 || t > ac.t + 0.8) continue;
             if (t < ac.t) {
@@ -373,7 +402,7 @@ export const escena = (() => {
         }
         return { a, p, col, carta, d: proy(a.x, 0.6, a.z)[2] };
     }
-    function figura(q, e) {
+    function figura(q: ReturnType<typeof estadoDe>, e: number) {
         // El 0 gana: alza la carta. El 1 se queda en reposo, echado hacia la carta.
         const victoria = q.p === 0 && e >= 0 ? suave(0.12, 0.8, e) : -1;
         // Vista desde arriba (QR, cuenta atrás): las figuras son recortes, se desvanecen
@@ -391,7 +420,7 @@ export const escena = (() => {
     }
 
     // Partículas en pantalla: chispas con estela, anillos de onda
-    function particulas(dt) {
+    function particulas(dt: number) {
         g.save();
         g.globalCompositeOperation = 'lighter';
         g.lineCap = 'round';
@@ -414,7 +443,7 @@ export const escena = (() => {
         }
         g.restore();
     }
-    function chispa(x, y, fuerza, peso = 1) {
+    function chispa(x: number, y: number, fuerza: number, peso = 1) {
         const an = Math.random() * Math.PI * 2, v = fuerza * (0.3 + Math.random()) * devicePixelRatio;
         const vida = 0.4 + Math.random() * 0.7;
         chispas.push({ x, y, vx: Math.cos(an) * v, vy: Math.sin(an) * v - fuerza * 0.4 * devicePixelRatio, vida, total: vida, peso,
@@ -424,7 +453,7 @@ export const escena = (() => {
 
     // «¡A JUGAR!»: dos manos agarran la misma carta y tiran, cada una hacia su lado.
     // Al empezar la partida (e ≥ 0) la del asiento 0 la arranca y la alza, estilo duelo.
-    function pelea(k, e) {
+    function pelea(k: number, e: number) {
         const A = ASIENTOS[0], B = ASIENTOS[1];
         const ab = [B.x - A.x, B.z - A.z], nab = Math.hypot(...ab);
         let tira = Math.sin(reloj * 2.6) * 0.7 + Math.sin(reloj * 7.3) * 0.3;   // -1..1: quién gana ahora
@@ -459,7 +488,7 @@ export const escena = (() => {
     BRZ.src = '/mesa/brazos.webp';
     // fuera: dirección (x, z) del cuerpo hacia ese hombro. Con ella se elige la vista y,
     // si el brazo es el izquierdo, se dibuja en espejo.
-    function brazo(H, M, col, fuera) {
+    function brazo(H: P3, M: P3, col: number, fuera: number[]) {
         if (!BRZ.complete) return;
         const S = proy(H.x, H.y, H.z), P = proy(M.x, M.y, M.z);
         if (S[2] < 0.15 || P[2] < 0.15) return;
@@ -472,7 +501,7 @@ export const escena = (() => {
         const sx = ax - hx, sy = ay - hy, dx = P[0] - S[0], dy = P[1] - S[1];
         // ¿El codo cae del mismo lado en pantalla que en la celda? Si no, es el otro brazo: espejo
         const O = proy(H.x + fuera[0] * 0.15, H.y, H.z + fuera[1] * 0.15);
-        const lado = (a, b, c, d) => Math.sign(a * d - b * c);
+        const lado = (a: number, b: number, c: number, d: number) => Math.sign(a * d - b * c);
         const espejo = lado(dx, dy, O[0] - S[0], O[1] - S[1]) !== lado(sx, sy, ox - hx, oy - hy);
         const largo = Math.hypot(dx, dy) / (Math.hypot(sx, sy) || 1);
         const ancho = foco / ((S[2] + P[2]) / 2) / PX_M;
@@ -486,7 +515,7 @@ export const escena = (() => {
     }
 
     // La carta ganada: sale de la mesa girando, crece y queda en alto brillando
-    function cartaAlzada(mesa, A, u, e) {
+    function cartaAlzada(mesa: Pt, A: Pt, u: number, e: number) {
         const n = Math.hypot(A.x, A.z), fw = [-A.x / n, -A.z / n];
         const alto = { x: A.x * 0.98 + fw[0] * 0.33, y: 1.3, z: A.z * 0.98 + fw[1] * 0.33 };
         const pos = proy(lerp(mesa.x, alto.x, u), lerp(0.03, alto.y, u) + Math.sin(u * Math.PI) * 0.45, lerp(mesa.z, alto.z, u));
@@ -527,12 +556,12 @@ export const escena = (() => {
     // 12-19: gana la carta y la alza.
     const SIL = new Image(), CW = 240, CH = 384;
     const MANOS = [[[87.6,242.0],[89.7,232.2],[91.5,222.5],[93.0,213.0],[94.2,203.9],[95.2,195.4],[99.0,201.3],[101.0,221.0],[106.9,229.0],[110.7,233.7],[112.7,236.2],[113.4,237.0],[109.0,231.3],[100.5,131.9],[94.4,95.5],[91.1,85.7],[89.2,82.4],[88.2,81.3],[87.8,80.9],[87.8,80.9],[109.3,239.2],[98.5,244.6],[91.3,243.7],[87.6,242.0]],[[152.4,235.6],[150.3,225.4],[148.5,215.5],[147.0,205.9],[145.8,196.8],[144.8,188.4],[141.0,192.8],[139.0,211.2],[133.1,219.4],[129.3,224.5],[127.3,227.2],[126.6,228.2],[131.0,220.5],[139.5,124.3],[145.6,92.9],[148.9,85.9],[150.8,84.2],[151.8,83.8],[152.2,83.7],[152.2,83.7],[130.7,230.3],[141.5,236.0],[148.7,236.2],[152.4,235.6]],[[160.7,241.2],[162.7,231.1],[164.0,221.1],[164.5,211.4],[164.4,202.2],[163.7,193.7],[173.1,198.5],[181.7,217.4],[180.1,225.0],[177.7,229.6],[176.0,232.1],[175.7,232.9],[187.5,226.5],[167.1,129.4],[135.5,96.2],[118.0,88.1],[108.5,85.8],[103.8,85.1],[102.1,85.0],[101.8,84.9],[175.6,235.4],[173.8,241.8],[166.9,242.0],[160.7,241.2]],[[79.3,236.0],[77.3,226.2],[76.0,216.5],[75.5,207.1],[75.6,198.1],[76.3,189.7],[66.9,195.1],[58.3,214.4],[59.9,222.9],[62.3,228.2],[64.0,230.9],[64.3,231.9],[52.5,224.7],[72.9,126.3],[104.5,92.1],[122.0,83.5],[131.5,80.9],[136.2,80.1],[137.9,79.8],[138.2,79.8],[64.4,233.7],[66.2,238.4],[73.1,237.5],[79.3,236.0]]];   // [vista][columna]: la carta entre los dedos, px de celda (siluetas.py)
-    const enMano = [];
+    const enMano: (P3 & { rot: number })[] = [];
     const ALTO = 3.15, CENTRO = 0.39;   // alto del cuadro y altura de su centro, en unidades de la mesa
-    let borde = null, bordeRojo = null;   // la misma hoja teñida: borde de luz salvia, y bermellón para ti
-    const tenir = color => {
+    let borde: HTMLCanvasElement | null = null, bordeRojo: HTMLCanvasElement | null = null;   // la misma hoja teñida: borde de luz salvia, y bermellón para ti
+    const tenir = (color: string) => {
         const c = document.createElement('canvas'); c.width = SIL.width; c.height = SIL.height;
-        const b = c.getContext('2d'); b.drawImage(SIL, 0, 0);
+        const b = c.getContext('2d')!; b.drawImage(SIL, 0, 0);
         b.globalCompositeOperation = 'source-in'; b.fillStyle = color; b.fillRect(0, 0, c.width, c.height);
         return c;
     };
@@ -541,12 +570,12 @@ export const escena = (() => {
     // ponytail: nombres de ejemplo; en Piles vendrán del top global (aún no hay endpoint que lo liste)
     const TOP = ['Ana', 'Beto', 'Coca', 'Dani'];
     // Punto del mundo que cae en (X, Y) de pantalla a la profundidad d (inverso de proy)
-    function desproy(X, Y, d) {
+    function desproy(X: number, Y: number, d: number): P3 {
         const ux = X - cv.width / 2, uy = cv.height * cam.cy - Y, cr = Math.cos(cam.roll), sr = Math.sin(cam.roll);
         const px = (ux * cr + uy * sr) * d / foco, py = (-ux * sr + uy * cr) * d / foco;
         return { x: C[0] + F[0] * d + R[0] * px + U[0] * py - OX, y: C[1] + F[1] * d + R[1] * px + U[1] * py, z: C[2] + F[2] * d + R[2] * px + U[2] * py - OZ };
     }
-    function silueta(a, p, col, victoria = -1, carta = null) {
+    function silueta(a: Asiento, p: number, col: number, victoria = -1, carta: Carta | null = null) {
         if (!borde) return;
         const n = Math.hypot(a.x, a.z), fw = [-a.x / n, -a.z / n], ld = [fw[1], -fw[0]];
         // El centro del cuadro está 0,3 por delante del cuerpo (hacia la mesa)
@@ -578,7 +607,7 @@ export const escena = (() => {
         const rojo = principal && (p === X.tu || p === X.marca) && c[2] > 1;
         const r = (rojo ? 3.5 : 1.5) * devicePixelRatio, alfa = g.globalAlpha;
         g.globalAlpha = (rojo ? 1 : 0.6) * alfa;
-        g.drawImage(rojo ? bordeRojo : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
+        g.drawImage(rojo ? bordeRojo ?? borde : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
         g.globalAlpha = alfa;
         g.drawImage(SIL, col * CW, fila * CH, CW, CH, -wpx / 2, -hpx, wpx, hpx);
         g.restore();
@@ -587,16 +616,16 @@ export const escena = (() => {
         if (carta) {
             const ang = -cam.roll + 0.03 * Math.sin(vivo * 0.55) + 0.05 * alcance * haciaMesa;
             const sy = 1 + 0.014 * Math.sin(vivo * 1.6), ca = Math.cos(ang), sa = Math.sin(ang);
-            const dedos = k => {
+            const dedos = (k: number) => {
                 const [hx, hy] = MANOS[fila][k];
                 const lx = (-wpx / 2 + hx / CW * wpx) * (voltea ? -1 : 1), ly = (-hpx + hy / CH * hpx) * sy;
                 return desproy(c[0] + lx * ca - ly * sa, c[1] + hpx / 2 + lx * sa + ly * ca, c[2]);
             };
             if (carta.mano) enMano.push({ ...dedos(col), rot: a.a + Math.PI / 2 });
             else {
-                const u = carta.vuela, s = dedos(11), dx = Math.sin(carta.giro) * 0.15, dz = Math.cos(carta.giro) * 0.1;
+                const u = carta.vuela ?? 0, giro = carta.giro ?? 0, s = dedos(11), dx = Math.sin(giro) * 0.15, dz = Math.cos(giro) * 0.1;
                 enMano.push({ x: lerp(s.x, dx, u), y: lerp(s.y, 0.01, u) + Math.sin(u * Math.PI) * 0.1, z: lerp(s.z, dz, u),
-                    rot: a.a + Math.PI / 2 + u * (3 + carta.giro * 6) });
+                    rot: a.a + Math.PI / 2 + u * (3 + giro * 6) });
             }
         }
         // Nombre encima de la cabeza (solo en nuestra mesa)
@@ -608,15 +637,15 @@ export const escena = (() => {
         g.fillText(X.nombres ? X.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
     }
 
-    let antes = 0, asomo = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
-    function cuadro(ms) {
+    let antes = 0, asomo: { cam: Cam | null; p: number; dt: number } = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
+    function cuadro(ms: number) {
         const dt = Math.min(0.05, (ms - antes) / 1000 || 0); antes = ms;
         vel += (velMeta - vel) * Math.min(1, dt * 2.5);
         tv += dt * vel / RAPIDO;
         tMeta += dt * vel;
         t += (tMeta - t) * Math.min(1, dt * 1.6) + dt * vel * 0.2;
         // Mientras el dedo arrastra, la cámara va hacia la del menú siguiente en proporción (asomo.p)
-        for (const k of ['yaw', 'pitch', 'dist', 'cy', 'roll', 'mx', 'mz', 'my']) {
+        for (const k of ['yaw', 'pitch', 'dist', 'cy', 'roll', 'mx', 'mz', 'my'] as const) {
             const obj = asomo.cam ? lerp(meta[k], asomo.cam[k], asomo.p) : meta[k];
             cam[k] += (obj - cam[k]) * Math.min(1, dt * (asomo.cam ? 6 : 1.9));
         }
@@ -637,7 +666,7 @@ export const escena = (() => {
     let prof = 0;
     // De la mesa a la pantalla (px CSS) con la cámara a la que se va, no la de este instante:
     // las cartas del DOM vuelan a donde estará ese punto cuando lleguen.
-    function aPantalla(x, z) {
+    function aPantalla(x: number, z: number) {
         const ahora = cam; cam = meta; preparar();
         const [sx, sy, d] = proy(x, 0.012, z);
         const s = Math.min(1.3, Math.max(0.05, 2 * CW_M * foco / d / devicePixelRatio / 128));
@@ -655,27 +684,27 @@ export const escena = (() => {
         },
         X, ELO_TOP, RANGOS, MINS,
         /** Una figura con cartas, vista desde arriba: matriz de booleanos (oscuro = true). */
-        mosaico(matriz, s, huecos = false) {   // huecos: los false no llevan carta (letras); si no, carta clara (QR)
+        mosaico(matriz: boolean[][] | null, s: number, huecos = false) {   // huecos: los false no llevan carta (letras); si no, carta clara (QR)
             if (!matriz) { if (X.mosaico) X.mosaico.salen = reloj; return; }
-            const n = matriz.length, m = matriz[0].length, celdas = [];
+            const n = matriz.length, m = matriz[0].length, celdas: { x: number; z: number; c: boolean }[] = [];
             for (let r = 0; r < n; r++) for (let c = 0; c < m; c++) if (!huecos || matriz[r][c]) celdas.push({ x: (c - (m - 1) / 2) * s, z: (r - (n - 1) / 2) * s, c: matriz[r][c] });
-            if (!huecos) celdas.sort((a, b) => a.c - b.c);   // QR: primero las claras, encima las oscuras
+            if (!huecos) celdas.sort((a, b) => Number(a.c) - Number(b.c));   // QR: primero las claras, encima las oscuras
             X.mosaico = { celdas, s, t0: reloj, huecos };
         },
         /** Solo una cámara (sin cambiar de profundidad ni de partida). */
-        camara(nombre) { actual = nombre; meta = { ...CAMS[nombre] }; if (nombre === 'cuenta' || nombre === 'qr' || nombre === 'visor') disputaMeta = 0; },
+        camara(nombre: string) { actual = nombre; meta = { ...CAMS[nombre] }; if (nombre === 'cuenta' || nombre === 'qr' || nombre === 'visor') disputaMeta = 0; },
         /** De cerca a un asiento, desde el centro de la mesa (votar para echar). */
-        aAsiento(p) {
+        aAsiento(p: number) {
             const a = ASIENTOS[p];
             meta = { yaw: Math.atan2(-a.x, -a.z), pitch: 0.3, dist: 1.9, cy: 0.42, roll: 0.12, mx: a.x * 0.85, mz: a.z * 0.85, my: 0.4 };
             disputaMeta = 0;
         },
         /** La cámara vuela a la mesa i de las otras salas (o a la nuestra con -1). */
-        aMesa(i) {
+        aMesa(i: number) {
             const m = X.mesas?.[i];
             meta = m ? { yaw: Math.atan2(-m.x, -m.z), pitch: 0.5, dist: 3.3, cy: 0.42, roll: 0.06 * (i - 1), mx: m.x, mz: m.z, my: 0.2 } : { ...CAMS.unirse };
         },
-        congelar(si) { velMeta = si ? 0 : BALA; },
+        congelar(si: boolean) { velMeta = si ? 0 : BALA; },
         /** Todos listos: uno de los dos de la disputa arranca la carta y la alza (antes de la cuenta atrás). */
         ganar() {
             if (disputa < 0.3) return;
@@ -685,16 +714,16 @@ export const escena = (() => {
             if (cv.width < cv.height) { meta.dist = 3.2; meta.yaw = 2.85; }   // en vertical, más lejos y de frente: la carta entra entera
         },
         /** Altura en pantalla (0..1) a la que se centra una cámara: la sala la ajusta al hueco libre. */
-        fijarCy(nombre, cy) { if (!CAMS[nombre]) return; CAMS[nombre].cy = cy; if (actual === nombre) meta.cy = cy; },
+        fijarCy(nombre: string, cy: number) { if (!CAMS[nombre]) return; CAMS[nombre].cy = cy; if (actual === nombre) meta.cy = cy; },
         /** Asomarse a otro menú sin ir: p 0..1 (el dedo); sentido 1 = adelante, -1 = atrás. null = soltar. */
-        asomar(pantalla, p = 0, sentido = 1) {
+        asomar(pantalla: string | null, p = 0, sentido = 1) {
             asomo = pantalla ? { cam: CAMS[pantalla] ?? CAMS.sala, p, dt: sentido * 6.5 } : { cam: null, p: 0, dt: 0 };
         },
         /** Al confirmar: lo asomado ya cuenta como hecho (ir() pone la cámara y el tiempo). */
         confirmarAsomo() { asomo = { cam: null, p: 0, dt: 0 }; tAsomo = 0; },   // t ya va adelantado: sigue a tMeta sin salto
         ahora: () => reloj,
         /** Otro menú: su cámara, y la partida avanza (o se rebobina) según la profundidad. */
-        ir(pantalla, profundidad) {
+        ir(pantalla: string, profundidad: number) {
             actual = CAMS[pantalla] ? pantalla : 'sala'; meta = { ...CAMS[actual] };
             disputaMeta = ['sala', 'bots', 'partida'].includes(pantalla) ? 1 : 0;
             velMeta = pantalla === 'inicio' ? RAPIDO : BALA;
