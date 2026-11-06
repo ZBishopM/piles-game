@@ -53,6 +53,7 @@ impl ServerMessage {
 }
 
 /// Mensajes que el cliente envía al servidor
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -200,6 +201,7 @@ pub enum ClientMessage {
 /// Mensajes que el servidor envía al cliente
 // Solo `Serialize`: nada deserializa un `ServerMessage`. El servidor los manda
 // y el cliente los lee en JavaScript.
+#[cfg_attr(test, derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
@@ -565,6 +567,7 @@ pub enum ServerMessage {
 }
 
 /// Información de una carta para el cliente
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardInfo {
     pub id: u32,
@@ -811,6 +814,7 @@ impl From<Card> for CardInfo {
 }
 
 /// Información de un jugador en el lobby
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct PlayerInfo {
     pub id: String,
@@ -830,6 +834,7 @@ pub struct PlayerInfo {
 }
 
 /// Una línea del chat de la sala.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatLine {
     pub from: String,
@@ -839,6 +844,7 @@ pub struct ChatLine {
 }
 
 /// Información de un lobby
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct LobbyInfo {
     pub id: String,
@@ -855,6 +861,7 @@ pub struct LobbyInfo {
 /// es lo único que no se deduce del id (`generate_deck` baraja y recorta, así
 /// que `id / 4` NO es la prenda). Misma forma que `cards` en la cabecera de una
 /// grabación.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct SpectatorCard {
     pub c: u8,
@@ -866,6 +873,7 @@ pub struct SpectatorCard {
 /// Es **el mismo** objeto que `players[nick]` de un fotograma clave de las
 /// grabaciones (`player_snapshot`): quien mira en directo ve lo mismo que el
 /// visor de grabaciones, y si uno cambia el otro no se puede quedar atrás.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SpectatorPlayer {
     /// Sus 6 sets, 4 huecos cada uno (`null` = debe esa carta).
@@ -885,6 +893,7 @@ pub struct SpectatorPlayer {
 }
 
 /// Una pelea en marcha, para marcar la carta en disputa.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SpectatorQte {
     pub card: u32,
@@ -892,6 +901,7 @@ pub struct SpectatorQte {
 }
 
 /// Un movimiento de carta entre un jugador y el centro (ver `GameUpdate::moved`).
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct CardMove {
     /// `"drop"` (la soltó al centro), `"take"` (la cogió), `"forced"` (se le
@@ -906,6 +916,7 @@ pub struct CardMove {
 }
 
 /// Progreso de un jugador
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct PlayerProgress {
     pub nickname: String,
@@ -917,6 +928,7 @@ pub struct PlayerProgress {
 }
 
 /// El Elo de una persona antes y después de la partida.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct EloChange {
     pub nickname: String,
@@ -931,6 +943,7 @@ pub struct EloChange {
 }
 
 /// Entrada en el ranking final
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Serialize)]
 pub struct RankingEntry {
     pub position: u8,

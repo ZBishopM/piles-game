@@ -23,6 +23,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use uuid::Uuid;
 
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Difficulty {

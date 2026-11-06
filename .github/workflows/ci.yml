@@ -37,6 +37,15 @@ jobs:
       - name: Tests
         run: cargo test --locked
 
+      # cargo test regenera con ts-rs los tipos del protocolo (client/tipos): si
+      # cambió un mensaje y no se subieron, falla.
+      - name: client/tipos al día
+        run: |
+          if [ -n "$(git status --porcelain -- ../client/tipos)" ]; then
+            git status --short -- ../client/tipos
+            echo "client/tipos no corresponde a messages.rs: cargo test en server/ y commit"; exit 1
+          fi
+
       - name: Build release
         run: cargo build --release --locked
 

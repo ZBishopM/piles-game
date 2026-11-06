@@ -21,6 +21,7 @@ const D: f64 = 400.0;
 
 /// Las dos clasificaciones. Con algún bot en la mesa es `Fun`, aunque jueguen
 /// varias personas; solo entre personas es `Glory`.
+#[cfg_attr(test, derive(ts_rs::TS))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Pool {

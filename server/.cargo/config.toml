@@ -1,0 +1,4 @@
+# ts-rs (solo en cargo test): los tipos del protocolo van a client/tipos/, enteros grandes como number.
+[env]
+TS_RS_EXPORT_DIR = { value = "../client/tipos", relative = true }
+TS_RS_LARGE_INT = "number"

@@ -63,6 +63,8 @@ piles-game/
 │   ├── juego/                  # La lógica en módulos ES, por dominio: red, sala, tablero,
 │   │                           #   toques, pelea…; index.js es la entrada
 │   ├── mesa/  partida/         # El menú en la mesa y el estilo de la partida
+│   ├── tipos/                  # Tipos TS de los mensajes, generados de messages.rs (ts-rs) al
+│   │                           #   pasar `cargo test`; no se editan, la CI comprueba que estén al día
 │   ├── dist/piles.js           # Todo lo anterior junto (esbuild). No se edita: `pnpm build`
 │   │                           #   en tools/ y commit; la CI falla si no coincide con la fuente
 │   ├── i18n.js                 # Idiomas (es, en, zh): diccionarios y t(); ver tools/README.md
