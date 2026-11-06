@@ -280,7 +280,7 @@ Cómo se engancha a la lógica (`client/juego/`):
   desde el reparto (victoria + 3, 2, 1). Con un servidor de 3 s no hay victoria.
 - **QR**: `/api/qr/:sala/matriz` (el mismo QR que el SVG, como módulos) → cartas vistas desde arriba.
 - **Escáner**: el `qr-scanner` de siempre; su `<video>` sale de la pantalla oculta y se dibuja en la mesa.
-- `gestos.js` no toca la mesa (`data-sin-gestos`) y su borde-atrás no sale fuera de la partida.
+- `gestos.ts` no toca la mesa (`data-sin-gestos`) y su borde-atrás no sale fuera de la partida.
 - Los nombres llegan con emoji (bots: «🤖 Bot 1»): en la mesa se quitan (`sinEmoji`).
 - Pruebas: `tools/browser/mesa.mjs` y `mesa-mas.mjs` (dos y tres navegadores contra el servidor).
   **Las pruebas viejas de `tools/browser` que pulsan las pantallas de menú ya no valen para el

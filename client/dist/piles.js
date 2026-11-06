@@ -6,6 +6,179 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
+  // ../client/gestos.ts
+  (() => {
+    const MANTENER = 600;
+    const UMBRAL = 0.85;
+    const MUERTO = 8;
+    const pruebas = () => !!navigator.webdriver && localStorage.getItem("piles.gestos") !== "1";
+    let permitido = null;
+    const pulsar = (b) => {
+      permitido = b;
+      try {
+        b.click();
+      } finally {
+        permitido = null;
+      }
+    };
+    const vibrar2 = (ms) => {
+      try {
+        navigator.vibrate?.(ms);
+      } catch {
+      }
+    };
+    document.addEventListener("click", (e) => {
+      const b = e.target?.closest?.("button.desliza");
+      if (!b || b === permitido || pruebas() || e.detail === 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (Date.now() - (Number(b.dataset.gestoFin) || 0) < 500) return;
+      b.classList.remove("desliza-pista");
+      void b.offsetWidth;
+      b.classList.add("desliza-pista");
+    }, true);
+    const GRUPOS = ".seg-group, .lang-pick, #setNav, #specSetNav";
+    const esMini = (b) => b.matches(".profile-btn, #muteBtn") || [...(b.textContent ?? "").trim()].length <= 2;
+    function convertir(b) {
+      if (b.classList.contains("desliza") || b.hasAttribute("data-toque") || b.closest("[data-sin-gestos]")) return;
+      const grupo = b.closest(GRUPOS);
+      if (grupo) {
+        barrer(grupo);
+        return;
+      }
+      b.classList.add("desliza");
+      const mini = esMini(b);
+      if (mini) b.classList.add("desliza-mini");
+      let x0 = 0, y0 = 0, id = null, reloj, horizontal = null;
+      const poner = (p) => b.style.setProperty("--p", p.toFixed(3));
+      const recorrido = () => Math.max(1, b.clientWidth - 2.2 * parseFloat(getComputedStyle(b).fontSize));
+      const soltar = (confirma) => {
+        clearTimeout(reloj);
+        b.classList.remove("desliza-arrastra", "desliza-mantiene");
+        if (confirma || horizontal) b.dataset.gestoFin = String(Date.now());
+        if (confirma) {
+          poner(1);
+          b.classList.add("desliza-ok");
+          vibrar2(15);
+          setTimeout(() => {
+            b.classList.remove("desliza-ok");
+            poner(0);
+          }, 260);
+          pulsar(b);
+        } else {
+          b.classList.add("desliza-vuelve");
+          poner(0);
+          setTimeout(() => b.classList.remove("desliza-vuelve"), 450);
+        }
+      };
+      b.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0 || b.disabled) return;
+        id = e.pointerId;
+        x0 = e.clientX;
+        y0 = e.clientY;
+        horizontal = null;
+        b.setPointerCapture(id);
+        b.classList.add("desliza-mantiene");
+        reloj = setTimeout(() => {
+          if (id !== null) {
+            id = null;
+            soltar(true);
+          }
+        }, MANTENER);
+      });
+      b.addEventListener("pointermove", (e) => {
+        if (e.pointerId !== id) return;
+        const dx = e.clientX - x0, dy = e.clientY - y0;
+        if (horizontal === null && Math.hypot(dx, dy) > MUERTO) {
+          horizontal = !mini && Math.abs(dx) >= Math.abs(dy);
+          if (mini) {
+            id = null;
+            soltar(false);
+            return;
+          }
+          clearTimeout(reloj);
+          b.classList.remove("desliza-mantiene");
+          if (!horizontal) {
+            id = null;
+            soltar(false);
+            return;
+          }
+          b.classList.add("desliza-arrastra");
+        }
+        if (horizontal) poner(Math.min(1, Math.max(0, dx / recorrido())));
+      });
+      const fin = (e) => {
+        if (e.pointerId !== id) return;
+        id = null;
+        const p = parseFloat(b.style.getPropertyValue("--p") || "0");
+        soltar(horizontal === true && p >= UMBRAL);
+      };
+      b.addEventListener("pointerup", fin);
+      b.addEventListener("pointercancel", (e) => {
+        if (e.pointerId === id) {
+          id = null;
+          soltar(false);
+        }
+      });
+    }
+    function barrer(g) {
+      if (g.dataset.barre) return;
+      g.dataset.barre = "1";
+      g.classList.add("barre");
+      let id = null, sobre = null;
+      const debajo = (e) => {
+        const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("button");
+        return el && g.contains(el) && !el.disabled ? el : null;
+      };
+      const marcar = (b) => {
+        if (b === sobre) return;
+        sobre?.classList.remove("barre-sobre");
+        sobre = b;
+        if (b) {
+          b.classList.add("barre-sobre");
+          vibrar2(5);
+        }
+      };
+      g.addEventListener("pointerdown", (e) => {
+        if (e.button !== 0) return;
+        id = e.pointerId;
+        g.setPointerCapture(id);
+        marcar(debajo(e));
+      });
+      g.addEventListener("pointermove", (e) => {
+        if (e.pointerId === id) marcar(debajo(e));
+      });
+      g.addEventListener("pointerup", (e) => {
+        if (e.pointerId !== id) return;
+        id = null;
+        const b = debajo(e) ?? sobre;
+        marcar(null);
+        if (b && !pruebas()) pulsar(b);
+      });
+      g.addEventListener("pointercancel", () => {
+        id = null;
+        marcar(null);
+      });
+      g.addEventListener("click", (e) => {
+        if (e.detail > 0 && !pruebas() && e.target.closest("button") !== permitido) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      }, true);
+    }
+    const convertirTodo = (raiz) => raiz.querySelectorAll?.("button").forEach(convertir);
+    function iniciar() {
+      convertirTodo(document);
+      new MutationObserver((ms) => ms.forEach((m) => m.addedNodes.forEach((n) => {
+        if (n.nodeType !== 1) return;
+        if (n instanceof HTMLButtonElement) convertir(n);
+        else convertirTodo(n);
+      }))).observe(document.body, { childList: true, subtree: true });
+    }
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", iniciar);
+    else iniciar();
+  })();
+
   // ../client/juego/bus.ts
   var bus_exports = {};
   __export(bus_exports, {
@@ -70,11 +243,11 @@
     // Reconexión automática (ver RECONNECT_MAX_DELAY).
     reconnectAttempt: 0,
     reconnectTimer: null,
-    // Red (red.js): el código del enlace ?join=, hasta entrar con él; volver a la sala.
+    // Red (red.ts): el código del enlace ?join=, hasta entrar con él; volver a la sala.
     codigoPendiente: "",
     rejoinInFlight: false,
     seatToken: null,
-    // Espectador (espectador.js)
+    // Espectador (espectador.ts)
     specState: null,
     // la última foto
     specOrden: [],
@@ -83,11 +256,11 @@
     // a quién se mira: su apodo, o '*' = todos
     specSet: null,
     // set elegido a mano; null = el que tiene abierto el jugador
-    // Tablero (tablero.js): ids de carta por hueco del centro, o null si está libre.
+    // Tablero (tablero.ts): ids de carta por hueco del centro, o null si está libre.
     centerSlots: [],
-    // Sonido (sonido.js)
+    // Sonido (sonido.ts)
     sfxMuted: false,
-    // Toques (toques.js): la carta soltada o cogida que espera respuesta del servidor.
+    // Toques (toques.ts): la carta soltada o cogida que espera respuesta del servidor.
     pendingDrop: null,
     pendingTake: null,
     // Pelea (QTE)
@@ -107,7 +280,7 @@
     qteResultTimer: null,
     // Temporizador del resultado — separado de qteTimerInterval,
     // que lo comparten la cuenta atrás del participante y la del espectador.
-    // Verificación (verificacion.js)
+    // Verificación (verificacion.ts)
     verificationSent: false
   };
   var opponentFlippedSets = /* @__PURE__ */ new Map();

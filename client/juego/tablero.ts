@@ -411,7 +411,7 @@ export function markLanded(rowId: string, index: number, won = false) {
 export const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
 /** El golpe de la carta al caer en la mesa. `hard` para las peleas ganadas.
- *  Lo pinta la partida (partida/partida.js, «Gravedad»). */
+ *  Lo pinta la partida (partida/partida.ts, «Gravedad»). */
 function shakeBoard(hard = false) {
     emitir('golpe', hard);
 }

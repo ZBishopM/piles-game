@@ -23,9 +23,8 @@
          resuelve contra la URL del documento (/lobby.html) -->
     <!-- Idiomas (es / en / zh): diccionarios y t(); ver el comentario de i18n.js. -->
     <script src="/i18n.js"></script>
-    <!-- Gestos (deslizar para desbloquear, borde = atrás, revelar con ↓↓): ver gestos.js. -->
+    <!-- Gestos (deslizar para desbloquear): ver gestos.ts, que va en dist/piles.js. -->
     <link rel="stylesheet" href="/gestos.css">
-    <script src="/gestos.js" defer></script>
     <script src="/qr-scanner.umd.min.js"></script>
     <!-- Identidad común (github.com/ZBishopM/agapornis-ui): superficies,
          tinta, acento sage, Geist. Solo la interfaz; los efectos del juego
@@ -37,7 +36,7 @@
     <script src="/agapornis-ui/dial.js" defer></script>
     <!-- El menú en la mesa (diseno/menu-mesa/README.md). -->
     <link rel="stylesheet" href="/mesa/mesa.css">
-    <!-- Todo el cliente: client/juego/*.js, la mesa y la partida, juntados por esbuild
+    <!-- Todo el cliente: client/juego/, la mesa, la partida y los gestos, juntados por esbuild
          desde client/juego/index.ts (no se edita a mano: pnpm build en tools/).
          Después de dial.js. El CSS de la partida va al final del <head>, detrás de
          lobby.css: a igual especificidad, manda el suyo. -->
@@ -132,7 +131,7 @@
          vista y no se encontraba con las prisas. -->
     <div class="section-head">
         <p class="section-label" data-i18n="game.sets">Tus Sets</p>
-        <!-- Con el dedo se revela deslizando ↓↓ sobre las cartas (gestos.js); el botón
+        <!-- Con el dedo se revela deslizando ↓ sobre las cartas (partida/partida.ts); el botón
              queda para el teclado. -->
         <button id="flipBtn" class="solo-teclado" data-accion="flipCurrentSet"
                 title="Mostrar este set a los demás jugadores"

@@ -72,23 +72,23 @@ export const est: Estado = {
     reconnectAttempt: 0,
     reconnectTimer: null,
 
-    // Red (red.js): el código del enlace ?join=, hasta entrar con él; volver a la sala.
+    // Red (red.ts): el código del enlace ?join=, hasta entrar con él; volver a la sala.
     codigoPendiente: '',
     rejoinInFlight: false,
     seatToken: null,
 
-    // Espectador (espectador.js)
+    // Espectador (espectador.ts)
     specState: null,      // la última foto
     specOrden: [],        // los jugadores en el orden de la mesa
     specVista: null,      // a quién se mira: su apodo, o '*' = todos
     specSet: null,        // set elegido a mano; null = el que tiene abierto el jugador
 
-    // Tablero (tablero.js): ids de carta por hueco del centro, o null si está libre.
+    // Tablero (tablero.ts): ids de carta por hueco del centro, o null si está libre.
     centerSlots: [],
-    // Sonido (sonido.js)
+    // Sonido (sonido.ts)
     sfxMuted: false,
 
-    // Toques (toques.js): la carta soltada o cogida que espera respuesta del servidor.
+    // Toques (toques.ts): la carta soltada o cogida que espera respuesta del servidor.
     pendingDrop: null,
     pendingTake: null,
 
@@ -104,7 +104,7 @@ export const est: Estado = {
     qteResultTimer: null,   // Temporizador del resultado — separado de qteTimerInterval,
                             // que lo comparten la cuenta atrás del participante y la del espectador.
 
-    // Verificación (verificacion.js)
+    // Verificación (verificacion.ts)
     verificationSent: false,
 };
 

@@ -74,7 +74,7 @@ function renderSpectator() {
         b.type = 'button';
         b.className = 'spec-seat' + (est.specVista === valor ? ' active' : '');
         b.dataset.nick = valor;
-        b.dataset.toque = '';   // elegir a quién miras no necesita deslizar (gestos.js)
+        b.dataset.toque = '';   // elegir a quién miras no necesita deslizar (gestos.ts)
         b.textContent = sinEmoji(texto);
         b.onclick = () => { est.specVista = valor; est.specSet = null; renderSpectator(); };
         return b;

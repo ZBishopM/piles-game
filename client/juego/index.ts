@@ -2,6 +2,7 @@
 // El orden de los import es el de ejecución al cargar: bus y estado primero
 // (no importan nada), luego el juego, y al final la mesa y la partida, que
 // escuchan al juego por el bus.
+import '../gestos.js';   // antes que nada: los botones se vuelven deslizables según aparecen
 import * as bus from './bus.js';
 import * as estado from './estado.js';
 import * as red from './red.js';

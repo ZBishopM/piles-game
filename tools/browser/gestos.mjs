@@ -1,4 +1,4 @@
-// Gestos (tareas #34 y #35, client/gestos.js), con el ratón: los mismos pointer events que
+// Gestos (tareas #34 y #35, client/gestos.ts), con el ratón: los mismos pointer events que
 // el dedo. Lo táctil de verdad no se puede dar por probado con eventos sintéticos; por
 // eso además se comprueba el `touch-action` de cada zona (sin él, el navegador se queda
 // el arrastre y manda pointercancel). Capturas en $CAPTURAS o la carpeta temporal.

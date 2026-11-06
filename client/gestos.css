@@ -1,4 +1,4 @@
-/* Gestos (ver gestos.js). El rebote es una curva con sobrepaso. */
+/* Gestos (ver gestos.ts). El rebote es una curva con sobrepaso. */
 :root {
     --rebote: cubic-bezier(.34, 1.56, .64, 1);
 }

@@ -11,5 +11,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["globales.d.ts", "juego", "mesa", "partida", "tipos"]
+  "include": ["globales.d.ts", "gestos.ts", "juego", "mesa", "partida", "tipos"]
 }

@@ -44,7 +44,7 @@ const TAP_SLOP_PX = 12;      // más que esto, era un arrastre
 const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 
 // `alSoltar`: el toque cuenta al soltar, si no se movió más de TAP_SLOP_PX. Lo usan TUS
-// cartas: sobre ellas ↓ / ↑ / ← → son gestos (revelar el set, cambiar de set, gestos.js)
+// cartas: sobre ellas ↓ / ↑ / ← → son gestos (revelar el set, cambiar de set: partida/partida.ts)
 // y, contando al bajar, cada gesto soltaba la carta donde empezaba. Las del centro siguen
 // contando al bajar: ahí se pelea por milisegundos.
 function bindTap(container: HTMLElement | null, handler: (tap: string, el: HTMLElement) => void, target = '?', { alSoltar = false } = {}) {
@@ -313,7 +313,7 @@ export function onSwapFailed(msg: Partial<Msg<'swap_failed'>>) {
         renderCenterCards();
         // Burla del que se la llevó (solo si estás jugando; en pelea o aturdido ya
         // se salió arriba).
-        // Sin texto: suena su burla y destella su franja del marcador (partida/partida.js).
+        // Sin texto: suena su burla y destella su franja del marcador (partida/partida.ts).
         if (msg.taunt && !est.soyEspectador) playTaunt(msg.taunt);
         return;
     }

@@ -290,7 +290,7 @@ import { isStunned } from '../juego/pelea.js';
     addEventListener('resize', () => { encajarCentro(true); colocarCasillas(); });
 
     // ── Gravedad: la carta que cae pesa; las demás saltan en su sitio, no se mueven ──
-    // `markLanded` (juego/tablero.js) marca la carta y avisa `golpe` (antes sacudía las filas
+    // `markLanded` (juego/tablero.ts) marca la carta y avisa `golpe` (antes sacudía las filas
     // enteras). Aquí el golpe es en la mesa: se hunde un poco, la carta se aplasta al caer y
     // las demás dan un saltito que se apaga con la distancia.
     // El golpe va al TOCAR la mesa (tras `CAIDA`), no al empezar a caer. Los golpes seguidos
@@ -422,9 +422,9 @@ import { isStunned } from '../juego/pelea.js';
     // Sostener = dudar: la carta se levanta y sigue al dedo, sin mandar nada.
     // Se juega AL SOLTAR: tu carta, con más de la mitad dentro del recuadro del centro; una del
     // centro, con más de la mitad fuera. Mientras está donde contaría, se ilumina (.casi). Un toque corto
-    // hace lo de siempre. Sobre tu set: ← → cambia de set; ↓ es el revelado de gestos.js.
+    // hace lo de siempre. Sobre tu set: ← → cambia de set; ↓ es el revelado (abrirTablas, más abajo).
     // Escucha en las filas, en captura, y no deja pasar el evento: bindTap (lobby.html) cogía
-    // al bajar el dedo y gestosSet (gestos.js) leía el mismo gesto; aquí manda uno solo.
+    // al bajar el dedo y gestosSet (el gestos.js de antes) leía el mismo gesto; aquí manda uno solo.
     const TOQUE_MS = 250, TOQUE_PX = 12, LADO = 50;
     type Sostenida = { fila: string; el: HTMLElement | null; valor: number | null; x: number; y: number; t: number; id: number;
         hecho: boolean; zona: DOMRect; r0: DOMRect | null; modo?: 'tabla' | 'carta' };
