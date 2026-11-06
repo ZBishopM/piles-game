@@ -1,3 +1,4 @@
+"use strict";
 (() => {
   var __defProp = Object.defineProperty;
   var __export = (target, all) => {
@@ -5,7 +6,7 @@
       __defProp(target, name, { get: all[name], enumerable: true });
   };
 
-  // ../client/juego/bus.js
+  // ../client/juego/bus.ts
   var bus_exports = {};
   __export(bus_exports, {
     al: () => al,
@@ -21,7 +22,7 @@
     });
   }
 
-  // ../client/juego/estado.js
+  // ../client/juego/estado.ts
   var estado_exports = {};
   __export(estado_exports, {
     PONG_TIMEOUT_MS: () => PONG_TIMEOUT_MS,
@@ -33,7 +34,7 @@
     qteBlockedCards: () => qteBlockedCards
   });
   document.documentElement.style.setProperty("--t-peleada", JSON.stringify(t("card.fought")));
-  var miNombre = () => (document.getElementById("nombre")?.value ?? "").trim();
+  var miNombre = () => (document.querySelector("#nombre")?.value ?? "").trim();
   var est = {
     ws: null,
     currentPlayerId: "",
@@ -210,7 +211,7 @@
     updateSetNav: () => updateSetNav
   });
 
-  // ../client/juego/sonido.js
+  // ../client/juego/sonido.ts
   var sonido_exports = {};
   __export(sonido_exports, {
     audioCtx: () => audioCtx,
@@ -335,7 +336,7 @@
     }
   }
 
-  // ../client/juego/musica.js
+  // ../client/juego/musica.ts
   var musica_exports = {};
   __export(musica_exports, {
     musicFromCombo: () => musicFromCombo,
@@ -387,7 +388,7 @@
     musicTick();
   }
   function stopMusic() {
-    clearTimeout(musicTimer);
+    if (musicTimer) clearTimeout(musicTimer);
     musicTimer = null;
     musicLevel = 0;
     musicFrenzy = false;
@@ -438,7 +439,7 @@
     updateSwapHint: () => updateSwapHint
   });
 
-  // ../client/juego/burlas.js
+  // ../client/juego/burlas.ts
   var burlas_exports = {};
   __export(burlas_exports, {
     TAUNTS: () => TAUNTS,
@@ -6368,7 +6369,7 @@
     window.partida = { avisoIco, destello, ico, encajarCentro };
   })();
 
-  // ../client/juego/index.js
+  // ../client/juego/index.ts
   var acciones = {
     toggleMute,
     fireFrenzy,

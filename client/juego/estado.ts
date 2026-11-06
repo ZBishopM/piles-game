@@ -1,11 +1,40 @@
 // ─── Estado ───────────────────────────────────────────────────────────────
+import type { CardInfo } from '../tipos/CardInfo';
+import type { ServerMessage } from '../tipos/ServerMessage';
+
+/** El mensaje del servidor de tipo `T` (client/tipos, generado de messages.rs). */
+export type Msg<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
+/** Un set: seis huecos, null = carta soltada sin tapar. */
+export type Set6 = (CardInfo | null)[];
+type Timer = ReturnType<typeof setTimeout>;
+
 // El rótulo de las cartas en pelea sale del CSS (::after): se lee de esta variable.
 document.documentElement.style.setProperty('--t-peleada', JSON.stringify(t('card.fought')));
 /** Tu nombre: el campo de la mesa (#nombre). La mesa lo guarda en piles_nickname al escribir. */
-export const miNombre = () => (document.getElementById('nombre')?.value ?? '').trim();
+export const miNombre = () => (document.querySelector<HTMLInputElement>('#nombre')?.value ?? '').trim();
+
+interface Estado {
+    ws: WebSocket | null;
+    currentPlayerId: string; currentLobbyId: string; currentNickname: string;
+    isReady: boolean; gameOver: boolean;
+    allSets: Set6[]; centerCards: CardInfo[]; currentSetIndex: number; myFlippedSets: boolean[];
+    soyEspectador: boolean; mirones: number;
+    pingInterval: Timer | null; pingSentAt: number; lastPingAt: number; lastRtt: number | null;
+    pendingPongSince: number; reconnectAttempt: number; reconnectTimer: Timer | null;
+    codigoPendiente: string; rejoinInFlight: boolean; seatToken: string | null;
+    specState: Msg<'spectator_state'> | null; specOrden: string[]; specVista: string | null; specSet: number | null;
+    centerSlots: (number | null)[];
+    sfxMuted: boolean;
+    pendingDrop: { index: number; card: CardInfo; t: number } | null;
+    pendingTake: { centerIndex: number; card: CardInfo; t: number } | null;
+    qteActive: boolean; qteTimerInterval: Timer | null; qtePlayers: string[];
+    qteContestedCard: CardInfo | null; qteMyCardId: number | null; qteContestedIndex: number | null;
+    qteWonSlot: { card: CardInfo; index: number | null } | null; qteResultTimer: Timer | null;
+    verificationSent: boolean;
+}
 
 /** Lo que cambian varios archivos: aquí y solo aquí, como `est.x`. */
-export const est = {
+export const est: Estado = {
     ws: null,
     currentPlayerId: '',
     currentLobbyId: '',
@@ -72,10 +101,10 @@ export const est = {
 };
 
 // Map<playerName, Map<setIndex, CardInfo|null>>
-export const opponentFlippedSets = new Map();
+export const opponentFlippedSets = new Map<string, Map<number, CardInfo | null>>();
 
 // Verificaciones en curso de otros jugadores: Map<playerName, HTMLElement>
-export const otherVerifications = new Map();
+export const otherVerifications = new Map<string, HTMLElement>();
 
 // Id de la carta del centro en disputa, para todos los clientes
 // (participantes y espectadores) — pinta esa carta en rojo y las demás
@@ -84,7 +113,7 @@ export const otherVerifications = new Map();
 // Cartas en disputa AHORA MISMO, por id. Es un conjunto y no un id suelto
 // porque puede haber dos peleas a la vez: con una sola variable, la segunda
 // borraba a la primera y su carta se quedaba sin marcar.
-export const qteBlockedCards = new Set();
+export const qteBlockedCards = new Set<number>();
 
 // Perro guardián de la conexión: si un ping lleva tanto sin su pong, el socket
 // está muerto aunque el navegador no lo sepa (con la red caída tarda minutos en

@@ -268,7 +268,7 @@ Cómo se engancha a la lógica (`client/juego/`):
   `joinLobby`, `toggleReady`, `addBot`, `removeBot`, `setBotDifficulty`, `setVisibility`,
   `cambiarRol`, `sendChat`, `start_kick`/`kick_vote`, `acceptBotsOffer`, `toggleScanner`,
   `PilesI18n.setLang`…). El tambor de jugadores se pasa a `createLobby(n)`; el nombre es `#nombre` (lo lee `miNombre()`).
-- **Datos**: avisos del juego (`al(…)`, ver `client/juego/bus.js`): `handleMsg` (después de lo
+- **Datos**: avisos del juego (`al(…)`, ver `client/juego/bus.ts`): `handleMsg` (después de lo
   suyo, se pinta aquí: `lobby_update`, `lobby_list`, `chat`, `kick_poll`…), `showScreen` (cuando
   el juego cambia de vista por su cuenta —entraste, te echaron, F5, fin de partida— la mesa va a
   la suya), `startCountdown` / `closeCountdown`, `sinNombre` y `ofertaBots(abierta)`.

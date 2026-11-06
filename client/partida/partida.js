@@ -1,5 +1,5 @@
 // La partida con el estilo de la mesa (diseno/menu-mesa/README.md). La lógica es la de
-// client/juego/: aquí se escuchan sus avisos (juego/bus.js) para cambiar texto por elementos
+// client/juego/: aquí se escuchan sus avisos (juego/bus.ts) para cambiar texto por elementos
 // que se entienden solos (iconos, destellos, montoncitos de set), y van los gestos.
 import { al } from '../juego/bus.js';
 import { est } from '../juego/estado.js';

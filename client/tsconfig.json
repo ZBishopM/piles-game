@@ -1,0 +1,18 @@
+{
+  // Solo comprueba (pnpm check en tools/); quien compila es esbuild (pnpm build).
+  // Los .js que quedan aún no se comprueban (checkJs false): se pasan a .ts por partes.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "strict": true,
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true
+  },
+  "include": ["globales.d.ts", "juego", "mesa", "partida", "tipos"]
+}

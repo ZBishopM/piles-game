@@ -13,12 +13,12 @@ import { audioCtx, unlockAudio, tone, playSfx } from './sonido.js';
 
 const MUSIC_SCALE = [0, 3, 5, 7, 10];     // pentatónica menor, sobre La
 const MUSIC_BASS = [0, 0, 7, 5];          // 4 tiempos
-let musicTimer = null;
+let musicTimer: ReturnType<typeof setTimeout> | null = null;
 let musicStep = 0;
 let musicLevel = 0;      // 0 sin racha · 1 arpegio · 2 contramelodía · 3 a tope
 let musicFrenzy = false;
 
-const midi = (semis, oct = 0) => 220 * Math.pow(2, (semis + oct * 12) / 12);
+const midi = (semis: number, oct = 0) => 220 * Math.pow(2, (semis + oct * 12) / 12);
 
 function musicBeatMs() {
     // Cuanto más alta la racha, más rápido. Nunca tanto como para volverse
@@ -73,7 +73,7 @@ export function startMusic() {
 }
 
 export function stopMusic() {
-    clearTimeout(musicTimer);
+    if (musicTimer) clearTimeout(musicTimer);
     musicTimer = null;
     musicLevel = 0;
     musicFrenzy = false;
@@ -81,7 +81,7 @@ export function stopMusic() {
 
 /** La racha manda sobre la música. Lo llama `renderCombo`, que ya recibe todo
  *  lo que hace falta: ni estado nuevo ni sondeos. */
-export function musicFromCombo(multX100, frenzyReady) {
+export function musicFromCombo(multX100: number, frenzyReady: boolean) {
     musicFrenzy = !!frenzyReady;
     musicLevel = multX100 >= 400 ? 3
         : multX100 >= 250 ? 2

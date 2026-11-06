@@ -71,6 +71,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: TypeScript (tsc estricto)
+        run: pnpm check
+
       # client/dist se sirve tal cual desde git (el VPS no compila): tiene que ser
       # exactamente lo que sale de la fuente.
       - name: client/dist = pnpm build

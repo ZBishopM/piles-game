@@ -9,12 +9,14 @@
 import { est } from './estado.js';
 import { audioCtx, unlockAudio } from './sonido.js';
 
-let tauntBus = null;
+let tauntBus: GainNode | null = null;
 export let tauntLastAt = -Infinity;
 
 /** Una nota de burla. `at` en segundos desde ahora; `vib` es la profundidad (Hz). */
-function tt(at, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 0, vibHz = 12 }) {
-    const c = audioCtx, t = c.currentTime + at;
+function tt(at: number, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 0, vibHz = 12 }:
+    { freq: number; dur: number; type?: OscillatorType; gain?: number; slideTo?: number | null; vib?: number; vibHz?: number }) {
+    // Solo suena desde playTaunt, que ya ha creado el contexto y el bus.
+    const c = audioCtx!, t = c.currentTime + at;
     const osc = c.createOscillator(), amp = c.createGain();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
@@ -30,7 +32,7 @@ function tt(at, { freq, dur, type = 'square', gain = 0.1, slideTo = null, vib = 
     amp.gain.exponentialRampToValueAtTime(gain, t + 0.015);
     amp.gain.setValueAtTime(gain, t + Math.max(0.02, dur - 0.05));
     amp.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(amp).connect(tauntBus);
+    osc.connect(amp).connect(tauntBus!);
     osc.start(t); osc.stop(t + dur + 0.02);
 }
 
@@ -92,7 +94,7 @@ export function getTaunt() {
 
 /** Suena una burla. Devuelve si sonó. `preview` (el ▶ del perfil) se salta el
  *  límite de una cada 2 s; en juego no hay prisa por oírla dos veces seguidas. */
-export function playTaunt(id, preview = false) {
+export function playTaunt(id: string | null | undefined, preview = false) {
     const t = TAUNTS.find(x => x.id === id);
     if (!t || est.sfxMuted) return false;
     unlockAudio();

@@ -9,10 +9,11 @@
 // navegador lo informa (window.onerror) y sigue con el resto.
 // Quien escucha y devuelve `false` cancela: `emitir` devuelve entonces false
 // (solo lo miran los avisos que lo dicen, como 'aterriza').
+// ponytail: datos sin tipo por aviso (any[]); un mapa nombre → argumentos si algún día hace falta.
 const bus = new EventTarget();
-export function emitir(nombre, ...datos) {
+export function emitir(nombre: string, ...datos: any[]): boolean {
     return bus.dispatchEvent(new CustomEvent(nombre, { detail: datos, cancelable: true }));
 }
-export function al(nombre, f) {
-    bus.addEventListener(nombre, e => { if (f(...e.detail) === false) e.preventDefault(); });
+export function al(nombre: string, f: (...datos: any[]) => unknown): void {
+    bus.addEventListener(nombre, e => { if (f(...(e as CustomEvent<any[]>).detail) === false) e.preventDefault(); });
 }

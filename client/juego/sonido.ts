@@ -12,20 +12,21 @@
 // `playSfx`: misma llamada, otro reproductor.
 import { est } from './estado.js';
 
-export let audioCtx = null;
+export let audioCtx: AudioContext | null = null;
 try { est.sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
 
 /** El navegador no deja sonar nada hasta que el usuario toca algo. */
 export function unlockAudio() {
     if (audioCtx) return;
     try {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        audioCtx = new (window.AudioContext || window.webkitAudioContext!)();
     } catch { audioCtx = null; }
 }
 document.addEventListener('pointerdown', unlockAudio, { once: true });
 
 /** Una nota. `type` da el color, la envolvente da el golpe. */
-export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }) {
+export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }:
+    { freq: number; dur?: number; type?: OscillatorType; gain?: number; slideTo?: number | null }) {
     if (!audioCtx || est.sfxMuted) return;
     const t = audioCtx.currentTime;
     const osc = audioCtx.createOscillator();
@@ -44,7 +45,7 @@ export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo
 }
 
 /** Ruido corto, para lo que no es musical (soltar una carta, un choque). */
-function noise({ dur = 0.08, gain = 0.12, hp = 800 }) {
+function noise({ dur = 0.08, gain = 0.12, hp = 800 }: { dur?: number; gain?: number; hp?: number }) {
     if (!audioCtx || est.sfxMuted) return;
     const t = audioCtx.currentTime;
     const n = Math.floor(audioCtx.sampleRate * dur);
@@ -64,12 +65,13 @@ function noise({ dur = 0.08, gain = 0.12, hp = 800 }) {
 
 /** Escalón de la cadena: cada jugada encadenada suena más arriba.
  *  Es LA firma de Balatro y lo que convierte una racha en algo que se siente. */
-export function comboStep(multX100) {
+export function comboStep(multX100: number) {
     const escalon = Math.max(0, Math.round((multX100 - 100) / 25));
     // Semitonos sobre un La: sube sin salirse de tono aunque la racha sea larga.
     tone({ freq: 440 * Math.pow(2, Math.min(escalon, 16) / 12), dur: 0.1, type: 'square', gain: 0.12 });
 }
 
+type Sfx = (cardId?: number) => void;
 const SFX = {
     // Lanzar una carta: primero viaja, luego aterriza. Antes era un solo
     // chasquido de ruido, que sonaba a estática y no a una carta cayendo sobre
@@ -114,10 +116,11 @@ const SFX = {
         setTimeout(() => noise({ dur: 0.1, gain: 0.12, hp: 1500 }), 140);
         setTimeout(() => noise({ dur: 0.08, gain: 0.09, hp: 2500 }), 260);
     },
-};
+} satisfies Record<string, Sfx>;
+export type SfxName = keyof typeof SFX;
 
-export function playSfx(name, arg) {
+export function playSfx(name: SfxName, arg?: number) {
     if (est.sfxMuted || !audioCtx) return;
-    try { SFX[name]?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
+    try { (SFX[name] as Sfx | undefined)?.(arg); } catch { /* que no se caiga el juego por un pitido */ }
 }
 

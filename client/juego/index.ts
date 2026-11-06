@@ -19,7 +19,7 @@ import '../mesa/mesa.js';
 import '../partida/partida.js';
 
 // Los botones de lobby.html: data-accion="nombre" llama a esa función, sin argumentos.
-const acciones = {
+const acciones: Record<string, () => void> = {
     toggleMute: musica.toggleMute,
     fireFrenzy: tablero.fireFrenzy,
     flipCurrentSet: () => toques.flipCurrentSet(),
@@ -28,12 +28,12 @@ const acciones = {
     reconnect: red.reconnect,
     recargar: () => location.reload(),
 };
-for (const b of document.querySelectorAll('[data-accion]')) {
-    b.addEventListener('click', () => acciones[b.dataset.accion]());
+for (const b of document.querySelectorAll<HTMLElement>('[data-accion]')) {
+    b.addEventListener('click', () => acciones[b.dataset.accion!]());
 }
 
 // Para las pruebas (tools/browser) y la consola: juego.handleMsg(...), juego.est.centerCards…
-const modulos = [bus, estado, red, sala, espectador, tablero, sonido, burlas, musica, toques, pelea, verificacion, cuenta];
+const modulos: Record<string | symbol, unknown>[] = [bus, estado, red, sala, espectador, tablero, sonido, burlas, musica, toques, pelea, verificacion, cuenta];
 window.juego = new Proxy({}, {
     get: (_, k) => modulos.find(m => k in m)?.[k],
     has: (_, k) => modulos.some(m => k in m),
