@@ -497,7 +497,11 @@ import { isStunned } from '../juego/pelea.js';
             if (!s || s.id !== e.pointerId) return;
             e.stopPropagation();
             sostenida = null;
-            if (s.modo === 'tabla') return soltarTablas(e.type === 'pointercancel');
+            if (s.modo === 'tabla') {
+                // Con un gesto rápido el último pointermove no llega: se mide el sitio de soltar.
+                if (e.type !== 'pointercancel') moverTablas(s, e);
+                return soltarTablas(e.type === 'pointercancel');
+            }
             if (s.hecho) return;
             const dx = e.clientX - s.x, dy = e.clientY - s.y;
             const toque = Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS;
@@ -592,6 +596,12 @@ import { isStunned } from '../juego/pelea.js';
         const T = tablas;
         if (!T) return;
         tablas = null;
+        // Pasada la mitad del giro, soltar ya cuenta como darle la vuelta.
+        if (!cancelado && !T.hecho && T.f >= 0.5) {
+            T.hecho = true;
+            flipCurrentSet(T.sel);
+            zumba(25);
+        }
         // Soltar sobre otro set lo elige (como en el selector de apps)
         if (!cancelado && T.sel !== T.cur && !owesCard()) {
             switchSet(T.sel);

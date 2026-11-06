@@ -532,8 +532,12 @@ export function handleMsg(msg: ServerMessage) {
             // Qué carta es nueva se mira ANTES de sustituir centerCards.
             // Se compara con lo PINTADO, no con `centerCards`.
             const drawn = new Set(est.centerSlots.filter(id => id !== null));
-            const arrived = msg.center_cards.find(c => !drawn.has(c.id));
-            est.centerCards = msg.center_cards;
+            // Una soltada tuya aún sin confirmar sigue en el centro aunque este
+            // aviso (de otra jugada) sea de antes de que el servidor la procesara.
+            const pd = est.pendingDrop;
+            const center = pd && !msg.center_cards.some(c => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+            const arrived = center.find(c => !drawn.has(c.id));
+            est.centerCards = center;
             est.mirones = msg.spectators ?? 0;
             renderPlayersProgress(msg.players_progress);
             // El servidor manda este broadcast también a quien hizo el
@@ -545,7 +549,7 @@ export function handleMsg(msg: ServerMessage) {
             // suya seguía pintada. Tocarla no hacía nada ("no me deja
             // cogerla"), y si volvía a caer otra igual se veía dos veces.
             // Medido en beta el 2026-09-28: 70 % del tiempo había alguna.
-            if (!arrived && drawn.size === msg.center_cards.length) break;
+            if (!arrived && drawn.size === center.length) break;
             renderCenterCards();
             if (arrived && qteBlockedCards.size === 0) {
                 // Por hueco, que es lo que se dibuja: el índice dentro de

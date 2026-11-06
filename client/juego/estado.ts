@@ -33,7 +33,8 @@ interface Estado {
     specState: Msg<'spectator_state'> | null; specOrden: string[]; specVista: string | null; specSet: number | null;
     centerSlots: (number | null)[];
     sfxMuted: boolean;
-    pendingDrop: { index: number; card: CardInfo; t: number } | null;
+    /** Soltada y pintada ya en el centro (por adelantado); `set`: de qué set salió, para deshacerla. */
+    pendingDrop: { index: number; set: number; card: CardInfo; t: number } | null;
     pendingTake: { centerIndex: number; card: CardInfo; t: number } | null;
     qteActive: boolean; qteTimerInterval: Timer | null; qtePlayers: string[];
     qteContestedCard: CardInfo | null; qteMyCardId: number | null; qteContestedIndex: number | null;

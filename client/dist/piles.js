@@ -1189,12 +1189,26 @@
   function onPlayerCardClick(index, el) {
     if (est.qteActive || isStunned() || owesCard()) return refuseTap(el);
     if (enVuelo(est.pendingDrop)) return;
-    const card = (est.allSets[est.currentSetIndex] || [])[index];
+    const set = est.currentSetIndex, card = (est.allSets[set] || [])[index];
     if (!card) return;
-    est.pendingDrop = { index, card, t: Date.now() };
-    markPending(el);
+    const desde = cardRectAt("yourCards", index);
+    est.pendingDrop = { index, set, card, t: Date.now() };
     playSfx("drop", card.id);
     send({ type: "drop_card", my_card_index: index });
+    est.allSets[set][index] = null;
+    if (!est.centerCards.some((c) => c.id === card.id)) est.centerCards = [...est.centerCards, card];
+    renderYourCards();
+    renderCenterCards();
+    const hueco = est.centerSlots.indexOf(card.id);
+    if (hueco !== -1) flyCard(card, desde, "centerCards", hueco);
+  }
+  function deshacerSoltar() {
+    const d = est.pendingDrop;
+    if (!d) return;
+    if (est.allSets[d.set] && !est.allSets[d.set][d.index]) est.allSets[d.set][d.index] = d.card;
+    est.centerCards = est.centerCards.filter((c) => c.id !== d.card.id);
+    renderYourCards();
+    renderCenterCards();
   }
   function onCenterCardClick(cardId, el) {
     const rechazo = (why) => {
@@ -1226,7 +1240,6 @@
     const take = est.pendingTake;
     const won = est.qteWonSlot;
     const wonFight = !drop && !take && won !== null;
-    const fromMine = drop ? cardRectAt("yourCards", drop.index) : null;
     const fromCenter = take ? cardRectAt("centerCards", take.centerIndex) : won && wonFight && won.index !== null ? cardRectAt("centerCards", won.index) : null;
     const oldSet = (est.allSets[msg.set_index] || []).slice();
     if (msg.your_new_set) est.allSets[msg.set_index] = msg.your_new_set;
@@ -1240,9 +1253,6 @@
         flyCard(won.card, fromCenter, "yourCards", slot, true);
       }
       est.qteWonSlot = null;
-    } else if (drop) {
-      const landed = est.centerSlots.indexOf(drop.card.id);
-      if (landed !== -1) flyCard(drop.card, fromMine, "centerCards", landed);
     } else if (take) {
       const slot = findChangedSlot(oldSet, msg.your_new_set);
       if (slot !== -1) flyCard(take.card, fromCenter, "yourCards", slot);
@@ -1253,6 +1263,7 @@
     updateOwingUi();
   }
   function onSwapFailed(msg) {
+    deshacerSoltar();
     est.pendingDrop = null;
     est.pendingTake = null;
     rollbackGhost();
@@ -3188,11 +3199,13 @@
         break;
       case "game_update": {
         const drawn = new Set(est.centerSlots.filter((id) => id !== null));
-        const arrived = msg.center_cards.find((c) => !drawn.has(c.id));
-        est.centerCards = msg.center_cards;
+        const pd = est.pendingDrop;
+        const center = pd && !msg.center_cards.some((c) => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+        const arrived = center.find((c) => !drawn.has(c.id));
+        est.centerCards = center;
         est.mirones = msg.spectators ?? 0;
         renderPlayersProgress(msg.players_progress);
-        if (!arrived && drawn.size === msg.center_cards.length) break;
+        if (!arrived && drawn.size === center.length) break;
         renderCenterCards();
         if (arrived && qteBlockedCards.size === 0) {
           const slot = est.centerSlots.indexOf(arrived.id);
@@ -6239,7 +6252,10 @@
         if (!s || s.id !== e.pointerId) return;
         e.stopPropagation();
         sostenida = null;
-        if (s.modo === "tabla") return soltarTablas(e.type === "pointercancel");
+        if (s.modo === "tabla") {
+          if (e.type !== "pointercancel") moverTablas(s, e);
+          return soltarTablas(e.type === "pointercancel");
+        }
         if (s.hecho) return;
         const dx = e.clientX - s.x, dy = e.clientY - s.y;
         const toque = Math.hypot(dx, dy) <= TOQUE_PX && performance.now() - s.t <= TOQUE_MS;
@@ -6346,6 +6362,11 @@
       const T2 = tablas;
       if (!T2) return;
       tablas = null;
+      if (!cancelado && !T2.hecho && T2.f >= 0.5) {
+        T2.hecho = true;
+        flipCurrentSet(T2.sel);
+        zumba(25);
+      }
       if (!cancelado && T2.sel !== T2.cur && !owesCard()) {
         switchSet(T2.sel);
         T2.ox += (T2.sel - T2.cur) * (T2.w + SEP2);

@@ -193,12 +193,31 @@ export function onPlayerCardClick(index: number, el?: HTMLElement | null) {
     // `swap_failed` borraba el estado pendiente de lo que SÍ estabas haciendo
     // (visto 4 veces en dos partidas, con 3 duplicados en el mismo milisegundo).
     if (enVuelo(est.pendingDrop)) return;
-    const card = (est.allSets[est.currentSetIndex] || [])[index];
+    const set = est.currentSetIndex, card = (est.allSets[set] || [])[index];
     if (!card) return;
-    est.pendingDrop = { index, card, t: Date.now() };
-    markPending(el);
+    // El vuelo sale de donde está la carta ahora (si la arrastraste, de donde la soltaste).
+    const desde = cardRectAt('yourCards', index);
+    est.pendingDrop = { index, set, card, t: Date.now() };
     playSfx('drop', card.id);
     send({ type: 'drop_card', my_card_index: index });
+    // Por adelantado: sin esperar al servidor, la carta deja tu set y cae al centro.
+    // swap_success lo confirma sin repetir nada; swap_failed la devuelve (deshacerSoltar).
+    est.allSets[set][index] = null;
+    if (!est.centerCards.some(c => c.id === card.id)) est.centerCards = [...est.centerCards, card];
+    renderYourCards();
+    renderCenterCards();
+    const hueco = est.centerSlots.indexOf(card.id);
+    if (hueco !== -1) flyCard(card, desde, 'centerCards', hueco);
+}
+
+/** La soltada por adelantado no se hizo: vuelve a su sitio de tu set y sale del centro. */
+function deshacerSoltar() {
+    const d = est.pendingDrop;
+    if (!d) return;
+    if (est.allSets[d.set] && !est.allSets[d.set][d.index]) est.allSets[d.set][d.index] = d.card;
+    est.centerCards = est.centerCards.filter(c => c.id !== d.card.id);
+    renderYourCards();
+    renderCenterCards();
 }
 
 export function onCenterCardClick(cardId: number, el?: HTMLElement | null) {
@@ -249,7 +268,6 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
     const wonFight = !drop && !take && won !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
-    const fromMine = drop ? cardRectAt('yourCards', drop.index) : null;
     const fromCenter = take ? cardRectAt('centerCards', take.centerIndex)
         : (won && wonFight && won.index !== null ? cardRectAt('centerCards', won.index) : null);
 
@@ -269,13 +287,8 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
             flyCard(won.card, fromCenter, 'yourCards', slot, true);
         }
         est.qteWonSlot = null;
-    } else if (drop) {
-        // Soltada: vuela de tu set al hueco del centro que le haya tocado. Ya
-        // no es "la última": con los huecos fijos ocupa el primero libre, que
-        // puede estar en medio de la mesa.
-        const landed = est.centerSlots.indexOf(drop.card.id);
-        if (landed !== -1) flyCard(drop.card, fromMine, 'centerCards', landed);
     } else if (take) {
+        // (Una soltada ya voló al centro al tocarla: onPlayerCardClick.)
         // Cogida: del centro al hueco que había quedado libre.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) flyCard(take.card, fromCenter, 'yourCards', slot);
@@ -298,6 +311,7 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
  *  texto: decidir comparando el texto ya rompió esto una vez. */
 /** `msg` puede ser solo `{ kind: 'gone' }`: lo sintetiza `stunned` (red.ts). */
 export function onSwapFailed(msg: Partial<Msg<'swap_failed'>>) {
+    deshacerSoltar();
     est.pendingDrop = null;
     est.pendingTake = null;
     rollbackGhost();
