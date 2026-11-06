@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-/// Catálogo cerrado. Debe coincidir con `TAUNTS` en `client/lobby.html`.
+/// Catálogo cerrado. Debe coincidir con `TAUNTS` en `client/juego/burlas.js`.
 pub const IDS: [&str; 10] = [
     "honk", "trombon", "boing", "risa", "pedorreta",
     "sirena", "silbido", "campanita", "gallo", "pato",
@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn ids_iguales_a_los_del_cliente() {
-        let html = std::fs::read_to_string("../client/lobby.html").expect("client/lobby.html");
+        let html = std::fs::read_to_string("../client/juego/burlas.js").expect("client/juego/burlas.js");
         let ini = html.find("const TAUNTS = [").expect("TAUNTS en el cliente");
         let bloque = &html[ini..ini + html[ini..].find("\n];").expect("fin de TAUNTS")];
         let cliente: Vec<&str> = bloque.split("{ id: '").skip(1).map(|s| s.split('\'').next().unwrap()).collect();

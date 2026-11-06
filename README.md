@@ -58,7 +58,10 @@ piles-game/
 │   │   └── game/        # deck.rs, models.rs, lobby.rs, messages.rs
 │   └── Cargo.toml
 ├── client/                     # Frontend estático (lo sirve el propio binario)
-│   ├── lobby.html              # TODA la UI: menú, sala y partida, en un fichero
+│   ├── lobby.html              # La página: HTML de la partida y los <script> en orden
+│   ├── lobby.css               # Estilos base de la partida
+│   ├── juego/                  # La lógica, por dominio: red, sala, tablero, toques, pelea…
+│   ├── mesa/  partida/         # El menú en la mesa y el estilo de la partida
 │   ├── i18n.js                 # Idiomas (es, en, zh): diccionarios y t(); ver tools/README.md
 │   ├── replay.html             # Reproduce una grabación de recordings/
 │   ├── index.html              # Redirección a /lobby.html

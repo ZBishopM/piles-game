@@ -2,15 +2,10 @@
 // se redibuje entre que bajas el dedo y lo levantas. Es exactamente lo que
 // rompía los toques, así que es lo que hay que fijar.
 //
-// `bindTap` se saca del propio lobby.html para no tener una copia que se quede
-// vieja: si alguien cambia la función, esta prueba prueba la nueva.
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const html = fs.readFileSync(
-    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html'), 'utf8');
-const src = html.match(/function bindTap\(container, handler(?:, target = '\?')?\) \{[\s\S]*?\n\}/);
+// `bindTap` se saca del propio código del juego (client/juego/) para no tener una copia
+// que se quede vieja: si alguien cambia la función, esta prueba prueba la nueva.
+import { js as html } from './fuente-cliente.mjs';
+const src = html.match(/function bindTap\(container, handler[^\n]*\) \{[\s\S]*?\n\}/);
 if (!src) { console.log('FALLO: no se encontró bindTap'); process.exit(1); }
 
 // ── DOM mínimo, solo lo que bindTap usa ──

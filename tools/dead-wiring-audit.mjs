@@ -1,15 +1,8 @@
 // Busca cosas enchufadas a nada en el cliente: botones que no hacen nada,
 // funciones que no llama nadie, ids y clases que ya no existen.
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-const P = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html');
-const s = fs.readFileSync(P, 'utf8');
-const js = s.slice(s.indexOf('<script>') + 8, s.lastIndexOf('</script>'));
-const html = s.slice(s.indexOf('<body>'), s.indexOf('<script>'));
-const css = s.slice(s.indexOf('<style>'), s.indexOf('</style>'));
+import { js, css, todo as s, html as pagina } from './fuente-cliente.mjs';
+const html = pagina.slice(pagina.indexOf('<body>'));
 
-const linea = (i) => s.slice(0, i).split('\n').length;
 
 console.log('=== funciones que no llama nadie ===');
 // `async function` también cuenta: buscar solo `^function` daba por rotos dos
@@ -42,7 +35,7 @@ for (const m of js.matchAll(/\.id\s*=\s*[`'"]([^`'"$]*)/g)) {
 console.log('=== selectores CSS de clases que nadie pone ===');
 const clasesCss = new Set();
 for (const m of css.matchAll(/\.([a-zA-Z][\w-]*)/g)) clasesCss.add(m[1]);
-const fuera = s.slice(s.indexOf('</style>'));
+const fuera = html + '\n' + js;
 for (const c of [...clasesCss].sort()) {
     const re = new RegExp(`(class="[^"]*\\b${c}\\b|classList\\.[a-z]+\\(\\s*['"\`]${c}|className\\s*=[^;]*\\b${c}\\b|['"\`]${c}['"\`])`);
     if (!re.test(fuera)) console.log(`  .${c}`);

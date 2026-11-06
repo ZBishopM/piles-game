@@ -24,11 +24,7 @@ const fallo = (msg) => { console.log(`FALLO: ${msg}`); process.exit(1); };
 //
 // Es estático a propósito: un navegador automatizado no hace gestos de verdad,
 // así que esto NO se puede comprobar mandando eventos. Por eso se coló.
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { join, dirname } from 'path';
-const html = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'lobby.html'), 'utf8');
+import { todo as html } from './fuente-cliente.mjs';
 
 const reglaBoton = html.match(/#qteGiveUpBtn\s*\{[^}]*\}/)?.[0] ?? '';
 if (!/touch-action:\s*none/.test(reglaBoton)) {

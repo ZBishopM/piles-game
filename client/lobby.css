@@ -1,0 +1,1197 @@
+/* Reset — venía de css/styles.css, que era el resto código muerto de
+   una página de pruebas anterior. */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* En móvil, dos toques rápidos son un "doble toque" y el navegador
+   hace zoom. En una pelea se pulsa lo más rápido posible, así que el
+   zoom saltaba justo encima del botón y dejaba la pantalla torcida
+   en mitad de la pelea. `touch-action: manipulation` desactiva ese
+   gesto solo en los controles; el pinch-zoom de la página sigue
+   funcionando, que hace falta para accesibilidad. */
+button, .card {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* --accent, --success, --danger, --warning y las superficies vienen de
+   agapornis-ui. Aquí solo lo propio de piles. */
+:root {
+    --control: rgb(52 52 56 / 45%);   /* fondo de inputs y botones de opción */
+}
+
+body { font-family: var(--font-sans); background: var(--bg); color: var(--text); margin: 0; }
+
+.screen { display: none; }
+.screen.active { display: block; }
+
+.btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; margin-top: 8px; }
+.btn-primary { background: var(--accent-fill); color: var(--on-accent-fill); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.btn-secondary { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.btn { transition: background-color var(--dur-hover) var(--ease-std), opacity var(--dur-hover) var(--ease-std); }
+.btn-secondary:hover { background: var(--hover); }
+.btn-primary:hover { background: var(--accent-fill-hover); }
+
+/* ── GAME ── */
+#gameScreen {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 12px;
+    display: none;
+}
+#gameScreen.active { display: block; }
+
+
+/* Instrucción de swap */
+#swapHint {
+    background: var(--control);
+    border-radius: 8px;
+    padding: 8px 14px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+}
+#swapHint.selected { background: var(--accent-soft); color: var(--accent); }
+
+/* Cartas del centro */
+.section-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    margin-bottom: 6px;
+}
+/* Título de sección con su acción al lado (Tus Sets + Revelar) */
+.section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.section-head .section-label { margin-bottom: 0; }
+.card-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 14px;
+    min-width: 33.333vw;
+}
+/* El centro ya no son siempre 4: cada carta soltada añade una más,
+   así que la fila se reparte y baja de línea en vez de encoger. */
+#centerCards {
+    grid-template-columns: repeat(auto-fill, minmax(clamp(60px, 21vw, 110px), 1fr));
+}
+
+/* Cartas "tiradas" sobre la mesa.
+   El ángulo y el desplazamiento los calcula el JS a partir del id de la
+   carta, así que son siempre los mismos: la misma carta está igual de
+   torcida en la pantalla de todos, y al ir en % del propio tamaño se ve
+   igual en un móvil que en un monitor, cada uno a su escala.
+   Se suman al mismo `transform` de variables que la inclinación y el
+   levantar la carta, para no pisarlos. */
+.card.thrown {
+    --throw-rot: 0deg;
+    --throw-x: 0%;
+    --throw-y: 0%;
+}
+.card.thrown {
+    transform:
+        perspective(700px)
+        translate(var(--throw-x), var(--throw-y))
+        translateY(var(--lift))
+        rotate(var(--throw-rot))
+        rotateX(var(--tilt-x))
+        rotateY(var(--tilt-y))
+        scale(var(--scale));
+}
+
+/* Hueco de una carta que se llevaron. Ocupa sitio para que nada de lo
+   que sigue se mueva, y no se puede tocar. */
+.card.center-gap {
+    background: none;
+    border: 2px dashed var(--border);
+    box-shadow: none;
+    cursor: default;
+    pointer-events: none;
+    opacity: 0.35;
+}
+
+/* Hueco que deja una carta soltada, hasta que se coge otra */
+.card.card-empty {
+    background: none;
+    border: 2px dashed var(--border-strong);
+    box-shadow: none;
+    cursor: default;
+}
+.card.card-empty:hover { transform: none; box-shadow: none; }
+
+
+/* Debes una carta: el centro es lo único con lo que puedes actuar */
+.owing #yourCards .card { opacity: 0.5; pointer-events: none; }
+.owing #centerCards .card { outline: 2px solid var(--accent); }
+
+.card {
+    /* Relación exacta de una celda de cards.webp ((3188/16) x
+       (4000/13)). Si no coincide, el % de background-size deforma
+       el dibujo. */
+    aspect-ratio: 10361 / 16000;
+    min-height: 0;        /* permite que el grid controle la altura */
+    overflow: hidden;
+    border-radius: 8px;
+    background-color: #fff;
+    background-image: url("cards.webp");
+    background-repeat: no-repeat;
+    background-size: 1600% 1300%;   /* 16 columnas x 13 filas */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    cursor: pointer;
+    position: relative;
+
+    /* La carta tiene peso: se inclina hacia el cursor, se levanta al
+       pasar por encima y rebota un poco al llegar. Todo compuesto en
+       UN solo transform con variables, para que inclinación, altura y
+       escala no se pisen entre sí — si cada regla escribiera su propio
+       `transform`, la última ganaría y perderíamos las otras dos. */
+    --lift: 0px;
+    --scale: 1;
+    --tilt-x: 0deg;
+    --tilt-y: 0deg;
+    transform:
+        perspective(700px)
+        translateY(var(--lift))
+        rotateX(var(--tilt-x))
+        rotateY(var(--tilt-y))
+        scale(var(--scale));
+    /* Sobrepaso al final: es lo que hace que se sienta física y no
+       una interpolación. */
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.18s ease,
+                outline 0.1s;
+}
+.card:hover {
+    --lift: -8px;
+    --scale: 1.06;
+    box-shadow: 0 12px 22px rgba(0,0,0,0.55);
+    z-index: 2;
+}
+.card:active { --scale: 0.96; transition-duration: 0.06s; }
+/* Acuse de recibo del toque, antes de que conteste el servidor. Lo que
+   se notaba como "no me ha cogido el click" era casi siempre falta de
+   esto: entre el toque y la respuesta no pasaba nada en pantalla. */
+/* Registrada para que `--lift` interpole en la animación de rechazo.
+   Sin esto una custom property salta entre valores en vez de animarse.
+   Donde no haya soporte se ve a tirones, que sigue diciendo "no". */
+@property --lift {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+}
+/* Por la variable, no con un `transform` propio: las cartas del centro
+   van torcidas con `--throw-rot` y escribir aquí `transform` las
+   enderezaría de golpe al tocarlas. */
+.card.tapped {
+    --scale: 0.94;
+    filter: brightness(1.25);
+    transition: transform 0.04s ease-out, filter 0.04s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+    .card.tapped { --scale: 1; }
+}
+/* Carta pintada por adelantado, antes de que conteste el servidor.
+   Se ve puesta pero sin asentar: si llegaste tarde se deshace sola. */
+.card.card-ghost { opacity: 0.55; }
+.card.card-ghost.ghost-out {
+    opacity: 0;
+    --scale: 0.8;
+    transition: opacity 0.16s ease-out, transform 0.16s ease-out;
+}
+/* Toque recibido pero jugada imposible. Sin esto es idéntico a que el
+   toque se haya perdido, y se insiste — que es justo lo que hacía que
+   pareciera que había que pulsar dos veces. */
+.card.refused { animation: refuseNudge 0.28s ease-in-out; }
+@keyframes refuseNudge {
+    0%, 100% { --lift: 0px; filter: none; }
+    25%      { --lift: -3px; filter: saturate(0.4); }
+    75%      { --lift: 3px;  filter: saturate(0.4); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .card.refused { animation: none; filter: saturate(0.3); }
+}
+/* Carta en disputa (QTE activo en ella) — todos los clientes la ven así */
+.card.qte-locked {
+    outline: 3px solid var(--danger);
+    box-shadow: 0 0 0 5px rgba(220,53,69,0.35);
+    animation: qtePulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes qtePulse {
+    from { box-shadow: 0 0 0 4px rgba(220,53,69,0.3); }
+    to   { box-shadow: 0 0 0 9px rgba(220,53,69,0.12); }
+}
+/* Las otras 3 cartas del centro mientras dura el QTE — el servidor
+   bloquea todo intercambio hasta que se resuelve. */
+.card.qte-waiting {
+    opacity: 0.45;
+    filter: grayscale(50%);
+    cursor: not-allowed;
+}
+.card.qte-waiting:hover { transform: none; box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+/* Botones de sets */
+.set-nav {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.set-btn {
+    flex: 1;
+    min-width: 48px;
+    padding: 8px 4px;
+    border: 2px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--text-faint);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+}
+.set-btn:hover { border-color: var(--accent); color: var(--text-muted); }
+.set-btn.active { border-color: var(--accent); background: var(--control); color: #fff; }
+.set-btn.flipped { border-style: dashed; }
+.set-btn .set-eye { display: block; font-size: 0.55rem; color: var(--text-muted); }
+
+/* ── Marcador: una franja por jugador, hasta 8, en rejilla ──
+   Dos columnas entran de sobra en un móvil y ocho jugadores caben en
+   cuatro filas cortas. Cada franja es nombre · sets revelados · cuántos
+   lleva cerrados, en ese orden y siempre en el mismo sitio, para poder
+   comparar de un vistazo sin leer. */
+.hud {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 8px;
+}
+@media (min-width: 720px) {
+    .hud { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.hud-stripe {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--card);
+    border-left: 3px solid transparent;
+    font-size: 0.72rem;
+    color: var(--text-faint);
+}
+.hud-stripe.mirones {
+    justify-content: center;
+    color: var(--accent);
+    border-left-color: var(--accent);
+}
+
+/* Mirando, no jugando: no hay sets propios ni botones que pulsar. */
+#espectadorBanda {
+    text-align: center;
+    padding: 5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.78rem;
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+#gameScreen.espectador #yourCards,
+#gameScreen.espectador #setNav,
+#gameScreen.espectador #flipBtn,
+#gameScreen.espectador #comboBox,
+#gameScreen.espectador #frenzyBtn,
+#gameScreen.espectador .section-head,
+#gameScreen.espectador #swapHint { display: none; }
+#gameScreen.espectador .card { cursor: default; }
+#espectadorBanda { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+#espectadorBanda button {
+    margin: 0; width: auto; padding: 4px 10px; font-size: 0.78rem;
+    border: 1px solid var(--accent-line); border-radius: 6px;
+    background: transparent; color: var(--accent); cursor: pointer;
+}
+#espectadorBanda button[aria-pressed="true"] { background: var(--accent-soft); }
+
+/* ── Espectador: la mano de todos ──
+   «Mirando desde» elige a quién ves (o «Todos»); el tablero que se pinta
+   es el de ese jugador, con sus sets y su deuda, hecho de ids de carta. */
+#specBoard { display: none; }
+#gameScreen.espectador #specBoard { display: block; }
+.spec-seats { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 10px; }
+.spec-seats .quien { font-size: 0.72rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.1em; margin-right: 2px; }
+.spec-seat {
+    min-height: 36px; padding: 6px 12px; margin: 0; width: auto;
+    border: 2px solid var(--border-strong); border-radius: 999px;
+    background: var(--card); color: var(--text-muted); font-size: 0.85rem; cursor: pointer;
+}
+.spec-seat.active { border-color: var(--accent); background: var(--control); color: #fff; }
+.spec-estado { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 2px 0 12px; font-size: 0.78rem; color: var(--text-muted); }
+.spec-estado b { color: var(--text); }
+#specAll { display: flex; flex-direction: column; gap: 14px; }
+.spec-player-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 4px; font-size: 0.78rem; color: var(--text-muted); }
+.spec-player-name b { color: var(--text); font-size: 0.9rem; }
+.spec-sets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 640px) { .spec-sets { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.spec-mini-set { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 3px; border: 1px solid var(--border); border-radius: 6px; }
+.spec-mini-set.flipped { border-color: var(--accent); border-style: dashed; }
+.spec-mini-set.current { background: var(--accent-soft); }
+.spec-mini-set .card { border-radius: 2px; box-shadow: none; pointer-events: none; transition: none; min-width: 0; }
+.spec-mini-set .card.card-empty { border-width: 1px; }
+#specCards .card.card-empty { opacity: 1; }
+
+.hud-stripe.is-me {
+    border-left-color: var(--accent);
+    color: var(--text);
+}
+.hud-stripe.finished { border-left-color: var(--success); color: var(--success); }
+.hud-stripe.on-fire { border-left-color: var(--warning); color: var(--warning); }
+.hud-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.hud-slots { display: flex; gap: 2px; flex-shrink: 0; }
+/* Un set sin revelar es un hueco apagado; revelado enseña su prenda.
+   A este tamaño no se lee la prenda, pero sí se distingue una de otra,
+   que es lo que hace falta para saber quién va a por lo mismo que tú. */
+.hud-dot {
+    width: 10px;
+    height: 14px;
+    border-radius: 2px;
+    background: var(--shell);
+    box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+/* La misma hoja de sprites que las cartas: `applyCardSprite` solo
+   coloca el recorte, la imagen y su escala vienen de aquí. */
+.hud-dot.revealed {
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+    background-color: #fff;
+    background-image: url("cards.webp");
+    background-repeat: no-repeat;
+    background-size: 1600% 1300%;   /* 16 columnas x 13 filas */
+}
+.hud-count {
+    flex-shrink: 0;
+    font-weight: bold;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+.hud-stripe.finished .hud-count { color: var(--success); }
+
+/* Botón voltear set */
+#flipBtn {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--hover);
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    font-weight: bold;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 6px;
+}
+#flipBtn:hover { background: var(--pressed); color: var(--text); }
+#flipBtn.is-flipped { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+
+/* Overlay de verificación */
+#verifyOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+#verifyOverlay.active { display: flex; }
+.verify-box {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 32px;
+    min-width: 340px;
+    max-width: 500px;
+    width: 90%;
+}
+.verify-box h2 { text-align: center; margin: 0 0 20px; font-size: 1.1rem; color: var(--text-muted); }
+.verify-set-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+}
+.verify-set-row:last-of-type { border-bottom: none; }
+.verify-set-label { width: 52px; color: var(--text-faint); flex-shrink: 0; }
+.verify-cards { display: flex; gap: 4px; flex: 1; }
+.verify-card-mini {
+    display: inline-block;
+    width: 34px;
+    height: 52px;
+    border-radius: 4px;
+    background-color: #fff;
+    background-image: url("cards.webp");
+    background-repeat: no-repeat;
+    background-size: 1600% 1300%;
+    flex-shrink: 0;
+}
+.verify-icon { width: 28px; text-align: center; font-size: 1.1rem; flex-shrink: 0; }
+.verify-footer { text-align: center; margin-top: 20px; font-size: 1rem; min-height: 28px; }
+.verify-footer.success { color: var(--success); }
+.verify-footer.failure { color: var(--danger); }
+#verifyCloseBtn {
+    width: 100%; padding: 10px; margin-top: 16px;
+    border: none; border-radius: 8px; background: var(--border-strong);
+    color: var(--text-muted); cursor: pointer; font-size: 0.9rem; display: none;
+}
+
+/* Notificaciones de otros jugadores verificando */
+.verify-notif {
+    background: rgb(21 21 22 / 96%);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 0.78rem;
+    animation: slideIn 0.3s ease;
+}
+@keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+.vnotif-header { color: var(--text-muted); margin-bottom: 5px; font-weight: bold; }
+.vnotif-sets { display: flex; gap: 3px; }
+.verify-notif.success { border-color: var(--success); }
+.verify-notif.failure { border-color: var(--danger); }
+
+/* ── QTE ── */
+#qteOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.92);
+    z-index: 150;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+#qteOverlay.active { display: flex; }
+.qte-box {
+    background: var(--card);
+    border-radius: 20px;
+    padding: 36px 40px;
+    text-align: center;
+    min-width: 320px;
+    max-width: 480px;
+    width: 90%;
+    border: 2px solid #e74c3c;
+}
+.qte-box h2 { font-size: 2rem; margin: 0 0 6px; color: #e74c3c; }
+.qte-desc { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px; }
+.qte-scores {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-bottom: 20px;
+}
+.qte-player-score {
+    background: var(--control);
+    border-radius: 12px;
+    padding: 12px 20px;
+    min-width: 100px;
+}
+.qte-player-score .qte-name { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px; }
+.qte-player-score .qte-count { font-size: 2rem; font-weight: bold; color: #fff; }
+.qte-player-score.is-me { border: 2px solid var(--accent); }
+.qte-timer-bar {
+    height: 8px;
+    background: var(--border-strong);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+#qteTimerFill {
+    height: 100%;
+    width: 100%;
+    background: #e74c3c;
+    transition: width 0.05s linear;
+}
+/* Toda la pantalla es el botón mientras dura la pelea.
+   Apuntar a un botón concreto se perdía cuando venías de tocar una
+   carta en la otra punta: el dedo ya estaba lejos y la pelea dura un
+   suspiro. Ahora vale tocar donde sea. */
+#qteOverlay.active {
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    /* Machacar la pantalla no puede desplazar la página: si el
+       navegador decide que el dedo estaba haciendo scroll, se queda el
+       gesto y manda `pointercancel`. Aquí no hay nada que desplazar. */
+    touch-action: none;
+    /* Sin esto, un toque mantenido saca el menú de iOS ("copiar…")
+       en mitad de la pelea. */
+    -webkit-touch-callout: none;
+}
+#qteOverlay.hit .qte-box { transform: scale(0.98); }
+.qte-box { transition: transform 0.05s; }
+/* Muerte súbita: el rótulo usa el acento y --warning, no el rojo de la pelea. */
+.qte-box h2.tie { color: var(--warning); animation: qteTiePulse 0.5s ease-out 2; }
+.qte-box.tie { border-color: var(--accent); }
+@keyframes qteTiePulse {
+    0% { transform: scale(0.8); text-shadow: 0 0 0 var(--accent); }
+    50% { transform: scale(1.12); text-shadow: 0 0 18px var(--accent); }
+    100% { transform: scale(1); text-shadow: 0 0 0 var(--accent); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .qte-box h2.tie { animation: none; }
+}
+#qteClickBtn {
+    width: 100%;
+    padding: 20px;
+    font-size: 1.4rem;
+    font-weight: bold;
+    border: none;
+    border-radius: 12px;
+    background: #e74c3c;
+    color: white;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    /* El overlay entero es lo que recibe el toque: si el botón también
+       lo recibiera, un toque encima contaría dos veces. */
+    pointer-events: none;
+}
+#qteOverlay.hit #qteClickBtn { background: #c0392b; }
+/* ── Ceder la carta ──
+   Abajo del todo y pequeña: lejos del centro, que es donde están la
+   vista y el pulgar mientras se machaca. */
+#qteGiveUpBtn {
+    position: absolute;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 52px;
+    height: 52px;
+    padding: 0;
+    /* Opaco y con borde. Antes iba al 55 % sobre un gris casi negro, y
+       en Windows la bandera es un glifo gris: no se veía (2026-09-28). */
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    background: var(--raised);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    overflow: hidden;
+    /* LO QUE HACÍA QUE NO FUNCIONARA EN EL MÓVIL.
+       Sin esto el navegador trata el dedo apoyado como el principio de
+       un desplazamiento; en cuanto lo decide se queda el gesto y manda
+       `pointercancel`, que corta la cuenta de 700 ms. `preventDefault()`
+       en `pointerdown` NO evita eso: solo lo evita `touch-action`.
+       Por eso pasaba las pruebas —el navegador automatizado no hace
+       gestos de verdad— y fallaba en la mano. */
+    touch-action: none;
+    /* Sin esto, iOS saca su menú de "copiar" al mantener pulsado, que
+       es justo el gesto que pide este botón. */
+    -webkit-touch-callout: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
+#qteGiveUpBtn:hover { border-color: var(--text-muted); }
+/* Con ratón no hay pulgar que estorbe: justo debajo de la caja, donde
+   se ve, en vez de al fondo de una pantalla de 1080 px. */
+@media (pointer: fine) {
+    /* relative, no static: el relleno <i> va en absoluto dentro. */
+    #qteGiveUpBtn { position: relative; bottom: auto; left: auto; transform: none; margin-top: 16px; }
+}
+/* El relleno mientras se mantiene: es lo único que dice "sigue
+   apretando", sin una palabra de texto. */
+#qteGiveUpBtn i {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: 0;
+    background: rgba(255,255,255,0.28);
+    pointer-events: none;
+}
+#qteGiveUpBtn.holding i {
+    height: 100%;
+    transition: height var(--giveup-ms, 700ms) linear;
+}
+
+/* Carta en disputa dentro del overlay */
+.qte-card-slot { display: flex; justify-content: center; margin-bottom: 16px; }
+.qte-card-slot .card { width: 84px; cursor: default; }
+.qte-card-slot .card:hover { transform: none; }
+@keyframes fightIn {
+    from { opacity: 0; transform: scale(0.88); }
+    to   { opacity: 1; transform: scale(1); }
+}
+#qteBox { animation: fightIn 0.18s ease-out; }
+
+/* Resultado: sin frases. Gana el número que brilla. */
+.qte-player-score.won .qte-count { color: var(--success); text-shadow: 0 0 12px rgba(40,167,69,0.7); }
+/* `border` completo, no solo `border-color`: la caja base no tiene
+   borde (solo la de "is-me"), así que un border-color suelto no
+   pintaba nada en el marcador del ganador. */
+.qte-player-score.won { border: 2px solid var(--success); }
+.qte-player-score.lost { opacity: 0.4; }
+
+/* Bloqueo tras perder: el tablero se apaga y no responde. Ese apagón
+   ES el mensaje de "has perdido" — no hay ningún texto. */
+/* Alto fijo: lo de dentro se muestra y se oculta sin mover nada (ver el
+   comentario en el HTML). El combo ocupa la franja; las dos barras
+   finas van pegadas a su borde de abajo, encima si coinciden. */
+#statusStrip {
+    position: relative;
+    height: 56px;
+    margin-bottom: 8px;
+    flex-shrink: 0;
+}
+#statusStrip #stunBar, #statusStrip #debtBar {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    margin: 0;
+}
+#statusStrip #stunBar { z-index: 1; }   /* bloqueado manda sobre deuda */
+#stunBar {
+    display: block;
+    visibility: hidden;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-strong);
+    overflow: hidden;
+    margin: 0 0 10px;
+}
+#stunBar.active { visibility: visible; }
+#stunBarFill { height: 100%; background: var(--danger); transition: width 0.1s linear; }
+
+/* Misma barra, otro color: roja es "no puedes hacer nada", ámbar es
+   "date prisa". La transición la fija el JS con la duración que manda
+   el servidor. */
+#debtBar {
+    display: block;
+    visibility: hidden;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border-strong);
+    overflow: hidden;
+    margin: 0 0 10px;
+}
+#debtBar.active { visibility: visible; }
+#debtBarFill { height: 100%; width: 100%; background: var(--warning); }
+.stunned #centerCards,
+.stunned #yourCards {
+    opacity: 0.35;
+    filter: grayscale(70%);
+    pointer-events: none;
+    transition: opacity 0.15s, filter 0.15s;
+}
+
+/* Para quien solo mira: la carta en disputa no se puede coger, pero sin
+   pulso ni resplandor. Solo la etiqueta, para que no parezca que la
+   carta está rota cuando no responde. */
+.card.qte-contested { cursor: not-allowed; }
+.card.qte-contested:hover { transform: none; }
+
+/* Etiqueta sobre la carta que se está peleando */
+.card.qte-locked::after,
+.card.qte-contested::after {
+    content: var(--t-peleada, "PELEADA");
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(-8deg);
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: bold;
+    letter-spacing: 0.08em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    pointer-events: none;
+}
+
+/* Capa para las cartas que vuelan. Va por encima del tablero y por
+   debajo de los overlays, y nunca intercepta clicks. */
+#fxLayer {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 120;
+}
+#fxLayer .card {
+    position: absolute;
+    margin: 0;
+    cursor: default;
+    transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Esperando confirmación del servidor (hay 300ms de margen para
+   detectar peleas): las dos cartas elegidas se atenúan en vez de
+   quedarse quietas sin explicación. */
+.card.card-pending { opacity: 0.45; }
+
+/* "Esto es lo que ha cambiado" al volver al tablero.
+   La carta no aparece y ya: golpea. Se aplasta contra el hueco, rebota
+   y suelta un anillo. El anillo va en box-shadow y no en un ::before
+   porque .card lleva overflow:hidden y recortaría cualquier hijo; la
+   sombra se dibuja fuera del borde y se libra del recorte. */
+@keyframes cardLanded {
+    0%   { transform: perspective(700px) scale(1.18) translateY(-6px);
+           box-shadow: 0 0 0 0 var(--combo-color); }
+    35%  { transform: perspective(700px) scale(0.94, 1.06) translateY(0);
+           box-shadow: 0 0 0 10px var(--combo-ring); }
+    60%  { transform: perspective(700px) scale(1.04, 0.97) translateY(0); }
+    100% { transform: perspective(700px) scale(1) translateY(0);
+           box-shadow: 0 0 0 22px transparent; }
+}
+.card.card-landed { animation: cardLanded 0.55s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Carta ganada en una pelea: mismo golpe, en dorado y más grande. Es
+   el momento que más queremos que se note. */
+@keyframes cardWon {
+    0%   { transform: perspective(700px) scale(1.35) rotate(-4deg);
+           box-shadow: 0 0 0 0 rgba(255,193,7,0.9); }
+    40%  { transform: perspective(700px) scale(0.92, 1.1) rotate(2deg);
+           box-shadow: 0 0 0 14px rgba(255,193,7,0.45); }
+    70%  { transform: perspective(700px) scale(1.06, 0.96) rotate(0deg); }
+    100% { transform: perspective(700px) scale(1) rotate(0deg);
+           box-shadow: 0 0 0 30px rgba(255,193,7,0); }
+}
+.card.card-won { animation: cardWon 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Sacudida. Corta a propósito: si dura, marea.
+   Se sacuden las FILAS de cartas y no #gameScreen: un `transform` en un
+   ancestro convierte a ese ancestro en bloque contenedor de cualquier
+   `position: fixed` que tenga dentro, y lo que hubiera fijo daría un
+   salto cada vez que temblara el tablero. Las filas no contienen nada
+   fijo, así que son el sitio seguro donde ponerlo. */
+@keyframes boardShake {
+    0%, 100% { transform: translate(0, 0); }
+    20%      { transform: translate(-4px, 2px); }
+    40%      { transform: translate(4px, -2px); }
+    60%      { transform: translate(-3px, -1px); }
+    80%      { transform: translate(3px, 1px); }
+}
+.card-row.shake      { animation: boardShake 0.22s ease-in-out; }
+.card-row.shake-hard { animation: boardShake 0.4s ease-in-out 2; }
+
+/* Destello del centro cuando alguien suelta una carta: el tablero
+   cambió aunque no hayas sido tú. */
+@keyframes centerFlash {
+    0%   { background: rgba(102,126,234,0.28); }
+    100% { background: transparent; }
+}
+/* Con la misma especificidad que .shake a propósito: `animation` es una
+   sola propiedad, así que entre las dos gana la última declarada — esta.
+   Con `#centerCards.flash` ganaría siempre por el id y la sacudida del
+   centro no se vería nunca, sin que se notara por qué. */
+.card-row.flash { animation: centerFlash 0.45s ease-out; border-radius: 8px; }
+
+/* Chispas al ganar una pelea. Viven en #fxLayer, que no recorta. */
+.spark {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--warning);
+    box-shadow: 0 0 12px 3px rgba(255,193,7,0.85);
+    animation: sparkFly 0.6s ease-out forwards;
+}
+@keyframes sparkFly {
+    0%   { transform: translate(0, 0) scale(1);   opacity: 1; }
+    100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+}
+
+/* Confeti del 1º puesto. Capa propia POR ENCIMA del overlay final (200),
+   porque #fxLayer queda debajo. Solo transform/opacity. */
+#confetiLayer {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 210;
+}
+.confeti {
+    position: absolute;
+    left: 50%;
+    top: 40%;
+    opacity: 0;
+    animation: confetiCae var(--t) linear var(--d) forwards;
+}
+.confeti.carta { border-radius: 2px; border-top: 3px solid var(--c); background: #fff !important; }
+@keyframes confetiCae {
+    0%   { transform: translate(0, 0) rotate(0); opacity: 1; animation-timing-function: cubic-bezier(0.1, 0.7, 0.3, 1); }
+    25%  { transform: translate(calc(var(--dx) * 0.7), var(--up)) rotate(calc(var(--r) * 0.4)); opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.9, 0.8); }
+    85%  { opacity: 1; }
+    100% { transform: translate(var(--dx), var(--fall)) rotate(var(--r)); opacity: 0; }
+}
+
+
+/* ── RACHA ──
+   El multiplicador se lee de un vistazo o no sirve de nada: número
+   grande, color por tramo, y una barra que se vacía sola para que se
+   note que hay prisa. El color va en una variable y lo reutilizan el
+   anillo de aterrizaje y las chispas, así todo el tablero sube de
+   temperatura a la vez. */
+/* El color del tramo vive en #gameScreen y no en #comboBox, para que lo
+   hereden también las cartas: así el anillo de aterrizaje sube de
+   temperatura con la racha sin duplicar la tabla de colores. */
+/* `--combo-ring` va en rgba explícito y no con color-mix(): el soporte
+   de color-mix no es universal y, donde falta, la declaración entera
+   del box-shadow se descarta y el anillo desaparece sin avisar. */
+/* Nivel 1 fijado a su azul: es color de juego, no de la interfaz, y no
+   debe seguir al acento de agapornis-ui. */
+#gameScreen { --combo-color: #667eea;  --combo-ring: rgba(102,126,234,0.45); }
+#gameScreen[data-combo-tier="2"] { --combo-color: #4ecdc4; --combo-ring: rgba(78,205,196,0.45); }
+#gameScreen[data-combo-tier="3"] { --combo-color: #ffc107; --combo-ring: rgba(255,193,7,0.45); }
+#gameScreen[data-combo-tier="4"] { --combo-color: #ff8c42; --combo-ring: rgba(255,140,66,0.5); }
+#gameScreen[data-combo-tier="5"] { --combo-color: #e74c3c; --combo-ring: rgba(231,76,60,0.55); }
+
+#comboBox {
+    display: flex;
+    visibility: hidden;
+    align-items: center;
+    gap: 8px;
+    height: 44px;
+    margin: 0;
+}
+#comboBox.active { visibility: visible; }
+/* El multiplicador es el cartel entero: un número grande y su color.
+   Cuanto más alto, más pesa — tamaño y brillo suben con el tramo, así
+   que no hace falta leer nada para saber que vas lanzado. */
+#comboMult {
+    font-size: clamp(2rem, 9vw, 2.8rem);
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    color: var(--combo-color);
+    text-shadow: 0 0 14px var(--combo-color), 0 2px 0 rgba(0,0,0,0.45);
+    line-height: 0.9;
+    transform-origin: 50% 65%;
+}
+#gameScreen[data-combo-tier="3"] #comboMult { font-size: clamp(2.3rem, 10vw, 3.2rem); }
+#gameScreen[data-combo-tier="4"] #comboMult { font-size: clamp(2.6rem, 11vw, 3.6rem); }
+#gameScreen[data-combo-tier="5"] #comboMult { font-size: clamp(2.9rem, 12vw, 4rem); }
+.combo-bar {
+    flex: 1;
+    height: 5px;
+    background: var(--card);
+    border-radius: 3px;
+    overflow: hidden;
+}
+#comboBarFill {
+    height: 100%;
+    width: 100%;
+    background: var(--combo-color);
+    /* La transición se fija en JS con la ventana que manda el
+       servidor, para que la barra y la regla no discrepen. */
+}
+/* Golpe con peso, no un globo que se infla.
+   El número entra de golpe y grande, se pasa de frenada hacia abajo
+   —como si cayera y rebotara— y se asienta. El tirón lateral es lo que
+   lo hace parecer que tiene masa en vez de escalar y ya. */
+@keyframes comboHit {
+    0%   { transform: scale(2.1) rotate(-5deg); }
+    35%  { transform: scale(0.88) rotate(2.5deg); }
+    60%  { transform: scale(1.12) rotate(-1deg); }
+    82%  { transform: scale(0.97) rotate(0.4deg); }
+    100% { transform: scale(1) rotate(0); }
+}
+#comboMult.bump { animation: comboHit 0.42s cubic-bezier(0.18, 0.9, 0.3, 1); }
+
+/* ── Frenesí ──
+   Solo sale al llegar a x5, así que puede permitirse gritar. El arcoíris
+   se mueve para que no se confunda con un botón normal: es lo único de
+   la pantalla que hace eso. */
+#frenzyBtn {
+    flex-shrink: 0;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 900;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
+    color: var(--bg);
+    cursor: pointer;
+    background: linear-gradient(90deg,
+        #ff4d4d, #ffa64d, #ffe74d, #4dff88, #4dd2ff, #b84dff, #ff4d4d);
+    background-size: 300% 100%;
+    animation: frenzyFlow 1.6s linear infinite;
+    box-shadow: 0 0 14px rgba(255,255,255,0.35);
+}
+#frenzyBtn:active { transform: scale(0.95); }
+@keyframes frenzyFlow {
+    from { background-position: 0% 50%; }
+    to   { background-position: 300% 50%; }
+}
+@keyframes frenzyPop {
+    0%   { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+    60%  { transform: scale(1.15) rotate(3deg); opacity: 1; }
+    100% { transform: scale(1) rotate(0); opacity: 1; }
+}
+#frenzyBtn.pop { animation: frenzyFlow 1.6s linear infinite, frenzyPop 0.4s ease-out; }
+
+/* Fogonazo cuando alguien lo suelta. Va en el tablero porque el efecto
+   es de sala, no de un jugador. */
+#gameScreen.frenzy-flash { animation: frenzyFlash 0.65s ease-out; }
+@keyframes frenzyFlash {
+    0%   { filter: brightness(2.2) saturate(2); }
+    100% { filter: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    #frenzyBtn { animation: none; background-position: 40% 50%; }
+    #frenzyBtn.pop { animation: none; }
+    #gameScreen.frenzy-flash { animation: none; }
+}
+
+/* Quien va encadenando se ve desde el marcador: es lo que invita a ir
+   a pelearle una carta. */
+.hud-stripe.on-fire .hud-count { color: var(--warning); }
+
+/* Silencio. Pequeño y en una esquina: se busca una vez y se olvida. */
+#muteBtn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    z-index: 45;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 8px;
+    background: rgb(21 21 22 / 85%);
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+#gameScreen { position: relative; }
+
+/* Quien pide "menos movimiento" al sistema lo pide en serio: aquí se
+   queda la información (qué cambió, quién ganó) y se va el meneo. */
+@media (prefers-reduced-motion: reduce) {
+    .card { transition: box-shadow 0.15s ease, outline 0.1s; }
+    .card.card-landed, .card.card-won { animation-duration: 0.01s; }
+    .card-row.shake, .card-row.shake-hard, .card-row.flash { animation: none; }
+    /* El multiplicador y la barra se quedan: son información, no
+       adorno. Lo que se va es el rebote del número. */
+    #comboMult.bump { animation: none; }
+    .spark { display: none; }
+    #fxLayer .card { transition: none; }
+}
+
+/* Notificación QTE para espectadores */
+.qte-battle-notif {
+    background: rgb(21 21 22 / 97%);
+    border: 2px solid #e74c3c;
+    border-radius: 12px;
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    animation: slideIn 0.3s ease;
+    pointer-events: none;
+}
+/* La encuesta "¿seguimos esperando?" se puede pulsar (los demás avisos no). */
+.qte-battle-notif.wait-poll {
+    pointer-events: auto;
+    border-color: #f39c12;
+}
+.wait-poll-btns {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+.wait-poll-btns button {
+    flex: 1;
+    padding: 6px 0;
+    border-radius: 8px;
+    border: none;
+    font: inherit;
+    font-weight: bold;
+    cursor: pointer;
+    color: #fff;
+}
+.wait-poll-btns .wp-si { background: #27ae60; }
+.wait-poll-btns .wp-no { background: #c0392b; }
+.qte-battle-notif .qbn-title {
+    color: #e74c3c;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-bottom: 4px;
+}
+.qbn-versus {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    justify-content: center;
+    margin: 4px 0;
+    font-size: 0.78rem;
+}
+.qbn-player { color: var(--text); font-weight: bold; }
+.qbn-vs { color: #e74c3c; font-size: 1rem; }
+.qbn-scores {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+.qbn-bar {
+    height: 4px;
+    background: var(--border-strong);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-top: 6px;
+}
+.qbn-bar-fill {
+    height: 100%;
+    background: #e74c3c;
+    transition: width 0.05s linear;
+}
+
+/* Modal Game Over */
+#gameOverOverlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.9);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+}
+#gameOverOverlay.active { display: flex; }
+.gameover-box {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 40px;
+    text-align: center;
+    min-width: 300px;
+}
+.gameover-box h2 { font-size: 2rem; margin-bottom: 24px; }
+.ranking-entry {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    margin: 8px 0;
+    background: var(--control);
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+.rank-pos { font-size: 1.4rem; width: 36px; }
+.rank-name { flex: 1; text-align: left; padding-left: 10px; }
+/* ±Elo de cada uno en el ranking. Los puntos y el combo ya no se enseñan:
+   lo que cuenta es el Elo. */
+.rank-elo { font: 700 0.75rem/1 var(--font-mono); margin-left: 10px; white-space: nowrap; }
+.rank-elo.up { color: var(--accent); }
+.rank-elo.down { color: var(--danger); }
+
+/* ── ELO ── El contador vive en agapornis-ui (dial.css / dial.js). */
+#eloDial { margin: 4px 0 18px; display: flex; justify-content: center; }
+#eloDial[hidden] { display: none; }
+#profileElo {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 20px;
+    margin: 8px 0 12px;
+    --ag-dial-size: 32px;
+}
+#profileEloNote { text-align: center; color: var(--text-faint); font-size: 0.8rem; margin-bottom: 18px; }
+.elo-choice {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    display: grid;
+    place-items: center;
+    background: var(--scrim);
+    padding: 16px;
+}
+.elo-choice[hidden] { display: none; }
+.elo-choice-box {
+    width: min(420px, 100%);
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-bubble);
+    padding: 22px;
+}
+.elo-choice-box h3 { margin-bottom: 8px; }
+.elo-choice-box p { color: var(--text-muted); font-size: 0.9rem; line-height: 1.5; white-space: pre-line; }
+.elo-choice-actions { display: flex; gap: 10px; margin-top: 18px; }
+.elo-choice-actions .btn { flex: 1; margin: 0; }
+
+/* ── TABLERO EN MÓVIL ──
+   Las pantallas de entrada ya tenían su media query; el tablero no,
+   y es la única pantalla que se juega de verdad desde el teléfono.
+   El orden del DOM ya es vertical (centro → tus sets → oponentes), así
+   que aquí solo se aprieta el espacio y se agrandan los objetivos
+   táctiles. */
+@media (max-width: 768px) {
+    #gameScreen { padding: 8px; }
+    #swapHint { padding: 6px 10px; margin-bottom: 8px; font-size: 0.78rem; }
+    .section-label { font-size: 0.68rem; margin-bottom: 4px; }
+    /* min-width en vw forzaba scroll horizontal en pantallas
+       estrechas; el grid ya se reparte solo. */
+    .card-row { gap: 6px; margin-bottom: 8px; min-width: 0; }
+
+    /* ── Todo el tablero en una pantalla, sin scroll ──
+       La página entera ya no se desplaza: lo que cede es el centro, que
+       es la única parte cuyo tamaño no controlamos —cada carta soltada
+       añade una, y si alguien abandona pueden ser casi treinta—. Todo
+       lo demás (marcador, racha, tus cartas, los botones) tiene el alto
+       que necesita y se queda donde está.
+       `100dvh` y no `100vh`: en móvil la barra del navegador aparece y
+       desaparece, y con `vh` el tablero se salía por abajo justo cuando
+       estaba visible. */
+    #gameScreen.active {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        padding: 8px;
+        overflow: hidden;
+    }
+    #centerCards {
+        flex: 1;
+        min-height: 0;
+        height: auto;
+        overflow-y: auto;
+        align-content: start;
+        /* Sin esto, al llegar al final del centro el arrastre seguía en
+           la página de detrás. */
+        overscroll-behavior: contain;
+    }
+    /* Lo de abajo no se encoge: son los objetivos que hay que acertar. */
+    .hud, .set-nav, #yourCards, .section-head,
+    #statusStrip { flex-shrink: 0; }
+    /* El cartel de ayuda solo ocupa sitio cuando dice algo. */
+    #swapHint:empty { display: none; }
+    /* Objetivos táctiles: 44 px es el mínimo cómodo con el pulgar. */
+    .set-btn { min-height: 44px; padding: 10px 4px; }
+    #flipBtn { min-height: 44px; padding: 10px 12px; }
+    /* La ✕ de quitar un bot es diminuta en ratón; con el pulgar hay
+       que poder acertarla sin tocar la fila de al lado. */
+    .kick-bot { width: 44px; height: 44px; }
+    .kick-human { height: 44px; }
+}
+
+/* Sin puntero un :hover se queda pegado tras tocar: la carta se
+   quedaba levantada y el botón iluminado hasta tocar otra cosa. Se
+   anula donde no hay hover de verdad, en vez de reescribir los
+   estados como eventos táctiles. */
+@media (hover: none) {
+    /* Se resetean las variables, no el `transform` entero: así la
+       carta vuelve a su sitio sin desmontar el sistema de inclinación
+       ni las animaciones de aterrizaje. */
+    .card:hover {
+        --lift: 0px;
+        --scale: 1;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .set-btn:not(.active):hover { border-color: var(--border-strong); color: var(--text-faint); }
+    #flipBtn:not(.is-flipped):hover { background: var(--hover); color: var(--text-muted); }
+}
