@@ -1,6 +1,8 @@
 // ─── Renderizado ──────────────────────────────────────────────────────────
 import { emitir } from './bus.js';
-import { est, opponentFlippedSets, qteBlockedCards } from './estado.js';
+import { est, opponentFlippedSets, qteBlockedCards, porId, type Msg } from './estado.js';
+import type { CardInfo } from '../tipos/CardInfo';
+import type { PlayerProgress } from '../tipos/PlayerProgress';
 import { send } from './red.js';
 import { comboStep, playSfx } from './sonido.js';
 import { musicFromCombo } from './musica.js';
@@ -8,12 +10,12 @@ import { owesCard, updateOwingUi, resetSwapHintLater, updateSwapHint, switchSet,
 import { checkAutoVerify } from './verificacion.js';
 
 export function buildSetNav() {
-    const nav = document.getElementById('setNav');
+    const nav = porId('setNav');
     nav.innerHTML = '';
     for (let i = 0; i < 6; i++) {
         const btn = document.createElement('button');
         btn.className = 'set-btn' + (i === 0 ? ' active' : '');
-        btn.dataset.idx = i;
+        btn.dataset.idx = String(i);
         btn.innerHTML = `${esc(t('set.n', { n: i + 1 }))}<span class="set-eye"></span>`;
         btn.onclick = () => switchSet(i);
         nav.appendChild(btn);
@@ -22,12 +24,12 @@ export function buildSetNav() {
 
 export function updateSetNav() {
     const owing = owesCard();
-    document.querySelectorAll('.set-btn').forEach((btn, i) => {
+    document.querySelectorAll<HTMLButtonElement>('.set-btn').forEach((btn, i) => {
         const flipped = est.myFlippedSets[i];
         btn.className = 'set-btn'
             + (i === est.currentSetIndex ? ' active' : '')
             + (flipped ? ' flipped' : '');
-        btn.querySelector('.set-eye').textContent = flipped ? '👁' : '';
+        btn.querySelector('.set-eye')!.textContent = flipped ? '👁' : '';
         // Se repinta aquí y no solo en updateOwingUi porque esta función
         // reescribe className en cada render y las dos tienen que coincidir.
         btn.disabled = owing;
@@ -72,7 +74,7 @@ function syncCenterSlots() {
  *  Deterministas a propósito: así la misma carta está igual de torcida en la
  *  pantalla de todos, y al ir en % escala con el tamaño que use cada
  *  dispositivo — misma imagen, cada uno a su escala. */
-function thrownStyle(cardId) {
+function thrownStyle(cardId: number) {
     // Hash pequeño y estable; los tres valores salen de bits distintos para que
     // no queden correlacionados.
     const h = (cardId * 2654435761) >>> 0;
@@ -124,14 +126,14 @@ export function renderCenterCards() {
         }
         // El id va en el elemento, no en un closure: quien escucha es el
         // contenedor, que sobrevive a los redibujados. Ver `bindTap`.
-        el.dataset.tap = card.id;
+        el.dataset.tap = String(card.id);
         div.appendChild(el);
     }
     emitir('renderCenterCards');
 }
 
 export function renderYourCards() {
-    const div = document.getElementById('yourCards');
+    const div = porId('yourCards');
     div.innerHTML = '';
     const set = est.allSets[est.currentSetIndex] || [];
     set.forEach((card, i) => {
@@ -144,7 +146,7 @@ export function renderYourCards() {
             return;
         }
         const el = buildCard(card);
-        el.dataset.tap = i;
+        el.dataset.tap = String(i);
         div.appendChild(el);
     });
     updateSetNav();
@@ -153,7 +155,7 @@ export function renderYourCards() {
 
 // Último progreso recibido. El marcador también se repinta cuando alguien
 // revela un set, y ese mensaje no trae el progreso.
-let lastProgress = [];
+let lastProgress: PlayerProgress[] = [];
 
 /** El marcador entero: una franja por jugador, hasta 8, en rejilla.
  *
@@ -161,7 +163,7 @@ let lastProgress = [];
  *  cerrados y cuáles ha enseñado. Antes eso vivía en dos sitios —una tira de
  *  etiquetas arriba y un panel al final del tablero—, y el de abajo crecía
  *  según la gente iba revelando hasta empujar las cartas fuera de la pantalla. */
-export function renderPlayersProgress(progress) {
+export function renderPlayersProgress(progress?: PlayerProgress[]) {
     if (progress) lastProgress = progress;
     const hud = document.getElementById('hud');
     if (!hud) return;
@@ -203,7 +205,7 @@ export function renderPlayersProgress(progress) {
 
         const count = document.createElement('span');
         count.className = 'hud-count';
-        count.textContent = p.completed_sets;
+        count.textContent = String(p.completed_sets);
         count.title = t('hud.closed', { n: p.completed_sets });
         stripe.appendChild(count);
 
@@ -286,7 +288,7 @@ export function applyBetaMode() {
 const SPRITE_COLS = 16;
 const SPRITE_ROWS = 13;
 
-export function applyCardSprite(el, card) {
+export function applyCardSprite(el: HTMLElement, card: Partial<CardInfo>) {
     const type = card.clothing_type ?? 0;
     const variant = (card.id ?? 0) % 4;
     const col = (type % 4) * 4 + variant;
@@ -300,19 +302,19 @@ export function applyCardSprite(el, card) {
 // Cartas en vuelo (ver flyCard): los redibujados las pintan escondidas.
 // Esconder solo el nodo no basta, porque un redibujado a mitad de vuelo pone
 // uno nuevo.
-const flyingCards = new Set();
+const flyingCards = new Set<number>();
 
 /** Nombre de una prenda en el idioma de la pestaña, por su tipo. El servidor
  *  manda el nombre en español (`name`), que queda de respaldo. */
-export function cardName(type, fallback) {
+export function cardName(type: number | undefined, fallback?: string | null): string {
     const k = `cloth.${type}`;
     return PilesI18n.has(k) ? t(k) : (fallback || '');
 }
 
-export function buildCard(card) {
+export function buildCard(card: CardInfo): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'card';
-    el.dataset.cardId = card.id;
+    el.dataset.cardId = String(card.id);
     applyCardSprite(el, card);
     if (flyingCards.has(card.id)) el.style.visibility = 'hidden';
     return el;
@@ -324,7 +326,7 @@ export function buildCard(card) {
 // se anima el nodo real: se mide antes, se deja que el tablero se redibuje, y
 // se lanza una copia por encima que va del sitio viejo al nuevo.
 
-export function cardRectAt(rowId, index) {
+export function cardRectAt(rowId: string, index: number): DOMRect | null {
     const el = document.getElementById(rowId)?.children[index];
     return el ? el.getBoundingClientRect() : null;
 }
@@ -338,18 +340,18 @@ export function cardRectAt(rowId, index) {
  *  dos a la vez (que es exactamente lo que pasaba). Por eso la de destino se
  *  esconde mientras dura el vuelo y se descubre justo cuando la copia llega.
  */
-export function flyCard(cardData, from, rowId, index, won = false) {
+export function flyCard(cardData: CardInfo | null | undefined, from: DOMRect | null | undefined, rowId: string, index: number, won = false) {
     emitir('vuela', cardData, from);
-    const dest = document.getElementById(rowId)?.children[index];
+    const dest = document.getElementById(rowId)?.children[index] as HTMLElement | undefined;
     const to = dest ? dest.getBoundingClientRect() : null;
-    if (!cardData || !from || !to) { if (dest) markLanded(rowId, index, won); return; }
+    if (!cardData || !from || !to || !dest) { if (dest) markLanded(rowId, index, won); return; }
 
     const el = buildCard(cardData);
     el.style.left = `${from.left}px`;
     el.style.top = `${from.top}px`;
     el.style.width = `${from.width}px`;
     el.style.height = `${from.height}px`;
-    document.getElementById('fxLayer').appendChild(el);
+    porId('fxLayer').appendChild(el);
     dest.style.visibility = 'hidden';
     flyingCards.add(cardData.id);
 
@@ -365,11 +367,11 @@ export function flyCard(cardData, from, rowId, index, won = false) {
         // invisible para siempre sería mucho peor que ver la copia de más.
         // El nodo de ahora, que puede no ser `dest` si hubo redibujado.
         const row = document.getElementById(rowId);
-        row?.querySelectorAll('.card').forEach(c => { if (c.dataset.cardId == cardData.id) c.style.visibility = ''; });
+        row?.querySelectorAll<HTMLElement>('.card').forEach(c => { if (c.dataset.cardId === String(cardData.id)) c.style.visibility = ''; });
         if (land) markLanded(rowId, index, won);
     };
     el.dataset.row = rowId;
-    el.finishFlight = finish;
+    (el as HTMLElement & { finishFlight?: (land?: boolean) => void }).finishFlight = finish;
 
     // De centro a centro: la escala va desde el centro de la copia, así que
     // mover la esquina la dejaba desplazada la mitad de la diferencia de
@@ -380,18 +382,18 @@ export function flyCard(cardData, from, rowId, index, won = false) {
     requestAnimationFrame(() => {
         el.style.transform = `translate(${dx}px, ${dy}px) scale(${to.width / from.width})`;
     });
-    el.addEventListener('transitionend', finish, { once: true });
+    el.addEventListener('transitionend', () => finish(), { once: true });
     // Red de seguridad por si la transición no llega a dispararse (pestaña en
     // segundo plano, por ejemplo).
-    setTimeout(finish, 900);
+    setTimeout(() => finish(), 900);
 }
 
 /** Marca una carta recién llegada para que se vea qué ha cambiado.
  *  `won` la pinta en dorado y con más fuerza: es el premio de una pelea. */
-export function markLanded(rowId, index, won = false) {
+export function markLanded(rowId: string, index: number, won = false) {
     // 'aterriza' puede cancelarlo: la partida espera a que llegue la carta que viene volando
     if (!emitir('aterriza', rowId, index, won)) return;
-    const el = document.getElementById(rowId)?.children[index];
+    const el = document.getElementById(rowId)?.children[index] as HTMLElement | undefined;
     if (!el) return;
     const cls = won ? 'card-won' : 'card-landed';
     el.classList.remove('card-landed', 'card-won');
@@ -416,7 +418,7 @@ function shakeBoard(hard = false) {
 
 /** Chispas saliendo del centro de una carta. Van en #fxLayer porque .card
  *  recorta a sus hijos y ahí dentro no se verían. */
-function sparkBurst(rect, count = 10) {
+function sparkBurst(rect: DOMRect, count = 10) {
     if (REDUCED_MOTION?.matches) return;
     const layer = document.getElementById('fxLayer');
     if (!layer) return;
@@ -444,12 +446,12 @@ function sparkBurst(rect, count = 10) {
 // siguen jugando, así que hay que decir qué está pasando: un aviso con cuenta
 // atrás mientras se le espera, y otro si al final no vuelve.
 
-let graceTimers = new Map();   // nickname -> intervalo de la cuenta atrás
+const graceTimers = new Map<string, ReturnType<typeof setInterval>>();   // nickname -> intervalo de la cuenta atrás
 
-function graceNotif(nickname) {
+function graceNotif(nickname: string): HTMLElement | null {
     const area = document.getElementById('verifyNotifications');
     if (!area) return null;
-    let el = area.querySelector(`[data-grace="${CSS.escape(nickname)}"]`);
+    let el = area.querySelector<HTMLElement>(`[data-grace="${CSS.escape(nickname)}"]`);
     if (!el) {
         el = document.createElement('div');
         el.className = 'qte-battle-notif';
@@ -459,7 +461,7 @@ function graceNotif(nickname) {
     return el;
 }
 
-function clearGrace(nickname) {
+function clearGrace(nickname: string) {
     const t = graceTimers.get(nickname);
     if (t) { clearInterval(t); graceTimers.delete(nickname); }
     document.querySelector(`[data-grace="${CSS.escape(nickname)}"]`)?.remove();
@@ -467,7 +469,7 @@ function clearGrace(nickname) {
 
 /** El aviso de `nickname` con un título y unas líneas de texto. Como texto, nunca
  *  como HTML: el servidor no filtra los apodos. Devuelve el aviso. */
-export function pintarAviso(nickname, titulo, lineas) {
+export function pintarAviso(nickname: string, titulo: string, lineas: [string, string?][]) {
     const el = graceNotif(nickname);
     if (!el) return null;
     el.classList.remove('wait-poll');
@@ -484,7 +486,7 @@ export function pintarAviso(nickname, titulo, lineas) {
     return el;
 }
 
-export function onPlayerDisconnected(nickname, seconds) {
+export function onPlayerDisconnected(nickname: string, seconds: number) {
     if (!graceNotif(nickname)) return;
     clearInterval(graceTimers.get(nickname));
 
@@ -500,11 +502,11 @@ export function onPlayerDisconnected(nickname, seconds) {
     }, 1000));
 }
 
-export function onPlayerLeft(nickname, retired, types) {
+export function onPlayerLeft(nickname: string, retired: string[], types?: number[]) {
     clearGrace(nickname);
     // Las prendas retiradas se nombran a propósito: explica por qué de pronto
     // hay cartas que ya no están, y lo convierte en mecánica y no en un fallo.
-    const lineas = [[t('grace.gone')]];
+    const lineas: [string, string?][] = [[t('grace.gone')]];
     // `types` (ids de prenda) llega en servidores nuevos y se traduce; sin él,
     // los nombres en español que manda el servidor.
     const fuera = types && types.length ? types.map(ty => cardName(ty, '')) : retired;
@@ -520,12 +522,12 @@ export function onPlayerLeft(nickname, retired, types) {
 // siguen: Sí = otros 30 s de espera, No = se cancela la partida (basta uno).
 // Quien no contesta en el plazo cuenta como Sí. Quien mira solo lo ve.
 
-export function onWaitPoll(nickname, seconds) {
+export function onWaitPoll(nickname: string, seconds: number) {
     clearInterval(graceTimers.get(nickname));
     let left = seconds;
-    let voto = null;
+    let voto: boolean | null = null;
     const paint = () => {
-        const lineas = [[t('wait.q', { n: left })]];
+        const lineas: [string, string?][] = [[t('wait.q', { n: left })]];
         if (voto !== null) lineas.push([t(voto ? 'wait.voted_wait' : 'wait.voted_cancel'), 'text-align:center;opacity:0.8;margin-top:4px']);
         const el = pintarAviso(nickname, `🔌 ${nickname}`, lineas);
         if (!el) return;
@@ -533,7 +535,7 @@ export function onWaitPoll(nickname, seconds) {
         if (est.soyEspectador || voto !== null) return;
         const botones = document.createElement('div');
         botones.className = 'wait-poll-btns';
-        for (const [texto, seguir] of [[t('wait.wait'), true], [t('wait.cancel'), false]]) {
+        for (const [texto, seguir] of [[t('wait.wait'), true], [t('wait.cancel'), false]] as const) {
             const b = document.createElement('button');
             b.type = 'button';
             b.textContent = texto;
@@ -554,7 +556,7 @@ export function onWaitPoll(nickname, seconds) {
     }, 1000));
 }
 
-export function onWaitPollClosed(nickname, result) {
+export function onWaitPollClosed(nickname: string, result: string) {
     clearInterval(graceTimers.get(nickname));
     graceTimers.delete(nickname);
     if (result === 'volvio') {
@@ -579,9 +581,9 @@ export function clearGraceNotices() {
 // y luego asigna una al azar; aquí solo se pinta la cuenta atrás, con la
 // duración que él manda — igual que la barra del bloqueo.
 
-let debtTimer = null;
+let debtTimer: ReturnType<typeof setTimeout> | undefined;
 
-export function startDebtCountdown(ms) {
+export function startDebtCountdown(ms: number) {
     const bar = document.getElementById('debtBar');
     const fill = document.getElementById('debtBarFill');
     if (!bar || !fill) return;
@@ -602,7 +604,7 @@ export function clearDebtCountdown() {
     document.getElementById('debtBar')?.classList.remove('active');
 }
 
-export function onDebtForced(card) {
+export function onDebtForced(card: CardInfo) {
     clearDebtCountdown();
     updateSwapHint(t('debt.forced', { name: cardName(card.clothing_type, card.name) }));
     resetSwapHintLater(2500);
@@ -614,25 +616,25 @@ export function onDebtForced(card) {
 // con la ventana que él manda, igual que la del bloqueo — así el cliente nunca
 // puede enseñar un multiplicador que el servidor no reconoce.
 
-let comboHideTimer = null;
+let comboHideTimer: ReturnType<typeof setTimeout> | undefined;
 
 /** Centésimas → "2" o "1,25". Sin decimales de relleno: x2 se lee mejor que
  *  x2,00, pero x1,25 necesita los suyos. Un solo sitio, porque el visor de
  *  grabaciones enseñaba x2,00 donde el juego enseña x2 y comparar los dos
  *  obligaba a traducir de cabeza. */
-export function formatMult(x100) {
+export function formatMult(x100: number): string {
     return x100 % 100 === 0 ? String(x100 / 100)
                             : (x100 / 100).toFixed(2).replace('.', t('num.dec'));
 }
 
-export function renderCombo(msg) {
+export function renderCombo(msg: Msg<'combo_update'>) {
     const box = document.getElementById('comboBox');
-    const mult = document.getElementById('comboMult');
-    const fill = document.getElementById('comboBarFill');
     if (!box) return;
+    const mult = porId('comboMult');
+    const fill = porId('comboBarFill');
 
     clearTimeout(comboHideTimer);
-    const board = document.getElementById('gameScreen');
+    const board = porId('gameScreen');
 
     // El frenesí sobrevive a la racha, así que se pinta antes de cualquier
     // vuelta atrás: se gana llegando al precio y se guarda hasta gastarlo.
@@ -696,7 +698,7 @@ export function resetCombo() {
  *  `coste` es lo que costará el SIGUIENTE, que sube medio punto cada vez que
  *  gastas uno. Se enseña en el título porque si no, la segunda vez el
  *  multiplicador parece atascarse antes de llegar arriba sin explicación. */
-export function updateFrenzyBtn(ready, coste) {
+export function updateFrenzyBtn(ready: boolean, coste?: number) {
     const btn = document.getElementById('frenzyBtn');
     if (!btn) return;
     if (coste) {
@@ -728,7 +730,7 @@ export function fireFrenzy() {
 }
 
 /** Alguien soltó un frenesí. Quien lo paró se entera de que le ha servido. */
-export function onFrenzyFired(msg) {
+export function onFrenzyFired(msg: Msg<'frenzy_fired'>) {
     const yoParé = (msg.countered || []).includes(est.currentNickname);
     const yoLoSolté = msg.player === est.currentNickname;
     playSfx(yoParé ? 'frenzyCounter' : 'frenzyHit');
@@ -778,7 +780,7 @@ export function initCardTilt() {
 
         row.addEventListener('pointermove', (e) => {
             if (REDUCED_MOTION?.matches) return;
-            const card = e.target.closest('.card');
+            const card = (e.target as Element).closest<HTMLElement>('.card');
             if (!card || !row.contains(card)) return;
             const r = card.getBoundingClientRect();
             const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5 … 0.5
@@ -790,7 +792,7 @@ export function initCardTilt() {
         // pointerout cubre salir de la fila y saltar entre cartas; sin esto la
         // carta se queda torcida al alejarse.
         row.addEventListener('pointerout', (e) => {
-            const card = e.target.closest('.card');
+            const card = (e.target as Element).closest<HTMLElement>('.card');
             if (!card) return;
             card.style.setProperty('--tilt-x', '0deg');
             card.style.setProperty('--tilt-y', '0deg');

@@ -179,7 +179,7 @@
     sinEmoji: () => sinEmoji
   });
 
-  // ../client/juego/tablero.js
+  // ../client/juego/tablero.ts
   var tablero_exports = {};
   __export(tablero_exports, {
     IS_BETA: () => IS_BETA,
@@ -424,7 +424,7 @@
     emitir("toggleMute");
   }
 
-  // ../client/juego/toques.js
+  // ../client/juego/toques.ts
   var toques_exports = {};
   __export(toques_exports, {
     FIGHT_RESULT_MS: () => FIGHT_RESULT_MS,
@@ -557,7 +557,7 @@
     return true;
   }
 
-  // ../client/juego/pelea.js
+  // ../client/juego/pelea.ts
   var pelea_exports = {};
   __export(pelea_exports, {
     cerrarAvisoPelea: () => cerrarAvisoPelea,
@@ -579,19 +579,19 @@
   }
   function startStun(ms) {
     stunnedUntil = Date.now() + ms;
-    document.getElementById("gameScreen").classList.add("stunned");
-    const bar = document.getElementById("stunBar");
-    const fill = document.getElementById("stunBarFill");
+    porId("gameScreen").classList.add("stunned");
+    const bar = porId("stunBar");
+    const fill = porId("stunBarFill");
     bar.classList.add("active");
     fill.style.width = "100%";
     if (stunTimer) clearInterval(stunTimer);
     stunTimer = setInterval(() => {
       const left = stunnedUntil - Date.now();
       if (left <= 0) {
-        clearInterval(stunTimer);
+        if (stunTimer) clearInterval(stunTimer);
         stunTimer = null;
         bar.classList.remove("active");
-        document.getElementById("gameScreen").classList.remove("stunned");
+        porId("gameScreen").classList.remove("stunned");
         return;
       }
       fill.style.width = `${left / ms * 100}%`;
@@ -626,15 +626,15 @@
       est.qteActive = true;
       playSfx("fight");
       const rival = players.find((p) => p !== est.currentNickname) || "";
-      document.getElementById("qteTitle").textContent = t("qte.title");
-      const desc = document.getElementById("qteDesc");
+      porId("qteTitle").textContent = t("qte.title");
+      const desc = porId("qteDesc");
       const rivalEl = document.createElement("strong");
       rivalEl.textContent = rival;
       desc.replaceChildren(t("qte.vs") + " ", rivalEl);
-      const cardSlot = document.getElementById("qteCard");
+      const cardSlot = porId("qteCard");
       cardSlot.innerHTML = "";
       if (est.qteContestedCard) cardSlot.appendChild(buildCard(est.qteContestedCard));
-      const scoresDiv = document.getElementById("qteScores");
+      const scoresDiv = porId("qteScores");
       scoresDiv.innerHTML = "";
       players.forEach((name) => {
         const div = document.createElement("div");
@@ -650,22 +650,22 @@
         div.append(nombre, cuenta);
         scoresDiv.appendChild(div);
       });
-      document.getElementById("qteClickBtn").style.display = "block";
+      porId("qteClickBtn").style.display = "block";
       cancelGiveUpHold();
       const rendirse = giveUpBtn();
       if (rendirse) rendirse.hidden = false;
-      const fill = document.getElementById("qteTimerFill");
+      const fill = porId("qteTimerFill");
       fill.style.width = "100%";
       const start = Date.now();
       if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
       est.qteTimerInterval = setInterval(() => {
         const pct = Math.max(0, 100 - (Date.now() - start) / durationMs * 100);
         fill.style.width = pct + "%";
-        if (pct <= 0) clearInterval(est.qteTimerInterval);
+        if (pct <= 0) clearInterval(est.qteTimerInterval ?? void 0);
       }, 50);
-      document.getElementById("qteOverlay").classList.add("active");
+      porId("qteOverlay").classList.add("active");
     } else {
-      const area = document.getElementById("verifyNotifications");
+      const area = porId("verifyNotifications");
       const notif = document.createElement("div");
       notif.className = "qte-battle-notif";
       const funEmojis = ["\u2694\uFE0F", "\u{1F94A}", "\u{1F4A5}", "\u{1F525}", "\u26A1"];
@@ -725,7 +725,7 @@
     const notifs = cardId == null ? [...qteNotifs.values()] : [qteNotifs.get(cardId)];
     Object.entries(clicks).forEach(([name, count]) => {
       const overlayEl = document.getElementById(`qte-n-${name}`);
-      if (overlayEl) overlayEl.textContent = count;
+      if (overlayEl) overlayEl.textContent = String(count);
       notifs.forEach((n) => {
         const s = n && [...n.querySelectorAll("[data-nick]")].find((e) => e.dataset.nick === name);
         if (s) s.textContent = t("qte.clicks", { n: count });
@@ -733,8 +733,8 @@
     });
     emitir("onQteUpdate", clicks, cardId);
   }
-  function onQteTiebreak(cardId, round, ms) {
-    ms = ms || 1e3;
+  function onQteTiebreak(cardId, round, duracion) {
+    const ms = duracion || 1e3;
     const bar = (fill2) => {
       const start = Date.now();
       return setInterval(() => {
@@ -757,21 +757,21 @@
     }
     if (!est.qteActive || est.qteMyCardId !== cardId) return;
     const marcador = est.qtePlayers.map((n) => document.getElementById(`qte-n-${n}`)?.textContent ?? "0").join(" \u2013 ");
-    const titulo = document.getElementById("qteTitle");
+    const titulo = porId("qteTitle");
     titulo.textContent = t("qte.tie_title");
     titulo.classList.add("tie");
-    document.getElementById("qteBox").classList.add("tie");
-    document.getElementById("qteDesc").textContent = t(round > 1 ? "qte.tie_desc_round" : "qte.tie_desc", { score: marcador, round });
+    porId("qteBox").classList.add("tie");
+    porId("qteDesc").textContent = t(round > 1 ? "qte.tie_desc_round" : "qte.tie_desc", { score: marcador, round });
     est.qtePlayers.forEach((n) => {
       const el = document.getElementById(`qte-n-${n}`);
       if (el) el.textContent = "0";
     });
     playSfx("tiebreak");
-    const fill = document.getElementById("qteTimerFill");
+    const fill = porId("qteTimerFill");
     fill.style.width = "100%";
     if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
     est.qteTimerInterval = bar(fill);
-    clearTimeout(qteTieLabelTimer);
+    if (qteTieLabelTimer) clearTimeout(qteTieLabelTimer);
     qteTieLabelTimer = setTimeout(() => {
       titulo.classList.remove("tie");
       titulo.textContent = t("qte.title");
@@ -780,7 +780,7 @@
   var qteTieLabelTimer = null;
   function onQteResolved(winnerName, info) {
     const wasParticipant = est.qtePlayers.includes(est.currentNickname);
-    clearTimeout(qteTieLabelTimer);
+    if (qteTieLabelTimer) clearTimeout(qteTieLabelTimer);
     if (!wasParticipant) {
       closeQteOverlay();
       return;
@@ -788,7 +788,7 @@
     const iWon = winnerName === est.currentNickname;
     playSfx(iWon ? "fightWon" : "fightLost");
     est.qteWonSlot = iWon && est.qteContestedCard ? { card: est.qteContestedCard, index: est.qteContestedIndex } : null;
-    document.getElementById("qteClickBtn").style.display = "none";
+    porId("qteClickBtn").style.display = "none";
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
     if (rendirse) rendirse.hidden = true;
@@ -801,15 +801,15 @@
       if (box) box.classList.add(name === winnerName ? "won" : "lost");
       const n = info?.clicks?.[name];
       const el = document.getElementById(`qte-n-${name}`);
-      if (el && n !== void 0) el.textContent = n;
+      if (el && n !== void 0) el.textContent = String(n);
     });
-    const titulo = document.getElementById("qteTitle");
+    const titulo = porId("qteTitle");
     titulo.classList.remove("tie");
     titulo.textContent = t("qte.title");
     if (info?.random) {
-      document.getElementById("qteDesc").textContent = t("qte.random");
+      porId("qteDesc").textContent = t("qte.random");
     } else if (info?.tiebreaks) {
-      document.getElementById("qteDesc").textContent = t("qte.sudden");
+      porId("qteDesc").textContent = t("qte.sudden");
     }
     est.qteActive = false;
     if (est.qteResultTimer) clearTimeout(est.qteResultTimer);
@@ -833,13 +833,13 @@
       clearTimeout(est.qteResultTimer);
       est.qteResultTimer = null;
     }
-    const overlay = document.getElementById("qteOverlay");
+    const overlay = porId("qteOverlay");
     overlay.classList.remove("active");
-    document.getElementById("qteClickBtn").disabled = false;
-    document.getElementById("qteCard").innerHTML = "";
+    porId("qteClickBtn").disabled = false;
+    porId("qteCard").innerHTML = "";
     document.querySelectorAll(".qte-player-score").forEach((el) => el.classList.remove("won", "lost"));
-    document.getElementById("qteBox").classList.remove("tie");
-    document.getElementById("qteTitle").classList.remove("tie");
+    porId("qteBox").classList.remove("tie");
+    porId("qteTitle").classList.remove("tie");
     if (est.qteContestedCard) cerrarAvisoPelea(est.qteContestedCard.id);
     est.qtePlayers = [];
     est.qteContestedCard = null;
@@ -856,7 +856,7 @@
     return document.getElementById("qteGiveUpBtn");
   }
   function cancelGiveUpHold() {
-    clearTimeout(giveUpTimer);
+    if (giveUpTimer) clearTimeout(giveUpTimer);
     giveUpTimer = null;
     giveUpBtn()?.classList.remove("holding");
   }
@@ -888,7 +888,7 @@
       });
     }
   })();
-  document.getElementById("qteOverlay").addEventListener("pointerdown", (e) => {
+  porId("qteOverlay").addEventListener("pointerdown", (e) => {
     if (!est.qteActive) return;
     e.preventDefault();
     sendQteClick();
@@ -897,13 +897,13 @@
     setTimeout(() => overlay.classList.remove("hit"), 60);
   });
   document.addEventListener("keydown", (e) => {
-    if (est.qteActive && (e.code === "Space" || e.code === "Enter") && e.target.tagName !== "INPUT") {
+    if (est.qteActive && (e.code === "Space" || e.code === "Enter") && e.target?.tagName !== "INPUT") {
       e.preventDefault();
       sendQteClick();
     }
   });
 
-  // ../client/juego/toques.js
+  // ../client/juego/toques.ts
   var TAP_SLOP_PX = 12;
   var TAP_MAX_MS = 700;
   function bindTap(container, handler, target = "?", { alSoltar = false } = {}) {
@@ -1051,19 +1051,20 @@
   function onSwapSuccess(msg) {
     const drop = est.pendingDrop;
     const take = est.pendingTake;
-    const wonFight = !drop && !take && est.qteWonSlot !== null;
+    const won = est.qteWonSlot;
+    const wonFight = !drop && !take && won !== null;
     const fromMine = drop ? cardRectAt("yourCards", drop.index) : null;
-    const fromCenter = take ? cardRectAt("centerCards", take.centerIndex) : wonFight ? cardRectAt("centerCards", est.qteWonSlot.index) : null;
+    const fromCenter = take ? cardRectAt("centerCards", take.centerIndex) : won && wonFight && won.index !== null ? cardRectAt("centerCards", won.index) : null;
     const oldSet = (est.allSets[msg.set_index] || []).slice();
     if (msg.your_new_set) est.allSets[msg.set_index] = msg.your_new_set;
     est.centerCards = msg.center_cards;
     renderYourCards();
     renderCenterCards();
     updateSetNav();
-    if (wonFight) {
+    if (won && wonFight) {
       const slot = findChangedSlot(oldSet, msg.your_new_set);
       if (slot !== -1) {
-        flyCard(est.qteWonSlot.card, fromCenter, "yourCards", slot, true);
+        flyCard(won.card, fromCenter, "yourCards", slot, true);
       }
       est.qteWonSlot = null;
     } else if (drop) {
@@ -1101,7 +1102,7 @@
   function findChangedSlot(oldCards, newCards) {
     if (!newCards) return -1;
     for (let i = 0; i < newCards.length; i++) {
-      if (!oldCards[i] || oldCards[i].id !== newCards[i].id) return i;
+      if (!oldCards[i] || oldCards[i]?.id !== newCards[i]?.id) return i;
     }
     return -1;
   }
@@ -1134,7 +1135,7 @@
     }, delayMs);
   }
   function updateSwapHint(texto) {
-    const el = document.getElementById("swapHint");
+    const el = porId("swapHint");
     el.textContent = texto;
     el.classList.toggle("selected", owesCard());
   }
@@ -1145,7 +1146,7 @@
     est.currentSetIndex = index;
     clearSelection();
     send({ type: "switch_set", set_index: index });
-    document.querySelectorAll('#fxLayer .card[data-row="yourCards"]').forEach((c) => c.finishFlight(false));
+    document.querySelectorAll('#fxLayer .card[data-row="yourCards"]').forEach((c) => c.finishFlight?.(false));
     renderYourCards();
     emitir("switchSet", index, antes);
   }
@@ -1175,7 +1176,7 @@
       } else {
         playerMap.delete(setIndex);
       }
-      renderPlayersProgress(null);
+      renderPlayersProgress();
     }
   }
   var qteNotifs = /* @__PURE__ */ new Map();
@@ -1593,14 +1594,14 @@
     }), 450);
   }
 
-  // ../client/juego/tablero.js
+  // ../client/juego/tablero.ts
   function buildSetNav() {
-    const nav = document.getElementById("setNav");
+    const nav = porId("setNav");
     nav.innerHTML = "";
     for (let i = 0; i < 6; i++) {
       const btn = document.createElement("button");
       btn.className = "set-btn" + (i === 0 ? " active" : "");
-      btn.dataset.idx = i;
+      btn.dataset.idx = String(i);
       btn.innerHTML = `${esc(t("set.n", { n: i + 1 }))}<span class="set-eye"></span>`;
       btn.onclick = () => switchSet(i);
       nav.appendChild(btn);
@@ -1668,13 +1669,13 @@
           el.classList.add("qte-waiting");
         }
       }
-      el.dataset.tap = card.id;
+      el.dataset.tap = String(card.id);
       div.appendChild(el);
     }
     emitir("renderCenterCards");
   }
   function renderYourCards() {
-    const div = document.getElementById("yourCards");
+    const div = porId("yourCards");
     div.innerHTML = "";
     const set = est.allSets[est.currentSetIndex] || [];
     set.forEach((card, i) => {
@@ -1686,7 +1687,7 @@
         return;
       }
       const el = buildCard(card);
-      el.dataset.tap = i;
+      el.dataset.tap = String(i);
       div.appendChild(el);
     });
     updateSetNav();
@@ -1726,7 +1727,7 @@
       stripe.appendChild(slots);
       const count = document.createElement("span");
       count.className = "hud-count";
-      count.textContent = p.completed_sets;
+      count.textContent = String(p.completed_sets);
       count.title = t("hud.closed", { n: p.completed_sets });
       stripe.appendChild(count);
       hud.appendChild(stripe);
@@ -1790,7 +1791,7 @@
   function buildCard(card) {
     const el = document.createElement("div");
     el.className = "card";
-    el.dataset.cardId = card.id;
+    el.dataset.cardId = String(card.id);
     applyCardSprite(el, card);
     if (flyingCards.has(card.id)) el.style.visibility = "hidden";
     return el;
@@ -1803,7 +1804,7 @@
     emitir("vuela", cardData, from);
     const dest = document.getElementById(rowId)?.children[index];
     const to = dest ? dest.getBoundingClientRect() : null;
-    if (!cardData || !from || !to) {
+    if (!cardData || !from || !to || !dest) {
       if (dest) markLanded(rowId, index, won);
       return;
     }
@@ -1812,7 +1813,7 @@
     el.style.top = `${from.top}px`;
     el.style.width = `${from.width}px`;
     el.style.height = `${from.height}px`;
-    document.getElementById("fxLayer").appendChild(el);
+    porId("fxLayer").appendChild(el);
     dest.style.visibility = "hidden";
     flyingCards.add(cardData.id);
     let done = false;
@@ -1823,7 +1824,7 @@
       flyingCards.delete(cardData.id);
       const row = document.getElementById(rowId);
       row?.querySelectorAll(".card").forEach((c) => {
-        if (c.dataset.cardId == cardData.id) c.style.visibility = "";
+        if (c.dataset.cardId === String(cardData.id)) c.style.visibility = "";
       });
       if (land) markLanded(rowId, index, won);
     };
@@ -1834,8 +1835,8 @@
     requestAnimationFrame(() => {
       el.style.transform = `translate(${dx}px, ${dy}px) scale(${to.width / from.width})`;
     });
-    el.addEventListener("transitionend", finish, { once: true });
-    setTimeout(finish, 900);
+    el.addEventListener("transitionend", () => finish(), { once: true });
+    setTimeout(() => finish(), 900);
   }
   function markLanded(rowId, index, won = false) {
     if (!emitir("aterriza", rowId, index, won)) return;
@@ -1981,7 +1982,7 @@
     for (const n of [...graceTimers.keys()]) clearGrace(n);
     document.querySelectorAll("[data-grace]").forEach((el) => el.remove());
   }
-  var debtTimer = null;
+  var debtTimer;
   function startDebtCountdown(ms) {
     const bar = document.getElementById("debtBar");
     const fill = document.getElementById("debtBarFill");
@@ -2005,17 +2006,17 @@
     resetSwapHintLater(2500);
     emitir("onDebtForced", card);
   }
-  var comboHideTimer = null;
+  var comboHideTimer;
   function formatMult(x100) {
     return x100 % 100 === 0 ? String(x100 / 100) : (x100 / 100).toFixed(2).replace(".", t("num.dec"));
   }
   function renderCombo(msg) {
     const box = document.getElementById("comboBox");
-    const mult = document.getElementById("comboMult");
-    const fill = document.getElementById("comboBarFill");
     if (!box) return;
+    const mult = porId("comboMult");
+    const fill = porId("comboBarFill");
     clearTimeout(comboHideTimer);
-    const board = document.getElementById("gameScreen");
+    const board = porId("gameScreen");
     updateFrenzyBtn(msg.frenzy_ready, msg.frenzy_cost_x100);
     musicFromCombo(msg.window_ms ? msg.multiplier_x100 ?? 100 : 100, msg.frenzy_ready);
     if (msg.window_ms && msg.points) {

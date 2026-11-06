@@ -32,7 +32,8 @@
 // Y lo que se descarta ya no es mudo: queda anotado (`tap_ignored`) para poder
 // saber, en la grabación, por qué un toque no llegó al servidor.
 import { emitir } from './bus.js';
-import { est, opponentFlippedSets, qteBlockedCards } from './estado.js';
+import { est, opponentFlippedSets, qteBlockedCards, porId, type Msg, type Set6 } from './estado.js';
+import type { CardInfo } from '../tipos/CardInfo';
 import { diag, send, srvText } from './red.js';
 import { updateSetNav, renderCenterCards, renderYourCards, renderPlayersProgress, buildCard, cardRectAt, flyCard, clearDebtCountdown } from './tablero.js';
 import { playSfx } from './sonido.js';
@@ -46,13 +47,13 @@ const TAP_MAX_MS = 700;      // más que esto, era mantener pulsado
 // cartas: sobre ellas ↓ / ↑ / ← → son gestos (revelar el set, cambiar de set, gestos.js)
 // y, contando al bajar, cada gesto soltaba la carta donde empezaba. Las del centro siguen
 // contando al bajar: ahí se pelea por milisegundos.
-function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
+function bindTap(container: HTMLElement | null, handler: (tap: string, el: HTMLElement) => void, target = '?', { alSoltar = false } = {}) {
     if (!container) {
         // Sin esto el juego se queda mudo y sin decir por qué.
         console.error('[piles] falta el contenedor de cartas: no habrá toques');
         return;
     }
-    let start = null;
+    let start: { tap: string; x: number; y: number; t: number; el: HTMLElement; fired: boolean; pointer: string } | null = null;
 
     // ¿Puede desplazarse AHORA MISMO este contenedor? Solo entonces un gesto
     // con el dedo puede ser un scroll y no un toque.
@@ -62,17 +63,17 @@ function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
             && container.scrollHeight > container.clientHeight + 2;
     };
 
-    const ignorado = (reason, s, extra = {}) => diag.note('tap_ignored', {
+    const ignorado = (reason: string, s: { pointer: string; t: number }, extra = {}) => diag.note('tap_ignored', {
         reason, target, pointer: s.pointer, ms: Date.now() - s.t, ...extra,
     });
 
     container.addEventListener('pointerdown', (e) => {
         start = null;
         if (e.pointerType === 'mouse' && e.button !== 0) return;
-        const el = e.target.closest('[data-tap]');
+        const el = (e.target as Element).closest<HTMLElement>('[data-tap]');
         if (!el || !container.contains(el)) return;
         start = {
-            tap: el.dataset.tap, x: e.clientX, y: e.clientY, t: Date.now(), el,
+            tap: el.dataset.tap!, x: e.clientX, y: e.clientY, t: Date.now(), el,
             fired: false, pointer: e.pointerType,
         };
         // Confirmación inmediata, sin esperar al servidor: el toque se ve
@@ -85,7 +86,7 @@ function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
         }
     });
 
-    const cancel = (e) => {
+    const cancel = (e?: Event) => {
         if (start) {
             start.el.classList.remove('tapped');
             // Solo si aún no se había hecho: lo que ya se disparó al bajar no
@@ -119,7 +120,7 @@ function bindTap(container, handler, target = '?', { alSoltar = false } = {}) {
  *
  *  Solo al coger: soltar no tiene con qué equivocarse —la carta es tuya— y la
  *  animación de vuelo ya la cubre. */
-function showGhost(card) {
+function showGhost(card: CardInfo) {
     const div = document.getElementById('yourCards');
     if (!div) return;
     const slot = (est.allSets[est.currentSetIndex] || []).findIndex(c => !c);
@@ -144,7 +145,7 @@ function rollbackGhost() {
 /** Carta pedida, esperando al servidor. El estilo `.card-pending` ya existía y
  *  ya se limpiaba al fallar, pero no lo ponía nadie: el hueco entre el toque y
  *  la respuesta se veía igual que no haber tocado. */
-function markPending(el) {
+function markPending(el: HTMLElement | null | undefined) {
     clearPending();
     if (el) el.classList.add('card-pending');
 }
@@ -156,7 +157,7 @@ export function clearPending() {
 
 /** La jugada no toca ahora. El toque SÍ se registró, y decirlo evita que se
  *  insista pensando que no ha entrado. */
-function refuseTap(el) {
+function refuseTap(el: HTMLElement | null | undefined) {
     if (!el) return;
     playSfx('refused');
     el.classList.remove('refused');
@@ -179,9 +180,9 @@ bindTap(document.getElementById('yourCards'),
  *  perdida y se deja volver a tocar: es el seguro por si el servidor no
  *  contesta (el mayor RTT visto fue 1,9 s). */
 const PENDING_MAX_MS = 2500;
-const enVuelo = p => !!p && Date.now() - p.t < PENDING_MAX_MS;
+const enVuelo = (p: { t: number } | null) => !!p && Date.now() - p.t < PENDING_MAX_MS;
 
-export function onPlayerCardClick(index, el) {
+export function onPlayerCardClick(index: number, el?: HTMLElement | null) {
     // Solo te frena TU pelea. Que peleen otros dos no es motivo para dejarte
     // quieto: sigues jugando con tus cartas y con el resto del centro.
     // Debiendo una carta no se puede soltar otra: primero se tapa el hueco.
@@ -200,7 +201,7 @@ export function onPlayerCardClick(index, el) {
     send({ type: 'drop_card', my_card_index: index });
 }
 
-export function onCenterCardClick(cardId, el) {
+export function onCenterCardClick(cardId: number, el?: HTMLElement | null) {
     // Sin mensaje: la etiqueta PELEADA sobre la carta ya explica por qué no
     // pasa nada. La carta en disputa es la única intocable; las demás siguen
     // disponibles para quien no está peleando.
@@ -208,7 +209,7 @@ export function onCenterCardClick(cardId, el) {
     // Pero si DEBES una carta y se rechaza el toque, queda anotado con el
     // motivo: es justo el caso de "no me deja seleccionar", y hasta ahora no
     // dejaba rastro.
-    const rechazo = (why) => {
+    const rechazo = (why: string) => {
         if (owesCard()) {
             diag.note('tap_refused', {
                 why, qte: est.qteActive, stun_ms: Math.max(0, stunnedUntil - Date.now()),
@@ -241,15 +242,16 @@ export function onCenterCardClick(cardId, el) {
 
 /** Movimiento confirmado. La carta vuela de donde salió a donde ha llegado:
  *  al centro si la soltaste, a tu hueco si la cogiste o ganaste la pelea. */
-export function onSwapSuccess(msg) {
+export function onSwapSuccess(msg: Msg<'swap_success'>) {
     const drop = est.pendingDrop;
     const take = est.pendingTake;
-    const wonFight = !drop && !take && est.qteWonSlot !== null;
+    const won = est.qteWonSlot;
+    const wonFight = !drop && !take && won !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
     const fromMine = drop ? cardRectAt('yourCards', drop.index) : null;
     const fromCenter = take ? cardRectAt('centerCards', take.centerIndex)
-        : (wonFight ? cardRectAt('centerCards', est.qteWonSlot.index) : null);
+        : (won && wonFight && won.index !== null ? cardRectAt('centerCards', won.index) : null);
 
     const oldSet = (est.allSets[msg.set_index] || []).slice();
 
@@ -259,12 +261,12 @@ export function onSwapSuccess(msg) {
     renderCenterCards();
     updateSetNav();
 
-    if (wonFight) {
+    if (won && wonFight) {
         // Pelea ganada: la carta sale del centro y aterriza en tu set. Ese
         // vuelo es todo el "has ganado" que hace falta.
         const slot = findChangedSlot(oldSet, msg.your_new_set);
         if (slot !== -1) {
-            flyCard(est.qteWonSlot.card, fromCenter, 'yourCards', slot, true);
+            flyCard(won.card, fromCenter, 'yourCards', slot, true);
         }
         est.qteWonSlot = null;
     } else if (drop) {
@@ -294,7 +296,8 @@ export function onSwapSuccess(msg) {
  *  Solo se dice algo cuando el jugador puede hacer algo al respecto —debes una
  *  carta, estás verificando—, y eso lo marca el servidor con `kind`, no el
  *  texto: decidir comparando el texto ya rompió esto una vez. */
-export function onSwapFailed(msg) {
+/** `msg` puede ser solo `{ kind: 'gone' }`: lo sintetiza `stunned` (red.ts). */
+export function onSwapFailed(msg: Partial<Msg<'swap_failed'>>) {
     est.pendingDrop = null;
     est.pendingTake = null;
     rollbackGhost();
@@ -323,10 +326,10 @@ export function onSwapFailed(msg) {
 
 /** Primer hueco cuya carta cambió, comparando por id. El servidor manda los
  *  arrays enteros y nunca dice qué se movió, así que hay que deducirlo. */
-function findChangedSlot(oldCards, newCards) {
+function findChangedSlot(oldCards: Set6, newCards: Set6 | null | undefined) {
     if (!newCards) return -1;
     for (let i = 0; i < newCards.length; i++) {
-        if (!oldCards[i] || oldCards[i].id !== newCards[i].id) return i;
+        if (!oldCards[i] || oldCards[i]?.id !== newCards[i]?.id) return i;
     }
     return -1;
 }
@@ -349,11 +352,11 @@ export function updateOwingUi() {
     document.getElementById('gameScreen')?.classList.toggle('owing', owing);
     const hint = document.getElementById('swapHint');
     if (hint) hint.textContent = owing ? OWING_HINT : DEFAULT_SWAP_HINT;
-    const flip = document.getElementById('flipBtn');
+    const flip = document.getElementById('flipBtn') as HTMLButtonElement | null;
     if (flip) flip.disabled = owing;
     // Los botones de set se apagan mientras debes, para que se vea que no es
     // que no respondan: es que ahora solo se puede coger del centro.
-    document.querySelectorAll('.set-btn').forEach(b => { b.disabled = owing; });
+    document.querySelectorAll<HTMLButtonElement>('.set-btn').forEach(b => { b.disabled = owing; });
     // Deuda saldada: fuera la cuenta atrás, la hayas tapado tú o te la hayan
     // tapado. Se hace aquí porque es el único sitio por el que pasan todos los
     // caminos que cambian el estado de deuda.
@@ -367,10 +370,10 @@ export function clearSelection() {
     updateSwapHint(owesCard() ? OWING_HINT : DEFAULT_SWAP_HINT);
 }
 
-let swapHintResetTimer = null;
+let swapHintResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** Devuelve el hint a su texto por defecto tras un aviso temporal. */
-export function resetSwapHintLater(delayMs) {
+export function resetSwapHintLater(delayMs: number) {
     if (swapHintResetTimer) clearTimeout(swapHintResetTimer);
     swapHintResetTimer = setTimeout(() => {
         swapHintResetTimer = null;
@@ -379,14 +382,14 @@ export function resetSwapHintLater(delayMs) {
 }
 
 // Siempre como texto: algunos avisos llevan apodos de otros jugadores.
-export function updateSwapHint(texto) {
-    const el = document.getElementById('swapHint');
+export function updateSwapHint(texto: string) {
+    const el = porId('swapHint');
     el.textContent = texto;
     el.classList.toggle('selected', owesCard());
 }
 
 // ─── Cambio de set ────────────────────────────────────────────────────────
-export function switchSet(index) {
+export function switchSet(index: number) {
     if (index === est.currentSetIndex) return;
     // Debiendo una carta no se cambia de set: el hueco se quedaría en un set
     // que no estás viendo. El servidor también lo rechaza.
@@ -397,7 +400,7 @@ export function switchSet(index) {
     send({ type: 'switch_set', set_index: index });
     // Una carta que aún vuela hacia tu mano iba al hueco del set de antes:
     // seguía volando encima del nuevo y rebotaba sobre una carta ajena.
-    document.querySelectorAll('#fxLayer .card[data-row="yourCards"]').forEach(c => c.finishFlight(false));
+    document.querySelectorAll<HTMLElement & { finishFlight?: (land?: boolean) => void }>('#fxLayer .card[data-row="yourCards"]').forEach(c => c.finishFlight?.(false));
     renderYourCards();
     emitir('switchSet', index, antes);
 }
@@ -420,7 +423,7 @@ export function updateFlipBtn() {
     btn.classList.toggle('is-flipped', flipped);
 }
 
-export function onSetFlipped(playerName, setIndex, cards) {
+export function onSetFlipped(playerName: string, setIndex: number, cards: CardInfo[]) {
     const isFlipped = cards.length > 0;
 
     if (playerName === est.currentNickname) {
@@ -430,7 +433,7 @@ export function onSetFlipped(playerName, setIndex, cards) {
         if (!opponentFlippedSets.has(playerName)) {
             opponentFlippedSets.set(playerName, new Map());
         }
-        const playerMap = opponentFlippedSets.get(playerName);
+        const playerMap = opponentFlippedSets.get(playerName)!;
         if (isFlipped) {
             playerMap.set(setIndex, cards[0]);
         } else {
@@ -438,7 +441,7 @@ export function onSetFlipped(playerName, setIndex, cards) {
         }
         // Los sets revelados viven en el marcador de arriba: repintarlo es todo
         // lo que hay que hacer cuando alguien enseña uno.
-        renderPlayersProgress(null);
+        renderPlayersProgress();
     }
 }
 
@@ -448,7 +451,7 @@ export function onSetFlipped(playerName, setIndex, cards) {
 // Era una sola variable, y con dos peleas a la vez la segunda pisaba a la
 // primera: el aviso de la primera se quedaba colgado en pantalla para siempre,
 // porque ya no quedaba nada que lo apuntara para poder borrarlo.
-export const qteNotifs = new Map();
+export const qteNotifs = new Map<number, HTMLElement>();
 
 /** Cuánto dura el resultado en pantalla antes de volver al tablero. */
 export const FIGHT_RESULT_MS = 800;

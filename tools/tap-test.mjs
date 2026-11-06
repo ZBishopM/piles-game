@@ -4,9 +4,12 @@
 //
 // `bindTap` se saca del propio código del juego (client/juego/) para no tener una copia
 // que se quede vieja: si alguien cambia la función, esta prueba prueba la nueva.
+// Es TypeScript: esbuild le quita los tipos antes de evaluarla.
+import { transformSync } from 'esbuild';
 import { js as html } from './fuente-cliente.mjs';
-const src = html.match(/function bindTap\(container, handler[^\n]*\) \{[\s\S]*?\n\}/);
-if (!src) { console.log('FALLO: no se encontró bindTap'); process.exit(1); }
+const ts = html.match(/function bindTap\(container[^\n]*\) \{[\s\S]*?\n\}/);
+if (!ts) { console.log('FALLO: no se encontró bindTap'); process.exit(1); }
+const src = [transformSync(ts[0], { loader: 'ts' }).code.trim().replace(/;$/, '')];
 
 // ── DOM mínimo, solo lo que bindTap usa ──
 class El {

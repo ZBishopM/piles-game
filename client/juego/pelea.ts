@@ -1,23 +1,26 @@
 // ─── Bloqueo por perder ───────────────────────────────────────────────────
 import { emitir } from './bus.js';
-import { est, qteBlockedCards } from './estado.js';
+import { est, qteBlockedCards, porId, type Msg } from './estado.js';
+
+/** Un aviso de pelea lleva sus temporizadores colgados (ver cerrarAvisoPelea). */
+type Aviso = HTMLElement & { _timer?: ReturnType<typeof setInterval>; _failsafe?: ReturnType<typeof setTimeout> };
 import { send } from './red.js';
 import { renderCenterCards, buildCard } from './tablero.js';
 import { playSfx } from './sonido.js';
 import { clearPending, qteNotifs, FIGHT_RESULT_MS } from './toques.js';
 
 export let stunnedUntil = 0;
-let stunTimer = null;
+let stunTimer: ReturnType<typeof setInterval> | null = null;
 
 export function isStunned() { return Date.now() < stunnedUntil; }
 
 /** El servidor manda la duración porque es quien la aplica de verdad; aquí
  *  solo se pinta. No hay texto: el tablero apagado es el mensaje. */
-export function startStun(ms) {
+export function startStun(ms: number) {
     stunnedUntil = Date.now() + ms;
-    document.getElementById('gameScreen').classList.add('stunned');
-    const bar = document.getElementById('stunBar');
-    const fill = document.getElementById('stunBarFill');
+    porId('gameScreen').classList.add('stunned');
+    const bar = porId('stunBar');
+    const fill = porId('stunBarFill');
     bar.classList.add('active');
     fill.style.width = '100%';
 
@@ -25,10 +28,10 @@ export function startStun(ms) {
     stunTimer = setInterval(() => {
         const left = stunnedUntil - Date.now();
         if (left <= 0) {
-            clearInterval(stunTimer);
+            if (stunTimer) clearInterval(stunTimer);
             stunTimer = null;
             bar.classList.remove('active');
-            document.getElementById('gameScreen').classList.remove('stunned');
+            porId('gameScreen').classList.remove('stunned');
             return;
         }
         fill.style.width = `${(left / ms) * 100}%`;
@@ -42,7 +45,7 @@ export function clearStun() {
     document.getElementById('gameScreen')?.classList.remove('stunned');
 }
 
-export function onSwapConflict(players, cardId, durationMs) {
+export function onSwapConflict(players: string[], cardId: number, durationMs: number) {
     const isParticipant = players.includes(est.currentNickname);
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
@@ -81,17 +84,17 @@ export function onSwapConflict(players, cardId, durationMs) {
         playSfx('fight');
 
         const rival = players.find(p => p !== est.currentNickname) || '';
-        document.getElementById('qteTitle').textContent = t('qte.title');
-        const desc = document.getElementById('qteDesc');
+        porId('qteTitle').textContent = t('qte.title');
+        const desc = porId('qteDesc');
         const rivalEl = document.createElement('strong');
         rivalEl.textContent = rival;
         desc.replaceChildren(t('qte.vs') + ' ', rivalEl);
 
-        const cardSlot = document.getElementById('qteCard');
+        const cardSlot = porId('qteCard');
         cardSlot.innerHTML = '';
         if (est.qteContestedCard) cardSlot.appendChild(buildCard(est.qteContestedCard));
 
-        const scoresDiv = document.getElementById('qteScores');
+        const scoresDiv = porId('qteScores');
         scoresDiv.innerHTML = '';
         players.forEach(name => {
             const div = document.createElement('div');
@@ -109,40 +112,40 @@ export function onSwapConflict(players, cardId, durationMs) {
             scoresDiv.appendChild(div);
         });
 
-        document.getElementById('qteClickBtn').style.display = 'block';
+        porId('qteClickBtn').style.display = 'block';
         // Solo para quien pelea: el que mira no tiene nada que ceder.
         cancelGiveUpHold();
         const rendirse = giveUpBtn();
         if (rendirse) rendirse.hidden = false;
 
-        const fill = document.getElementById('qteTimerFill');
+        const fill = porId('qteTimerFill');
         fill.style.width = '100%';
         const start = Date.now();
         if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
         est.qteTimerInterval = setInterval(() => {
             const pct = Math.max(0, 100 - ((Date.now() - start) / durationMs) * 100);
             fill.style.width = pct + '%';
-            if (pct <= 0) clearInterval(est.qteTimerInterval);
+            if (pct <= 0) clearInterval(est.qteTimerInterval ?? undefined);
         }, 50);
 
-        document.getElementById('qteOverlay').classList.add('active');
+        porId('qteOverlay').classList.add('active');
 
     } else {
         // ── Notificación pequeña para espectadores ──
-        const area = document.getElementById('verifyNotifications');
-        const notif = document.createElement('div');
+        const area = porId('verifyNotifications');
+        const notif: Aviso = document.createElement('div');
         notif.className = 'qte-battle-notif';
         const funEmojis = ['⚔️', '🥊', '💥', '🔥', '⚡'];
         const emoji = funEmojis[Math.floor(Math.random() * funEmojis.length)];
         // Apodos como texto (el servidor no los filtra) y sin ids: con dos
         // avisos a la vez se repetirían; todo se busca acotado al aviso.
-        const el = (cls, txt) => {
+        const el = (cls: string, txt?: string) => {
             const e = document.createElement('div');
             e.className = cls;
             if (txt !== undefined) e.textContent = txt;
             return e;
         };
-        const span = (cls, txt) => {
+        const span = (cls: string, txt: string) => {
             const e = document.createElement('span');
             if (cls) e.className = cls;
             e.textContent = txt;
@@ -168,7 +171,7 @@ export function onSwapConflict(players, cardId, durationMs) {
         // Barra de tiempo. El temporizador vive en el propio aviso, no en una
         // variable compartida: si no, el segundo aviso paraba la barra del
         // primero y la dejaba congelada a media cuenta.
-        const fill = notif.querySelector('.qbn-bar-fill');
+        const fill = notif.querySelector<HTMLElement>('.qbn-bar-fill')!;
         fill.style.width = '100%';
         const start = Date.now();
         notif._timer = setInterval(() => {
@@ -185,8 +188,8 @@ export function onSwapConflict(players, cardId, durationMs) {
 }
 
 /** Quita el aviso de una pelea concreta, con sus temporizadores. */
-export function cerrarAvisoPelea(cardId) {
-    const notif = qteNotifs.get(cardId);
+export function cerrarAvisoPelea(cardId: number) {
+    const notif: Aviso | undefined = qteNotifs.get(cardId);
     if (!notif) return;
     clearInterval(notif._timer);
     clearTimeout(notif._failsafe);
@@ -202,23 +205,23 @@ export function cerrarAvisoPelea(cardId) {
  *
  *  Los mensajes viejos no traen `card_id`: en ese caso se acepta, que es como se
  *  comportaba antes. */
-export function esMiPelea(cardId) {
+export function esMiPelea(cardId: number | null | undefined) {
     if (cardId === undefined || cardId === null) return true;
     // Peleando yo, solo cuenta la mía: las ajenas ya no la pisan.
     if (est.qteMyCardId !== null) return est.qteMyCardId === cardId;
     return qteBlockedCards.has(cardId);
 }
 
-export function onQteUpdate(clicks, cardId) {
+export function onQteUpdate(clicks: Record<string, number>, cardId?: number | null) {
     // Sin card_id (mensajes viejos) se tocan todos los avisos.
     const notifs = cardId == null ? [...qteNotifs.values()] : [qteNotifs.get(cardId)];
     Object.entries(clicks).forEach(([name, count]) => {
         // Participantes: actualizar overlay
         const overlayEl = document.getElementById(`qte-n-${name}`);
-        if (overlayEl) overlayEl.textContent = count;
+        if (overlayEl) overlayEl.textContent = String(count);
         // Espectadores: actualizar el aviso de ESA pelea
         notifs.forEach(n => {
-            const s = n && [...n.querySelectorAll('[data-nick]')].find(e => e.dataset.nick === name);
+            const s = n && [...n.querySelectorAll<HTMLElement>('[data-nick]')].find(e => e.dataset.nick === name);
             if (s) s.textContent = t('qte.clicks', { n: count });
         });
     });
@@ -228,23 +231,23 @@ export function onQteUpdate(clicks, cardId) {
 /** La pelea terminó. En vez de cerrar de golpe, el overlay se queda un
  *  momento con la carta y los dos marcadores: el del ganador se ilumina y el
  *  del perdedor se apaga. Sin una sola frase — quién ganó se ve, no se lee. */
-export function onQteTiebreak(cardId, round, ms) {
-    ms = ms || 1000;
-    const bar = (fill) => {
+export function onQteTiebreak(cardId: number, round: number, duracion?: number) {
+    const ms = duracion || 1000;
+    const bar = (fill: HTMLElement) => {
         const start = Date.now();
         return setInterval(() => {
             fill.style.width = Math.max(0, 100 - ((Date.now() - start) / ms) * 100) + '%';
         }, 50);
     };
     // Espectador: el mismo aviso, reducido.
-    const notif = qteNotifs.get(cardId);
+    const notif: Aviso | undefined = qteNotifs.get(cardId);
     if (notif) {
         clearInterval(notif._timer);
         clearTimeout(notif._failsafe);
-        notif.querySelector('.qbn-title').textContent = round > 1
+        notif.querySelector('.qbn-title')!.textContent = round > 1
             ? t('qte.tie_notif_round', { round }) : t('qte.tie_notif');
         notif.querySelectorAll('.qbn-scores span').forEach(s => { s.textContent = t('qte.clicks', { n: 0 }); });
-        const fill = notif.querySelector('.qbn-bar-fill');
+        const fill = notif.querySelector<HTMLElement>('.qbn-bar-fill')!;
         fill.style.width = '100%';
         notif._timer = bar(fill);
         notif._failsafe = setTimeout(() => cerrarAvisoPelea(cardId), ms + 4000);
@@ -254,32 +257,32 @@ export function onQteTiebreak(cardId, round, ms) {
     if (!est.qteActive || est.qteMyCardId !== cardId) return;
     const marcador = est.qtePlayers
         .map(n => document.getElementById(`qte-n-${n}`)?.textContent ?? '0').join(' – ');
-    const titulo = document.getElementById('qteTitle');
+    const titulo = porId('qteTitle');
     titulo.textContent = t('qte.tie_title');
     titulo.classList.add('tie');
-    document.getElementById('qteBox').classList.add('tie');
-    document.getElementById('qteDesc').textContent =
+    porId('qteBox').classList.add('tie');
+    porId('qteDesc').textContent =
         t(round > 1 ? 'qte.tie_desc_round' : 'qte.tie_desc', { score: marcador, round });
     est.qtePlayers.forEach(n => {
         const el = document.getElementById(`qte-n-${n}`);
         if (el) el.textContent = '0';
     });
     playSfx('tiebreak');
-    const fill = document.getElementById('qteTimerFill');
+    const fill = porId('qteTimerFill');
     fill.style.width = '100%';
     if (est.qteTimerInterval) clearInterval(est.qteTimerInterval);
     est.qteTimerInterval = bar(fill);
-    clearTimeout(qteTieLabelTimer);
+    if (qteTieLabelTimer) clearTimeout(qteTieLabelTimer);
     qteTieLabelTimer = setTimeout(() => {
         titulo.classList.remove('tie');
         titulo.textContent = t('qte.title');
     }, ms);
 }
-let qteTieLabelTimer = null;
+let qteTieLabelTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function onQteResolved(winnerName, info) {
+export function onQteResolved(winnerName: string, info?: Partial<Msg<'qte_resolved'>>) {
     const wasParticipant = est.qtePlayers.includes(est.currentNickname);
-    clearTimeout(qteTieLabelTimer);
+    if (qteTieLabelTimer) clearTimeout(qteTieLabelTimer);
 
     if (!wasParticipant) {
         // Espectador: su avisito ya muestra los clicks finales, se cierra sin más.
@@ -296,7 +299,7 @@ export function onQteResolved(winnerName, info) {
         ? { card: est.qteContestedCard, index: est.qteContestedIndex }
         : null;
 
-    document.getElementById('qteClickBtn').style.display = 'none';
+    porId('qteClickBtn').style.display = 'none';
     // Se acabó la pelea: ya no hay nada que ceder.
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
@@ -309,15 +312,15 @@ export function onQteResolved(winnerName, info) {
         // Clicks finales de cada uno (los manda el servidor; viejo = se queda el último marcador).
         const n = info?.clicks?.[name];
         const el = document.getElementById(`qte-n-${name}`);
-        if (el && n !== undefined) el.textContent = n;
+        if (el && n !== undefined) el.textContent = String(n);
     });
-    const titulo = document.getElementById('qteTitle');
+    const titulo = porId('qteTitle');
     titulo.classList.remove('tie');
     titulo.textContent = t('qte.title');
     if (info?.random) {
-        document.getElementById('qteDesc').textContent = t('qte.random');
+        porId('qteDesc').textContent = t('qte.random');
     } else if (info?.tiebreaks) {
-        document.getElementById('qteDesc').textContent = t('qte.sudden');
+        porId('qteDesc').textContent = t('qte.sudden');
     }
 
     est.qteActive = false;   // no se admiten más clicks mientras se ve el resultado
@@ -341,13 +344,13 @@ export function closeQteOverlay() {
     if (est.qteResultTimer) { clearTimeout(est.qteResultTimer); est.qteResultTimer = null; }
 
     // Cerrar overlay de participante
-    const overlay = document.getElementById('qteOverlay');
+    const overlay = porId('qteOverlay');
     overlay.classList.remove('active');
-    document.getElementById('qteClickBtn').disabled = false;
-    document.getElementById('qteCard').innerHTML = '';
+    porId<HTMLButtonElement>('qteClickBtn').disabled = false;
+    porId('qteCard').innerHTML = '';
     document.querySelectorAll('.qte-player-score').forEach(el => el.classList.remove('won', 'lost'));
-    document.getElementById('qteBox').classList.remove('tie');
-    document.getElementById('qteTitle').classList.remove('tie');
+    porId('qteBox').classList.remove('tie');
+    porId('qteTitle').classList.remove('tie');
 
     // El aviso de espectador se cierra por carta desde `qte_resolved`, que
     // llega siempre. Aquí solo se limpia el de la tuya por si acaso.
@@ -371,12 +374,12 @@ function sendQteClick() {
 // un toque se dispararía solo a los dos segundos de machacar. Un dedo que se
 // queda quieto 700 ms no pasa por accidente mientras machacas.
 const GIVEUP_HOLD_MS = 700;
-let giveUpTimer = null;
+let giveUpTimer: ReturnType<typeof setTimeout> | null = null;
 
 function giveUpBtn() { return document.getElementById('qteGiveUpBtn'); }
 
 function cancelGiveUpHold() {
-    clearTimeout(giveUpTimer);
+    if (giveUpTimer) clearTimeout(giveUpTimer);
     giveUpTimer = null;
     giveUpBtn()?.classList.remove('holding');
 }
@@ -418,18 +421,18 @@ function cancelGiveUpHold() {
 // Toda la pantalla cuenta como el botón. `pointerdown` y no `click`: en una
 // pelea a golpes de dedo, esperar al `click` completo (que exige soltar) pierde
 // pulsaciones y llega tarde.
-document.getElementById('qteOverlay').addEventListener('pointerdown', (e) => {
+porId('qteOverlay').addEventListener('pointerdown', (e) => {
     if (!est.qteActive) return;
     e.preventDefault();
     sendQteClick();
-    const overlay = e.currentTarget;
+    const overlay = e.currentTarget as HTMLElement;
     overlay.classList.add('hit');
     setTimeout(() => overlay.classList.remove('hit'), 60);
 });
 
 // Spacebar como atajo durante QTE
 document.addEventListener('keydown', (e) => {
-    if (est.qteActive && (e.code === 'Space' || e.code === 'Enter') && e.target.tagName !== 'INPUT') {
+    if (est.qteActive && (e.code === 'Space' || e.code === 'Enter') && (e.target as Element | null)?.tagName !== 'INPUT') {
         e.preventDefault();
         sendQteClick();
     }
