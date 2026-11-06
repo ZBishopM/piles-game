@@ -4065,7 +4065,7 @@
       RANGOS,
       MINS,
       /** Una figura con cartas, vista desde arriba: matriz de booleanos (oscuro = true). */
-      mosaico(matriz, s2, huecos2 = false) {
+      mosaico(matriz, s2 = 0, huecos2 = false) {
         if (!matriz) {
           if (X2.mosaico) X2.mosaico.salen = reloj;
           return;
@@ -4142,7 +4142,7 @@
     };
   })();
 
-  // ../client/mesa/mesa.js
+  // ../client/mesa/mesa.ts
   var tl = (k, v) => typeof t === "function" ? t(k, v) : k;
   var X = escena.X;
   var MENUS = {
@@ -4201,10 +4201,10 @@
   };
   var DE_LOBBY = { homeScreen: "inicio", profileScreen: "perfil", howToPlayScreen: "tutorial", hostScreen: "crear", joinScreen: "unirse", lobbyScreen: "sala" };
   var crearJug = 4;
-  var esc2 = document.getElementById("escenario");
-  var zona = document.getElementById("cartas");
-  var estado = document.getElementById("estado");
-  var nombre = document.getElementById("nombre");
+  var esc2 = porId("escenario");
+  var zona = porId("cartas");
+  var estado = porId("estado");
+  var nombre = porId("nombre");
   var vibrar = (ms) => {
     try {
       navigator.vibrate?.(ms);
@@ -4241,7 +4241,7 @@
     pintaTexto(c, k);
   }
   function pintaTexto(c, k) {
-    const es = c.dataset[k], e = c.querySelector("." + k);
+    const es = c.dataset[k] ?? "", e = c.querySelector("." + k);
     if (es.startsWith("i:")) e.innerHTML = ico(es.slice(2));
     else e.textContent = T(es);
   }
@@ -4278,7 +4278,7 @@
     c.style.setProperty("--x", x + "px");
     c.style.setProperty("--y", y + "px");
     c.style.setProperty("--r", r + "deg");
-    c.style.setProperty("--s", s);
+    c.style.setProperty("--s", String(s));
   };
   var pilaX = () => escena.centro().x - 64;
   var pilaY = () => escena.centro().y - 88;
@@ -4302,7 +4302,7 @@
       const x = W() / 2 - 64 + k * 112 * R.es + desliz;
       const y = k === 0 ? yE : yE + Math.min(12, 4 + Math.abs(k) * 4);
       c.classList.toggle("elegida", k === 0);
-      c.setAttribute("aria-selected", k === 0);
+      c.setAttribute("aria-selected", String(k === 0));
       c.tabIndex = k === 0 ? 0 : -1;
       if (rapido) c.style.transition = "none";
       pon(c, x, y, k * 5, k === 0 ? s0 : 0.9 * R.es);
@@ -4324,7 +4324,7 @@
     mano.forEach((c) => c.remove());
     mano = opciones.map((o, i) => {
       const c = hacerCarta(o);
-      c.dataset.i = i;
+      c.dataset.i = String(i);
       c.style.transition = "none";
       if (dir) pon(c, W() / 2 - 64 + dir * (W() * 0.9 + i * 70), rejilla().manoTop, dir * 14, 0.9);
       else pon(c, pilaX(), pilaY(), -8, 0.7);
@@ -4363,7 +4363,7 @@
       const atras = n - 1 - i, k = Math.min(atras, 2);
       h.classList.toggle("previa", atras > 0);
       h.style.opacity = atras > 2 ? "0" : "";
-      h.style.zIndex = 12 - k;
+      h.style.zIndex = String(12 - k);
       pon(h, M - k * 5, FILA2 - k * 5, -k * 1.5, 1);
     });
   }
@@ -4402,7 +4402,7 @@
     cambiar(o.ir, c, o);
   }
   function cambiar(destino, jugada, o = {}, lobby = true) {
-    const b = document.getElementById("barrido");
+    const b = porId("barrido");
     b.classList.remove("pasa");
     void b.offsetWidth;
     b.classList.add("pasa");
@@ -4456,7 +4456,7 @@
     h?.classList.remove("previa");
     apilarCabeceras();
     cerrarCampo();
-    const b = document.getElementById("barrido");
+    const b = porId("barrido");
     b.classList.remove("pasa");
     void b.offsetWidth;
     b.classList.add("pasa");
@@ -4547,7 +4547,7 @@
   function sincronizarSala(llega = false) {
     const m = ultimaSala, dentro = !!m && !!est.currentLobbyId;
     X.tu = dentro && !est.soyEspectador ? 0 : -1;
-    if (!dentro) {
+    if (!dentro || !m) {
       ultimaSala = null;
       cartasJug.forEach((c) => {
         pon(c, pilaX(), -260, 20, 1);
@@ -4578,9 +4578,10 @@
         pon(c, x + (Math.random() - 0.5) * 200, -220, (Math.random() - 0.5) * 60, 1.2);
         zona.prepend(c);
         cartasJug.set(p.id, c);
+        const nueva = c;
         requestAnimationFrame(() => requestAnimationFrame(() => {
-          c.style.transition = "";
-          pon(c, x, y, (i % 2 ? 1 : -1) * 3, 0.56);
+          nueva.style.transition = "";
+          pon(nueva, x, y, (i % 2 ? 1 : -1) * 3, 0.56);
         }));
         if (llega && !tuyo) {
           decir("", T("{n} entr\xF3", { n: p.nickname }), true);
@@ -4596,7 +4597,7 @@
       c.dataset.id = p.id;
     });
     for (const [id, c] of cartasJug) if (!vistos.has(id)) {
-      decir("", T("{n} sali\xF3", { n: c.dataset.nombre }), true);
+      decir("", T("{n} sali\xF3", { n: c.dataset.nombre ?? "" }), true);
       pon(c, W() + 200, -200, 40, 1);
       setTimeout(() => c.remove(), 600);
       cartasJug.delete(id);
@@ -4608,7 +4609,10 @@
       X.listos[s] = !!p?.is_ready;
     }
     X.nombres = [0, 1, 2, 3].map((s) => gente[s]?.nickname ?? "");
-    X.elo = [0, 1, 2, 3].map((s) => gente[s]?.elo != null ? { v: gente[s].elo, pool: m.pool === "fun" ? "fun" : "glory", top3: !!gente[s].top3 } : null);
+    X.elo = [0, 1, 2, 3].map((s) => {
+      const g = gente[s];
+      return g?.elo != null ? { v: g.elo, pool: m.pool === "fun" ? "fun" : "glory", top3: !!g.top3 } : null;
+    });
     while (huecos.length > m.max_players - gente.length) {
       const v = huecos.pop();
       v.style.opacity = "0";
@@ -4627,7 +4631,7 @@
       pon(v, x, y, (i % 2 ? 1 : -1) * 3, 0.56);
       requestAnimationFrame(() => v.style.opacity = "");
     });
-    if (EN_SALA.has(pantalla) && !["cuenta", "oferta", "votar"].includes(pantalla) && !aviso.t) estado.textContent = "";
+    if (EN_SALA.has(pantalla) && !["cuenta", "oferta", "votar"].includes(pantalla) && !avisoT) estado.textContent = "";
     menuSala();
     refrescarMano("sala");
     estadoBots();
@@ -4641,7 +4645,7 @@
       { clave: "mirar", palo: "i:cambio", nombre: "Mirar", nota: "Pasar a espectador", accion: "rol" }
     ];
   }
-  var campo = document.getElementById("campo");
+  var campo = porId("campo");
   var alEnviar = null;
   var alEscribir = null;
   function pedir(ph, max, enviar, escribir = null) {
@@ -4672,15 +4676,16 @@
     } else if (e.key === "Escape") cerrarCampo();
     e.stopPropagation();
   });
+  var avisoT = 0;
   var aviso = (txt, ms = 1600) => {
     if (est.currentLobbyId && ["sala", "bots", "qr", "echar", "votar"].includes(pantalla)) {
       decir("", txt, true);
       return;
     }
     estado.textContent = txt;
-    clearTimeout(aviso.t);
-    aviso.t = setTimeout(() => {
-      aviso.t = 0;
+    if (avisoT) clearTimeout(avisoT);
+    avisoT = setTimeout(() => {
+      avisoT = 0;
       estado.textContent = "";
     }, ms);
   };
@@ -4759,10 +4764,11 @@
     cancelarCuentaVisual();
     if (!EN_SALA.has(pantalla)) return;
     if (pantalla !== "sala") {
-      while (EN_SALA.has(historial.at(-1)) && pantalla !== "sala") deshacerSinAnimar();
+      while (EN_SALA.has(historial.at(-1) ?? "") && pantalla !== "sala") deshacerSinAnimar();
     }
     const GANA = Math.max(0, segundos - 3) * 1e3;
-    cuenta = { timers: [], repartiendo: false };
+    const c = { timers: [], repartiendo: false };
+    cuenta = c;
     historial.push(pantalla);
     pantalla = "cuenta";
     escena.ganar();
@@ -4772,7 +4778,7 @@
     estado.innerHTML = `${ico("abajo")}${ico("cruz")}`;
     estado.setAttribute("aria-label", T("Desm\xE1rcate (\u2193) para cancelar"));
     colocarTextos();
-    const tras = (ms, f) => cuenta.timers.push(setTimeout(f, ms));
+    const tras = (ms, f) => c.timers.push(setTimeout(f, ms));
     tras(GANA, () => {
       esc2.dataset.p = "cuenta";
       escena.camara("cuenta");
@@ -4783,7 +4789,7 @@
       vibrar(30);
     }));
     tras(GANA + 3e3, () => {
-      cuenta.repartiendo = true;
+      c.repartiendo = true;
       escena.mosaico(null);
       estado.textContent = "";
     });
@@ -4815,7 +4821,7 @@
   }
   var PERFIL = /* @__PURE__ */ new Set(["perfil", "sm", "burla"]);
   function preparaMenu(destino, o = {}) {
-    if (destino === "echar") marcaVoto = o.idx >= 0 && o.idx < 4 ? o.idx : -1;
+    if (destino === "echar") marcaVoto = o.idx !== void 0 && o.idx >= 0 && o.idx < 4 ? o.idx : -1;
     if (destino === "echar") MENUS.echar = [
       { palo: "i:fuera", nombre: T("Echar a {n}", { n: o.nick }), nota: "Votan todos: si alguien dice no, se queda", accion: "echar", id: o.id, idx: o.idx },
       { palo: "i:volver", nombre: "Mejor no", nota: "Volver a la sala", accion: "volver" }
@@ -4858,7 +4864,7 @@
     escena.camara("qr");
     try {
       const r = await fetch(`/api/qr/${encodeURIComponent(est.currentLobbyId)}/matriz`);
-      if (!r.ok) throw new Error(r.status);
+      if (!r.ok) throw new Error(String(r.status));
       const { n, m } = await r.json(), borde = 2, filas = [];
       if (pantalla !== "qr") return;
       for (let y = -borde; y < n + borde; y++) {
@@ -4887,11 +4893,11 @@
   var miElo = { fun: 1e3, glory: 1e3, top3: {} };
   async function cargarElo() {
     try {
-      const rec = await fetchElo(ratingKey());
+      const rec = await fetchElo(ratingKey() ?? "");
       miElo = { fun: rec?.fun?.r ?? 1e3, glory: rec?.glory?.r ?? 1e3, top3: rec?.top3 ?? {} };
     } catch {
     }
-    X.elo[0] = { v: miElo.glory, pool: "glory", top3: !!miElo.top3.glory };
+    if (X.elo) X.elo[0] = { v: miElo.glory, pool: "glory", top3: !!miElo.top3.glory };
     if (pantalla === "perfil") {
       PZ[0].dataset.k = "";
       formas();
@@ -4977,7 +4983,7 @@
     ] : [{ clave: "espera", palo: "i:reloj", nombre: msg.nickname === est.currentNickname ? "\xBFTe echan?" : "Votando\u2026", nota: T("{y} de {t} a favor", { y: msg.yes.length, t: msg.voters.length }), accion: "nada" }];
     if (pantalla === "votar") refrescarMano("votar");
     else if (EN_SALA.has(pantalla) && pantalla !== "cuenta") {
-      while (pantalla !== "sala" && EN_SALA.has(historial.at(-1))) deshacerSinAnimar();
+      while (pantalla !== "sala" && EN_SALA.has(historial.at(-1) ?? "")) deshacerSinAnimar();
       irA("votar", T("\xBFEchar a {n}?", { n: quien }), {}, false);
     }
   }
@@ -4989,7 +4995,7 @@
     const textos = { expulsado: "kick.done", rechazado: "kick.no", tiempo: "kick.timeout", salio: "kick.left", cancelada: "kick.cancelled" };
     if (textos[msg.result]) aviso(tl(textos[msg.result], { nick: sinEmoji(msg.nickname) }), 2600);
   }
-  var PZ = ["p1", "p2", "p3"].map((id) => document.getElementById(id));
+  var PZ = ["p1", "p2", "p3"].map((id) => porId(id));
   var DIFS = { F\u00E1cil: "easy", Normal: "normal", Dif\u00EDcil: "hard" };
   function caja(el, x, y, w, h, html, clave) {
     el.classList.remove("oculta");
@@ -5010,8 +5016,8 @@
   function girarTambor(el, v) {
     const min = +el.dataset.min, max = +el.dataset.max;
     v = Math.max(min, Math.min(max, v));
-    el.style.setProperty("--v", v);
-    el.setAttribute("aria-valuenow", v);
+    el.style.setProperty("--v", String(v));
+    el.setAttribute("aria-valuenow", String(v));
     el.querySelectorAll(".rodillo span").forEach((s, k) => s.classList.toggle("ya", k + min === v));
     return v;
   }
@@ -5044,9 +5050,9 @@
     const R = rejilla(), w = R.w, an = ancho(), enSala = EN_SALA.has(p) && p !== "cuenta";
     const col = Math.min(320, w - 2 * M), der = w - M - col;
     const usadas = /* @__PURE__ */ new Set();
-    const pon3 = (i, ...a) => {
+    const pon3 = (i, x, y, w2, h, html, clave) => {
       usadas.add(i);
-      return caja(PZ[i], ...a);
+      return caja(PZ[i], x, y, w2, h, html, clave);
     };
     if (p === "inicio") {
       pon3(0, M + R.cabw + SEP, FILA2, 44, 40, `<button class="grande" data-act="perfil" aria-label="${T("Perfil")}">${ico("persona")}</button>`, "perfil");
@@ -5101,7 +5107,7 @@
     const marca = () => {
       const fila = b.parentElement, segs = [...fila.querySelectorAll(".seg")];
       segs.forEach((s) => s.classList.toggle("si", s === b));
-      fila.style.setProperty("--i", segs.indexOf(b));
+      fila.style.setProperty("--i", String(segs.indexOf(b)));
     };
     vibrar(8);
     if (act === "perfil") irA("perfil", "Perfil");
@@ -5178,11 +5184,11 @@
     const tam = dialesMesa.map((el) => [el.offsetWidth, el.offsetHeight]);
     X.anclas.forEach((a, p) => {
       const el = dialesMesa[p], e = X.elo?.[p];
-      const ok = a.ok && e;
-      if (!ok) {
-        el.style.opacity = 0;
+      if (!a.ok || !e) {
+        el.style.opacity = "0";
         return;
       }
+      const ax = a.x ?? 0, ay = a.y ?? 0;
       const quien = X.nombres?.[p] ?? `top${p}`, k = `${quien}|${e.v}|${e.pool}|${!!e.top3}`;
       if (claveDial[p] !== k) {
         const [antesQuien, antesV] = claveDial[p].split("|");
@@ -5190,10 +5196,10 @@
         claveDial[p] = k;
         agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
       }
-      const s = a.s * (W() < 760 ? 0.75 : 1);
-      el.style.transform = `translate(${a.x}px, ${a.y}px) translate(-50%, -100%) scale(${s})`;
+      const s = (a.s ?? 1) * (W() < 760 ? 0.75 : 1);
+      el.style.transform = `translate(${ax}px, ${ay}px) translate(-50%, -100%) scale(${s})`;
       const [w, h] = tam[p];
-      el.style.opacity = chocaDial({ left: a.x - w * s / 2, right: a.x + w * s / 2, top: a.y - h * s, bottom: a.y }, ocupado) ? 0 : 1;
+      el.style.opacity = chocaDial({ left: ax - w * s / 2, right: ax + w * s / 2, top: ay - h * s, bottom: ay }, ocupado) ? "0" : "1";
       el.classList.toggle("tuyo", p === X.tu);
     });
   }
@@ -5224,7 +5230,7 @@
     }
     if (a === "burla") {
       try {
-        localStorage.setItem("piles.taunt", o.id);
+        localStorage.setItem("piles.taunt", o.id ?? "");
       } catch {
       }
       salta(c);
@@ -5272,13 +5278,14 @@
     }
     const m = ultimaSala, n = m?.players.length ?? 0;
     if (a === "bot") {
-      if (n < m.max_players) {
+      if (m && n < m.max_players) {
         addBot();
         pideBots(c, n + 1);
       }
       return;
     }
     if (a === "llenar") {
+      if (!m) return;
       for (let k = n; k < m.max_players; k++) addBot();
       if (n < m.max_players) pideBots(c, m.max_players);
       return;
@@ -5315,6 +5322,7 @@
     if (c) c.style.transition = "none";
   });
   function arrastrarV(dy) {
+    const I = ini;
     const sube = dy < 0, p = Math.min(1, Math.abs(dy) / RECORRIDO);
     const c = mano[sel], o = MENUS[pantalla]?.[sel], h = cabeceras.at(-1), prev = cabeceras.at(-2);
     if (sube && c) {
@@ -5322,35 +5330,35 @@
       if (!destino) c.classList.toggle("arma", p >= 0.45 && !c.disabled);
       sinTransicion(mano);
       sinTransicion([h]);
-      const { x, y, s } = ini.base;
+      const { x, y, s } = I.base;
       pon(c, x + (M - x) * q * 0.55, y + (FILA2 - y) * q, -6 * q, s + (0.62 - s) * q);
       mano.forEach((x2, i) => {
         if (i !== sel) {
           const k = i - sel;
-          pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + Math.sign(k) * 60 * q, ini.base.y + 30 + 90 * q, k * 5 + Math.sign(k) * 10 * q, 0.9 * rejilla().es);
-          x2.style.opacity = 1 - 0.7 * q;
+          pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + Math.sign(k) * 60 * q, I.base.y + 30 + 90 * q, k * 5 + Math.sign(k) * 10 * q, 0.9 * rejilla().es);
+          x2.style.opacity = String(1 - 0.7 * q);
         }
       });
       if (h) h.style.filter = `brightness(${1 - 0.58 * q})`;
       escena.asomar(destino ?? null, q, 1);
-      ini.p = p;
-      ini.sentido = 1;
+      I.p = p;
+      I.sentido = 1;
     } else if (!sube && h && historial.length && pantalla !== "cuenta") {
       sinTransicion([h]);
       sinTransicion(mano);
-      h.style.zIndex = 20;
+      h.style.zIndex = "20";
       pon(h, M + (W() / 2 - 64 - M) * p * 0.6, FILA2 + (rejilla().manoTop - FILA2) * p * 0.8, 6 * p, 1 + 0.2 * p);
       if (prev) prev.style.filter = `brightness(${0.42 + 0.58 * p})`;
       mano.forEach((x2, i) => {
         const k = i - sel;
-        pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + W() * 0.6 * p, ini.base.y + (k ? 12 : 0), k * 5 + 12 * p, 0.9 * rejilla().es);
-        x2.style.opacity = 1 - 0.6 * p;
+        pon(x2, W() / 2 - 64 + k * 112 * rejilla().es + W() * 0.6 * p, I.base.y + (k ? 12 : 0), k * 5 + 12 * p, 0.9 * rejilla().es);
+        x2.style.opacity = String(1 - 0.6 * p);
       });
-      escena.asomar(historial.at(-1), p, -1);
-      ini.p = p;
-      ini.sentido = -1;
+      escena.asomar(historial.at(-1) ?? null, p, -1);
+      I.p = p;
+      I.sentido = -1;
     } else {
-      ini.p = 0;
+      I.p = 0;
       escena.asomar(null);
     }
   }
@@ -5383,17 +5391,17 @@
   });
   esc2.addEventListener("pointermove", (e) => {
     if (!ini) return;
-    const dx = e.clientX - ini.x, dy = e.clientY - ini.y;
-    if (!ini.eje && Math.hypot(dx, dy) > 8) ini.eje = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
-    if (ini.eje === "h" && mano.length) {
-      const n = Math.max(0, Math.min(mano.length - 1, ini.sel + Math.round(-dx / 90)));
+    const I = ini, dx = e.clientX - I.x, dy = e.clientY - I.y;
+    if (!I.eje && Math.hypot(dx, dy) > 8) I.eje = Math.abs(dx) > Math.abs(dy) ? "h" : "v";
+    if (I.eje === "h" && mano.length) {
+      const n = Math.max(0, Math.min(mano.length - 1, I.sel + Math.round(-dx / 90)));
       if (n !== sel) {
         sel = n;
         vibrar(5);
       }
-      const usado = -(sel - ini.sel) * 90, resto = dx - usado, borde = sel === 0 && resto > 0 || sel === mano.length - 1 && resto < 0;
+      const usado = -(sel - I.sel) * 90, resto = dx - usado, borde = sel === 0 && resto > 0 || sel === mano.length - 1 && resto < 0;
       colocarMano(false, resto * (borde ? 0.3 : 112 / 90));
-    } else if (ini.eje === "v") arrastrarV(dy);
+    } else if (I.eje === "v") arrastrarV(dy);
   });
   var cancelarArrastre = () => {
     if (!ini) return;
@@ -5437,7 +5445,7 @@
         return;
       }
       const c = bajo?.closest("#cartas .carta:not([disabled])");
-      const i = mano.indexOf(c);
+      const i = c ? mano.indexOf(c) : -1;
       if (i >= 0 && i !== sel) {
         sel = i;
         vibrar(6);

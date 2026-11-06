@@ -92,4 +92,4 @@ export function T(s: string, v: Record<string, unknown> = {}): string {
     const r = LENGUA < 0 ? s : (DIC[s]?.[LENGUA] ?? s);
     return String(r).replace(/\{(\w+)\}/g, (_, k: string) => String(v[k] ?? ''));
 }
-export const IDIOMAS = { ES: 'es', EN: 'en', '中文': 'zh' };
+export const IDIOMAS: Record<string, string> = { ES: 'es', EN: 'en', '中文': 'zh' };

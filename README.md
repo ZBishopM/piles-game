@@ -61,8 +61,8 @@ piles-game/
 │   ├── lobby.html              # La página: HTML de la partida; carga dist/piles.js
 │   ├── lobby.css               # Estilos base de la partida
 │   ├── juego/                  # La lógica en módulos ES, por dominio: red, sala, tablero,
-│   │                           #   toques, pelea…; index.ts es la entrada. Los .ts pasan
-│   │                           #   `pnpm check` (tsc estricto); los .js que quedan, aún no
+│   │                           #   toques, pelea…; index.ts es la entrada. TypeScript
+│   │                           #   estricto: `pnpm check` en tools/ (la CI también)
 │   ├── globales.d.ts  tsconfig.json  # Tipos de i18n.js y agapornis-ui; config de tsc
 │   ├── mesa/  partida/         # El menú en la mesa y el estilo de la partida
 │   ├── tipos/                  # Tipos TS de los mensajes, generados de messages.rs (ts-rs) al

@@ -12,7 +12,7 @@ import { closeVerifyOverlay, clearMatchNotifications } from './verificacion.js';
 const SM_BASE = 'https://gamesessions.danassistantassistant.website';
 
 /** Lo que da /api/elo/:key: rating y partidas por clasificación. */
-type EloRec = Partial<Record<'fun' | 'glory', { r: number; n: number }>>;
+type EloRec = Partial<Record<'fun' | 'glory', { r: number; n: number }>> & { top3?: { fun?: boolean; glory?: boolean } };
 
 export async function fetchElo(key: string): Promise<EloRec | null> {
     const res = await fetch(`/api/elo/${encodeURIComponent(key)}`);

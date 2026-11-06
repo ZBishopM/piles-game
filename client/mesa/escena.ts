@@ -23,7 +23,7 @@ export interface MenuEnEscena {
     visor: { video: HTMLVideoElement | null; t0: number } | null;
     listos: boolean[]; ocupados: boolean[]; llegada: number[];
     nombres: string[] | null;
-    elo: { v: number; pool: Pool; top3?: boolean }[] | null;
+    elo: ({ v: number; pool: Pool; top3?: boolean } | null)[] | null;   // null: asiento sin Elo
     anclas: { x?: number; y?: number; s?: number; ok?: boolean }[];
     placa: { txt: string; ok: boolean } | null;
     burla: number;
@@ -684,7 +684,7 @@ export const escena = (() => {
         },
         X, ELO_TOP, RANGOS, MINS,
         /** Una figura con cartas, vista desde arriba: matriz de booleanos (oscuro = true). */
-        mosaico(matriz: boolean[][] | null, s: number, huecos = false) {   // huecos: los false no llevan carta (letras); si no, carta clara (QR)
+        mosaico(matriz: boolean[][] | null, s = 0, huecos = false) {   // null: las cartas se van   // huecos: los false no llevan carta (letras); si no, carta clara (QR)
             if (!matriz) { if (X.mosaico) X.mosaico.salen = reloj; return; }
             const n = matriz.length, m = matriz[0].length, celdas: { x: number; z: number; c: boolean }[] = [];
             for (let r = 0; r < n; r++) for (let c = 0; c < m; c++) if (!huecos || matriz[r][c]) celdas.push({ x: (c - (m - 1) / 2) * s, z: (r - (n - 1) / 2) * s, c: matriz[r][c] });
