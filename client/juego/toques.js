@@ -291,6 +291,7 @@ function onSwapFailed(msg) {
     pendingTake = null;
     rollbackGhost();
     clearPending();
+    emitir('onSwapFailed', msg);   // aquí y no al final: lo de abajo sale antes en casi todos los casos
 
     if (qtePlayers.includes(currentNickname) || isStunned()) return;
 
@@ -383,6 +384,7 @@ function switchSet(index) {
     // Debiendo una carta no se cambia de set: el hueco se quedaría en un set
     // que no estás viendo. El servidor también lo rechaza.
     if (owesCard()) return;
+    const antes = currentSetIndex;
     currentSetIndex = index;
     clearSelection();
     send({ type: 'switch_set', set_index: index });
@@ -390,6 +392,7 @@ function switchSet(index) {
     // seguía volando encima del nuevo y rebotaba sobre una carta ajena.
     document.querySelectorAll('#fxLayer .card[data-row="yourCards"]').forEach(c => c.finishFlight(false));
     renderYourCards();
+    emitir('switchSet', index, antes);
 }
 
 // ─── Voltear sets ─────────────────────────────────────────────────────────

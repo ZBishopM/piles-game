@@ -1002,9 +1002,7 @@ function alinearLobby(p) {
     const id = A_LOBBY[p];
     if (id && vistaActual !== id) conLobby(() => showScreen(id));
 }
-const _showScreen = window.showScreen;
-window.showScreen = id => {
-    _showScreen(id);
+al('showScreen', id => {
     document.body.classList.toggle('en-partida', id === 'gameScreen');
     if (suprimir || id === 'gameScreen') return;
     const destino = DE_LOBBY[id];
@@ -1015,30 +1013,20 @@ window.showScreen = id => {
     // el camino. Desde cualquier otro sitio (F5, enlace, te echaron…), el camino se rehace.
     if (destino === 'sala' && ['inicio', 'crear', 'unirse', 'visor'].includes(pantalla)) { estado.textContent = ''; irA('sala', currentLobbyId, {}, false); }
     else saltarA(destino);
-};
-// Sin nombre no se entra en ninguna sala: lobby.html vuelve al inicio; aquí, aviso y al campo.
-const _requireNickname = window.requireNickname;
-window.requireNickname = () => {
-    const n = conLobby(_requireNickname);
-    if (!n) { sacude(nombre); nombre.focus(); }   // sin texto: el campo del nombre tiembla en rojo
-    return n;
-};
-// Cada mensaje del servidor: primero lobby.html, luego se pinta aquí
-const _handleMsg = window.handleMsg;
-window.handleMsg = msg => {
-    _handleMsg(msg);
-    try { alMensaje(msg); } catch (e) { console.error('mesa', e); }
-};
+});
+// Sin nombre no se entra en ninguna sala: el campo del nombre tiembla en rojo y se enfoca
+al('sinNombre', () => { sacude(nombre); nombre.focus(); });
+// Cada mensaje del servidor: primero el juego, luego se pinta aquí
+al('handleMsg', alMensaje);
 // La cuenta atrás del servidor (`countdown {seconds}`) la forman las cartas de la mesa
-const _startCountdown = window.startCountdown, _closeCountdown = window.closeCountdown;
-window.startCountdown = s => { _startCountdown(s); cuentaAtras(Number(s) || 3); };
-window.closeCountdown = () => { _closeCountdown(); if (cuenta && !cuenta.repartiendo) cancelarCuentaVisual(true); };
+al('startCountdown', s => cuentaAtras(Number(s) || 3));
+al('closeCountdown', () => { if (cuenta && !cuenta.repartiendo) cancelarCuentaVisual(true); });
 
-// La oferta de bots de la partida rápida (lobby.html la abre al rato de estar solo)
-alOfertaBots = abierta => {
+// La oferta de bots de la partida rápida (el juego la abre al rato de estar solo)
+al('ofertaBots', abierta => {
     if (abierta && pantalla === 'sala') ofrecerBots();
     else if (!abierta && pantalla === 'oferta') cerrarOferta();
-};
+});
 
 // ── La sala, con los datos del servidor ───────────────────────────────────────────
 // Filas de 4 centradas desde ZONA (escala .56 = 72×99 px; cada 80 px de lado y 107 de alto).

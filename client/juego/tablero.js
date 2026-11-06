@@ -28,6 +28,7 @@ function updateSetNav() {
     // marcan cuál está abierto, y era una línea de texto más ocupando alto.
     updateFlipBtn();
     checkAutoVerify();
+    emitir('updateSetNav');
 }
 
 // ─── El centro no se recoloca ─────────────────────────────────────────────
@@ -118,6 +119,7 @@ function renderCenterCards() {
         el.dataset.tap = card.id;
         div.appendChild(el);
     }
+    emitir('renderCenterCards');
 }
 
 function renderYourCards() {
@@ -209,6 +211,7 @@ function renderPlayersProgress(progress) {
         chip.title = t('hud.watching', { n: mirones });
         hud.appendChild(chip);
     }
+    emitir('renderPlayersProgress', progress);
 }
 
 /** Mis propios sets revelados, en el mismo formato que los de los rivales. */
@@ -328,6 +331,7 @@ function cardRectAt(rowId, index) {
  *  esconde mientras dura el vuelo y se descubre justo cuando la copia llega.
  */
 function flyCard(cardData, from, rowId, index, won = false) {
+    emitir('vuela', cardData, from);
     const dest = document.getElementById(rowId)?.children[index];
     const to = dest ? dest.getBoundingClientRect() : null;
     if (!cardData || !from || !to) { if (dest) markLanded(rowId, index, won); return; }
@@ -377,6 +381,8 @@ function flyCard(cardData, from, rowId, index, won = false) {
 /** Marca una carta recién llegada para que se vea qué ha cambiado.
  *  `won` la pinta en dorado y con más fuerza: es el premio de una pelea. */
 function markLanded(rowId, index, won = false) {
+    // 'aterriza' puede cancelarlo: la partida espera a que llegue la carta que viene volando
+    if (!emitir('aterriza', rowId, index, won)) return;
     const el = document.getElementById(rowId)?.children[index];
     if (!el) return;
     const cls = won ? 'card-won' : 'card-landed';
@@ -394,19 +400,10 @@ function markLanded(rowId, index, won = false) {
 
 const REDUCED_MOTION = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
-/** Sacudida corta de las filas de cartas. `hard` para las peleas ganadas.
- *  Las filas y no #gameScreen: ver el comentario del keyframe boardShake. */
+/** El golpe de la carta al caer en la mesa. `hard` para las peleas ganadas.
+ *  Lo pinta la partida (partida/partida.js, «Gravedad»). */
 function shakeBoard(hard = false) {
-    if (REDUCED_MOTION?.matches) return;
-    const cls = hard ? 'shake-hard' : 'shake';
-    for (const rowId of ['centerCards', 'yourCards']) {
-        const row = document.getElementById(rowId);
-        if (!row) continue;
-        row.classList.remove('shake', 'shake-hard');
-        void row.offsetWidth;
-        row.classList.add(cls);
-        row.addEventListener('animationend', () => row.classList.remove(cls), { once: true });
-    }
+    emitir('golpe', hard);
 }
 
 /** Chispas saliendo del centro de una carta. Van en #fxLayer porque .card
@@ -475,6 +472,7 @@ function pintarAviso(nickname, titulo, lineas) {
         d.textContent = texto;
         return d;
     }));
+    emitir('pintarAviso', el, nickname, titulo);
     return el;
 }
 
@@ -600,6 +598,7 @@ function onDebtForced(card) {
     clearDebtCountdown();
     updateSwapHint(t('debt.forced', { name: cardName(card.clothing_type, card.name) }));
     resetSwapHintLater(2500);
+    emitir('onDebtForced', card);
 }
 
 // ─── Racha ────────────────────────────────────────────────────────────────
@@ -709,6 +708,7 @@ function updateFrenzyBtn(ready, coste) {
     // El cartel de la racha tiene que verse aunque la racha esté cortada, o el
     // botón se iría con ella.
     if (ready) document.getElementById('comboBox')?.classList.add('active');
+    emitir('updateFrenzyBtn', ready, coste);
 }
 
 function fireFrenzy() {
@@ -742,6 +742,7 @@ function onFrenzyFired(msg) {
         updateSwapHint(t('frenzy.by', { nick: msg.player }));
         resetSwapHintLater(2200);
     }
+    emitir('onFrenzyFired', msg);
 }
 
 /** Destello del centro: alguien más ha movido algo ahí. */

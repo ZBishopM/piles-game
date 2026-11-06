@@ -357,6 +357,7 @@ function send(obj) { ws.send(JSON.stringify(obj)); }
 
 // ─── Mensajes del servidor ────────────────────────────────────────────────
 function handleMsg(msg) {
+    emitir('antesDeMensaje', msg);   // con el estado de antes de aplicarlo
     switch (msg.type) {
         case 'lobby_created':
             currentLobbyId = msg.lobby_id;
@@ -591,6 +592,7 @@ function handleMsg(msg) {
             clearSelection();
             break;
     }
+    emitir('handleMsg', msg);
 }
 
 /** El texto de un aviso del servidor en el idioma de esta pestaña. El servidor

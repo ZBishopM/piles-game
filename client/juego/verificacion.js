@@ -52,6 +52,7 @@ function openVerifyOverlay(playerName) {
         area.appendChild(notif);
         otherVerifications.set(playerName, notif);
     }
+    emitir('openVerifyOverlay', playerName);
 }
 
 function revealVerifySet(playerName, setIndex, isValid, cards) {
@@ -77,6 +78,7 @@ function revealVerifySet(playerName, setIndex, isValid, cards) {
         const icon = document.getElementById(`vnotif-${playerName}-${setIndex}`);
         if (icon) icon.textContent = symbol;
     }
+    emitir('revealVerifySet', playerName, setIndex, isValid, cards);
 }
 
 function onVerificationSuccess(playerName, position) {
@@ -96,6 +98,7 @@ function onVerificationSuccess(playerName, position) {
             dismissVerifyNotif(playerName, notif, 5000);
         }
     }
+    emitir('onVerificationSuccess', playerName, position);
 }
 
 function onVerificationFailed(playerName, failedSets) {
@@ -115,6 +118,7 @@ function onVerificationFailed(playerName, failedSets) {
             dismissVerifyNotif(playerName, notif, 4000);
         }
     }
+    emitir('onVerificationFailed', playerName, failedSets);
 }
 
 function closeVerifyOverlay() {
@@ -147,6 +151,7 @@ function clearMatchNotifications() {
     for (const id of [...qteNotifs.keys()]) cerrarAvisoPelea(id);
     qteBlockedCards.clear();
     qteMyCardId = null;
+    emitir('clearMatchNotifications');
 }
 
 /** Lluvia breve de confeti (~4 s): ráfaga hacia arriba y caída suave. Se

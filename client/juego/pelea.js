@@ -174,6 +174,7 @@ function onSwapConflict(players, cardId, durationMs) {
         // aviso no se queda ahí para el resto de la partida.
         notif._failsafe = setTimeout(() => cerrarAvisoPelea(cardId), durationMs + 4000);
     }
+    emitir('onSwapConflict', players, cardId, durationMs);
 }
 
 /** Quita el aviso de una pelea concreta, con sus temporizadores. */
@@ -214,6 +215,7 @@ function onQteUpdate(clicks, cardId) {
             if (s) s.textContent = t('qte.clicks', { n: count });
         });
     });
+    emitir('onQteUpdate', clicks, cardId);
 }
 
 /** La pelea terminó. En vez de cerrar de golpe, el overlay se queda un
@@ -348,6 +350,7 @@ function closeQteOverlay() {
     qteContestedCard = null;
     qteContestedIndex = null;
     qteMyCardId = null;
+    emitir('closeQteOverlay');
 }
 
 function sendQteClick() {

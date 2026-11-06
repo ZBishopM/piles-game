@@ -1,10 +1,10 @@
 // ─── Lobby ────────────────────────────────────────────────────────────────
 
 /** Devuelve el nombre o null. Sin nombre no se entra en ninguna sala: la mesa
- *  hace temblar su campo (envuelve esta función). */
+ *  hace temblar su campo (aviso 'sinNombre'). */
 function requireNickname() {
     const nickname = miNombre();
-    if (!nickname) return null;
+    if (!nickname) { emitir('sinNombre'); return null; }
     localStorage.setItem('piles_nickname', nickname);
     currentNickname = nickname;
     return nickname;
@@ -64,13 +64,12 @@ function removeBot(playerId) {
 let quickMatchOfferTimer = null;
 /** Cuántos hay sentados, según el último `lobby_update`. */
 let jugadoresEnSala = 0;
-/** La mesa la enseña y la quita (`true` = ofrecer bots). */
-let alOfertaBots = () => {};
 let ofertaAbierta = false;
+/** La mesa la enseña y la quita: aviso 'ofertaBots' (`true` = ofrecer bots). */
 function ponerOferta(abierta) {
     if (abierta === ofertaAbierta) return;
     ofertaAbierta = abierta;
-    alOfertaBots(abierta);
+    emitir('ofertaBots', abierta);
 }
 
 function armQuickMatchOffer() {
@@ -351,6 +350,7 @@ function startCountdown(seconds) {
     cuentaFin = Date.now() + Math.max(1, Number(seconds) || 3) * 1000;
     cuentaTick();
     cuentaTimer = setInterval(cuentaTick, 100);
+    emitir('startCountdown', seconds);
 }
 
 function cuentaTick() {
@@ -369,6 +369,7 @@ function closeCountdown() {
     cuentaN = -1;
     const a = document.getElementById('cuentaAnuncio');
     if (a) a.textContent = '';
+    emitir('closeCountdown');
 }
 
 function onCountdownCancelled(reason) {
@@ -380,6 +381,7 @@ function onCountdownCancelled(reason) {
 
 // ─── Inicio de juego ──────────────────────────────────────────────────────
 function onGameStart(msg) {
+    emitir('antesDePartida', msg);   // aún con la pantalla de antes
     allSets = msg.your_sets;       // 6 sets
     centerCards = msg.center_cards;
     // El que vuelve a media partida recibe el set en el que estaba. Ponerlo a 0
@@ -423,6 +425,7 @@ function onGameStart(msg) {
 
     aplicarModoEspectador();
     showScreen('gameScreen');
+    emitir('onGameStart', msg);
 }
 
 /** Un espectador no tiene sets ni botones: ve el centro y el marcador.

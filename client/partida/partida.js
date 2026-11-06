@@ -1,6 +1,6 @@
-// La partida con el estilo de la mesa (diseno/menu-mesa/README.md). lobby.html sigue mandando:
-// aquí se envuelven sus funciones para cambiar texto por elementos que se entienden solos
-// (iconos, destellos, montoncitos de set) y, en los pasos siguientes, los toques por gestos.
+// La partida con el estilo de la mesa (diseno/menu-mesa/README.md). La lógica es la de
+// client/juego/: aquí se escuchan sus avisos (juego/bus.js) para cambiar texto por elementos
+// que se entienden solos (iconos, destellos, montoncitos de set), y van los gestos.
 'use strict';
 (() => {
     const ICONOS = {
@@ -11,16 +11,6 @@
         enchufe: 'M9 3v5M15 3v5M6 8h12v4l-6 6-6-6zM12 18v4', fuera: 'M14 4H4v16h10M10 12h11M17 8l4 4-4 4',
     };
     const ico = n => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
-    /** Después de una función de lobby.html, esto (sin tocar lo que devuelve ni sus errores). */
-    function envolver(nombre, despues) {
-        const f = window[nombre];
-        if (typeof f !== 'function') return;
-        window[nombre] = function (...a) {
-            const r = f.apply(this, a);
-            try { despues(...a); } catch (e) { console.error('partida', nombre, e); }
-            return r;
-        };
-    }
     const sinEmoji = s => String(s ?? '').replace(/\p{Extended_Pictographic}️?/gu, '').replace(/\s+/g, ' ').trim();
 
     // ── Un icono junto a lo que falló (en vez de «⚠️ …» en la franja) ──────────────
@@ -41,7 +31,7 @@
     }
 
     // ── Tus sets: seis montoncitos; el revelado enseña su prenda ───────────────────
-    envolver('updateSetNav', () => {
+    al('updateSetNav', () => {
         const rev = misSetsRevelados();
         document.querySelectorAll('#setNav .set-btn').forEach((b, i) => {
             b.setAttribute('aria-label', t('set.n', { n: i + 1 }));
@@ -58,8 +48,8 @@
 
     // ── Iconos en vez de emoji y de rótulos ───────────────────────────────────────
     const pintarMute = () => { const b = document.getElementById('muteBtn'); if (b) b.innerHTML = ico(sfxMuted ? 'mudo' : 'altavoz'); };
-    envolver('toggleMute', pintarMute);
-    envolver('onGameStart', pintarMute);
+    al('toggleMute', pintarMute);
+    al('onGameStart', pintarMute);
     pintarMute();
     const frenesi = document.getElementById('frenzyBtn');
     if (frenesi) { frenesi.removeAttribute('data-i18n'); frenesi.innerHTML = ico('rayo'); }
@@ -67,7 +57,7 @@
     if (rendirse) rendirse.innerHTML = `${ico('bandera')}<i></i>`;   // <i>: el relleno de mantener pulsado
     // En la pelea, tu contador lleva tu nombre a secas (en bermellón, por CSS), sin «⭐ … (Tú)».
     // La pelea de otros: nombres sin emoji, espadas y números (sin «0 clicks»).
-    envolver('onSwapConflict', (players, cardId) => {
+    al('onSwapConflict', (players, cardId) => {
         if (players.includes(currentNickname)) {
             document.querySelectorAll('#qteScores .qte-name').forEach(n => (n.textContent = sinEmoji(n.closest('.is-me') ? currentNickname : n.textContent)));
             return;
@@ -77,43 +67,42 @@
         const vs = n.querySelector('.qbn-vs'); if (vs) vs.innerHTML = ico('cruz');
         n.querySelectorAll('.qbn-scores [data-nick]').forEach(s => (s.textContent = '0'));
     });
-    envolver('onQteUpdate', clicks => {
+    al('onQteUpdate', clicks => {
         for (const n of qteNotifs.values()) n.querySelectorAll('.qbn-scores [data-nick]').forEach(s => { if (s.dataset.nick in clicks) s.textContent = clicks[s.dataset.nick]; });
     });
     // Marcador: nombres sin emoji (los bots llegan como «🤖 Bot 1»); quien mira, un ojo y el número
-    envolver('renderPlayersProgress', () => {
+    al('renderPlayersProgress', () => {
         document.querySelectorAll('#hud .hud-name').forEach(n => { n.dataset.nick = n.textContent; n.textContent = sinEmoji(n.textContent); });
         const chip = document.querySelector('#hud .hud-stripe.mirones');
         if (chip) chip.innerHTML = `${ico('ojo')}${mirones}`;
     });
     // Los avisos de otros (se cayó, se fue, volvió): un icono en vez del emoji
-    const pintarAvisoBase = window.pintarAviso;
-    if (typeof pintarAvisoBase === 'function') window.pintarAviso = (nick, titulo, lineas) => {
+    al('pintarAviso', (el, nick, titulo) => {
         const icono = /🔌/.test(titulo) ? 'enchufe' : /🚪/.test(titulo) ? 'fuera' : /✅/.test(titulo) ? 'check' : null;
-        const el = pintarAvisoBase(nick, sinEmoji(titulo) || nick, lineas);
-        if (el && icono) el.querySelector('.qbn-title')?.insertAdjacentHTML('afterbegin', ico(icono) + ' ');
-        return el;
-    };
+        const tit = el?.querySelector('.qbn-title'); if (!tit) return;
+        tit.textContent = sinEmoji(titulo) || nick;
+        if (icono) tit.insertAdjacentHTML('afterbegin', ico(icono) + ' ');
+    });
 
     // ── Lo que decía la franja de texto, ahora se ve ──────────────────────────────
     // Jugada rechazada por el servidor: un icono sobre la fila (candado: en pelea o verificando;
     // hueco: debes o no debes carta; cruz: se la llevaron). Te la quitaron: destella quién.
     const MOTIVO = { wait_fight: 'candado', card_fought: 'candado', verifying: 'candado', lost_card: 'candado',
         owe_card: 'hueco', empty_slot: 'hueco', no_debt: 'hueco', card_gone: 'cruz' };
-    envolver('onSwapFailed', msg => {
+    al('onSwapFailed', msg => {
         if ((msg.kind || 'rule') === 'gone') { if (msg.by) destello(msg.by); return; }
         if (!msg.reason || qtePlayers.includes(currentNickname) || isStunned()) return;
         const fila = ['owe_card', 'verifying'].includes(msg.code) ? 'yourCards' : 'centerCards';
         avisoIco(MOTIVO[msg.code] ?? 'cruz', document.getElementById(fila));
     });
     // Se acabó el tiempo de la deuda: la carta forzada entra con destello ámbar
-    envolver('onDebtForced', () => {
+    al('onDebtForced', () => {
         const fila = document.getElementById('yourCards');
         fila?.classList.remove('destello-ambar'); void fila?.offsetWidth; fila?.classList.add('destello-ambar');
         avisoIco('reloj', fila, true);
     });
     // Frenesí: destella quién lo soltó; si el tuyo lo paró, un escudo
-    envolver('onFrenzyFired', msg => {
+    al('onFrenzyFired', msg => {
         destello(msg.player);
         if ((msg.countered || []).includes(currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
     });
@@ -138,8 +127,8 @@
     };
     const sinCopia = c => { c?.copia?.remove(); hueco.style.visibility = ''; };
     if (qte && bandera && hueco) {
-        envolver('onSwapConflict', () => { sinCopia(cede); cede = null; bandera.classList.remove('cerca'); });
-        envolver('closeQteOverlay', () => { sinCopia(cede); cede = null; qte.querySelectorAll('.card.cede').forEach(e => e.remove()); hueco.style.visibility = ''; });
+        al('onSwapConflict', () => { sinCopia(cede); cede = null; bandera.classList.remove('cerca'); });
+        al('closeQteOverlay', () => { sinCopia(cede); cede = null; qte.querySelectorAll('.card.cede').forEach(e => e.remove()); hueco.style.visibility = ''; });
         qte.addEventListener('pointerdown', e => {
             if (!qteActive || bandera.hidden || e.target.closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
             const f = bandera.getBoundingClientRect();
@@ -225,21 +214,16 @@
     for (const l of ['lampara', 'neon', 'faros', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
     // Cambiar de set: la mano nueva entra deslizando desde el lado del set elegido y rebota
     // un poco al llegar (antes la cortaba el barrido negro y se sentía brusco)
-    const cambiar = window.switchSet;
-    if (typeof cambiar === 'function') window.switchSet = function (i) {
-        const antes = currentSetIndex;
-        const r = cambiar.apply(this, arguments);
-        if (currentSetIndex !== antes && !REDUCED_MOTION?.matches) {
-            const x = (currentSetIndex > antes ? 1 : -1) * Math.min(innerWidth * .5, 260);
-            document.getElementById('yourCards')?.animate(
-                [{ translate: `${x}px 0`, opacity: 0, easing: 'cubic-bezier(.3, .6, .4, 1)' }, { translate: `${-x * .07}px 0`, opacity: 1, offset: .65, easing: 'ease-in-out' }, { translate: '0 0' }],
-                { duration: 440 });
-        }
-        return r;
-    };
-    envolver('onFrenzyFired', barrer);
+    al('switchSet', (i, antes) => {
+        if (REDUCED_MOTION?.matches) return;
+        const x = (i > antes ? 1 : -1) * Math.min(innerWidth * .5, 260);
+        document.getElementById('yourCards')?.animate(
+            [{ translate: `${x}px 0`, opacity: 0, easing: 'cubic-bezier(.3, .6, .4, 1)' }, { translate: `${-x * .07}px 0`, opacity: 1, offset: .65, easing: 'ease-in-out' }, { translate: '0 0' }],
+            { duration: 440 });
+    });
+    al('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
-    envolver('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
+    al('updateFrenzyBtn', ready => tablero.classList.toggle('frenesi', !!ready));
 
     // ── Sin espacio muerto: las cartas del centro crecen hasta llenar la mesa ───────
     // Pero una carta que entra NO recoloca a las demás: la mesa reserva sus casillas
@@ -284,8 +268,8 @@
         orden.sort((a, b) => a[2] - b[2]);
         [...fila.children].forEach((e, i) => { const o = orden[i]; e.style.gridArea = o ? `${o[0] + 1} / ${o[1] + 1}` : ''; });
     }
-    envolver('renderCenterCards', () => { encajarCentro(); colocarCasillas(); });
-    envolver('onGameStart', () => { casillas = 0; requestAnimationFrame(() => { encajarCentro(true); colocarCasillas(); }); });
+    al('renderCenterCards', () => { encajarCentro(); colocarCasillas(); });
+    al('onGameStart', () => { casillas = 0; requestAnimationFrame(() => { encajarCentro(true); colocarCasillas(); }); });
     addEventListener('resize', () => { encajarCentro(true); colocarCasillas(); });
 
     // ── Gravedad: la carta que cae pesa; las demás saltan en su sitio, no se mueven ──
@@ -297,23 +281,20 @@
     // aditivas (composite: 'add'), así que un salto encima de otro sube más.
     const CAIDA = 360;
     let aterriza = null, sinAterrizar = new Set(), trasVuelo = new Set(), energia = 0, ultimo = 0;
-    const flyCardBase = window.flyCard;
-    window.flyCard = (cardData, from, ...resto) => { if (cardData && from) trasVuelo.add(cardData.id); return flyCardBase(cardData, from, ...resto); };
-    const markLandedBase = window.markLanded;
-    window.markLanded = (rowId, index, won = false) => {
+    al('vuela', (cardData, from) => { if (cardData && from) trasVuelo.add(cardData.id); });
+    al('aterriza', (rowId, index) => {
         const el = document.getElementById(rowId)?.children[index];
         const id = Number(el?.dataset.cardId);
-        if (el && sinAterrizar.has(id)) return;   // la que viene volando lo hará al llegar
+        if (el && sinAterrizar.has(id)) return false;   // la que viene volando lo hará al llegar
         const volo = trasVuelo.delete(id);       // ya cayó volando: solo se estrella, golpe ya
         el?.classList.toggle('solo-aplasta', volo);
         aterriza = { rowId, el, retraso: volo ? 0 : CAIDA };
-        return markLandedBase(rowId, index, won);
-    };
-    window.shakeBoard = (fuerte = false) => {
+    });
+    al('golpe', (fuerte = false) => {
         if (REDUCED_MOTION?.matches || !aterriza?.el) return;
         const { rowId, el, retraso } = aterriza; aterriza = null;
         setTimeout(() => golpe(rowId, el, fuerte), retraso);
-    };
+    });
     const ADD = { composite: 'add' };
     function golpe(rowId, el, fuerte) {
         const fila = document.getElementById(rowId);
@@ -602,8 +583,7 @@
         requestAnimationFrame(cuadro);
     }
 
-    const handleMsgPartida = window.handleMsg;
-    window.handleMsg = msg => {
+    al('antesDeMensaje', msg => {
         const m = msg?.type === 'game_update' ? msg.moved : null;
         const otro = m && (m.by !== currentNickname || soyEspectador) ? m : null;   // lo tuyo ya vuela con flyCard
         // Te la quitan de la mano: la que sostenías en el centro se la lleva otro → su burla
@@ -613,21 +593,16 @@
         }
         if (otro && otro.kind !== 'drop') { try { seLaLleva(otro); } catch (e) { console.error('partida', e); } }   // antes de que desaparezca
         if (otro && otro.kind === 'drop') { try { laSuelta(otro); } catch (e) { console.error('partida', e); } }
-        return handleMsgPartida(msg);
-    };
+    });
 
     // ── Del menú a la partida ──────────────────────────────────────────────────────
     // La cuenta atrás termina con la cámara de la mesa en picado sobre el centro. De ahí la
     // cámara se lanza hacia el centro, se tuerce y se quema en luz; el barrido corta y el
     // tablero cae en su sitio por partes (la mesa desde arriba, marcador y mano desde fuera).
-    // Envuelve por fuera de todo: tiene que saber si venías del menú ANTES de que showScreen cambie.
-    const onGameStartBase = window.onGameStart;
-    window.onGameStart = msg => {
-        const venia = document.body.classList.contains('mesa') && !document.body.classList.contains('en-partida');
-        const r = onGameStartBase(msg);
-        if (venia && !REDUCED_MOTION?.matches) entrar(); else barrer();
-        return r;
-    };
+    // Si venías del menú se mira ANTES de que showScreen cambie de pantalla.
+    let venia = false;
+    al('antesDePartida', () => { venia = document.body.classList.contains('mesa') && !document.body.classList.contains('en-partida'); });
+    al('onGameStart', () => { if (venia && !REDUCED_MOTION?.matches) entrar(); else barrer(); });
     function entrar() {
         const esc = document.getElementById('escenario');
         if (!esc) return barrer();
@@ -755,7 +730,7 @@
         setTimeout(() => chispas(rayo, 14, true), 170);
     }
 
-    envolver('openVerifyOverlay', nick => {
+    al('openVerifyOverlay', nick => {
         verifs.set(nick, { res: Array(6).fill(null), fin: null });
         if (nick === currentNickname) {
             // Los que ya estaban verificando entran a la vez; los que terminaron, fuera
@@ -768,23 +743,23 @@
             partir(nick);
         }
     });
-    envolver('revealVerifySet', (nick, i, ok, cards) => {
+    al('revealVerifySet', (nick, i, ok, cards) => {
         const v = verifs.get(nick); if (!v) return;
         v.res[i] = { ok, cards };
         const c = abierta() && colDe(nick); if (!c) return;
         marcar(c, i, v.res[i]); mirando(c, v);
     });
-    envolver('onVerificationSuccess', (nick, pos) => {
+    al('onVerificationSuccess', (nick, pos) => {
         const v = verifs.get(nick); if (!v) return;
         v.fin = { pos };
         const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
     });
-    envolver('onVerificationFailed', (nick, fallos) => {
+    al('onVerificationFailed', (nick, fallos) => {
         const v = verifs.get(nick); if (!v) return;
         v.fin = { fallos };
         const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
     });
-    envolver('clearMatchNotifications', () => { verifs.clear(); columnas.textContent = ''; });
+    al('clearMatchNotifications', () => { verifs.clear(); columnas.textContent = ''; });
 
     window.partida = { avisoIco, destello, ico, encajarCentro };
 })();

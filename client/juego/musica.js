@@ -95,5 +95,6 @@ function toggleMute() {
     }
     if (sfxMuted) { stopMusic(); }
     else { unlockAudio(); playSfx('take'); if (document.getElementById('gameScreen')?.classList.contains('active')) startMusic(); }
+    emitir('toggleMute');
 }
 

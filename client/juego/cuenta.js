@@ -207,4 +207,5 @@ function showScreen(id) {
     vistaActual = id;
     document.getElementById('gameScreen').classList.toggle('active', id === 'gameScreen');
     if (id !== 'lobbyScreen') closeCountdown();   // la partida (o salir) cierra la cuenta atrás
+    emitir('showScreen', id);
 }

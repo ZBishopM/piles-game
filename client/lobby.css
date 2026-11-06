@@ -767,32 +767,12 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 }
 .card.card-won { animation: cardWon 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
 
-/* Sacudida. Corta a propósito: si dura, marea.
-   Se sacuden las FILAS de cartas y no #gameScreen: un `transform` en un
-   ancestro convierte a ese ancestro en bloque contenedor de cualquier
-   `position: fixed` que tenga dentro, y lo que hubiera fijo daría un
-   salto cada vez que temblara el tablero. Las filas no contienen nada
-   fijo, así que son el sitio seguro donde ponerlo. */
-@keyframes boardShake {
-    0%, 100% { transform: translate(0, 0); }
-    20%      { transform: translate(-4px, 2px); }
-    40%      { transform: translate(4px, -2px); }
-    60%      { transform: translate(-3px, -1px); }
-    80%      { transform: translate(3px, 1px); }
-}
-.card-row.shake      { animation: boardShake 0.22s ease-in-out; }
-.card-row.shake-hard { animation: boardShake 0.4s ease-in-out 2; }
-
 /* Destello del centro cuando alguien suelta una carta: el tablero
    cambió aunque no hayas sido tú. */
 @keyframes centerFlash {
     0%   { background: rgba(102,126,234,0.28); }
     100% { background: transparent; }
 }
-/* Con la misma especificidad que .shake a propósito: `animation` es una
-   sola propiedad, así que entre las dos gana la última declarada — esta.
-   Con `#centerCards.flash` ganaría siempre por el id y la sacudida del
-   centro no se vería nunca, sin que se notara por qué. */
 .card-row.flash { animation: centerFlash 0.45s ease-out; border-radius: 8px; }
 
 /* Chispas al ganar una pelea. Viven en #fxLayer, que no recorta. */
@@ -978,7 +958,7 @@ body { font-family: var(--font-sans); background: var(--bg); color: var(--text);
 @media (prefers-reduced-motion: reduce) {
     .card { transition: box-shadow 0.15s ease, outline 0.1s; }
     .card.card-landed, .card.card-won { animation-duration: 0.01s; }
-    .card-row.shake, .card-row.shake-hard, .card-row.flash { animation: none; }
+    .card-row.flash { animation: none; }
     /* El multiplicador y la barra se quedan: son información, no
        adorno. Lo que se va es el rebote del número. */
     #comboMult.bump { animation: none; }
