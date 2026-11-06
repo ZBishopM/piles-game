@@ -256,6 +256,15 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 #qteOverlay #qteGiveUpBtn { font-size: 0; border-radius: 0; clip-path: polygon(4px 0, 100% 3px, calc(100% - 4px) 100%, 0 calc(100% - 3px)); }
 #qteOverlay #qteGiveUpBtn .ico { width: 26px; height: 26px; }
 #qteOverlay .qte-timer-bar, #qteOverlay #qteTimerFill { border-radius: 0; }
+/* Ceder (partida.js): la carta baja con el dedo hasta la bandera; cerca, la bandera se enciende */
+#qteOverlay, #gameScreen #comboBox { touch-action: none; }
+#qteOverlay .card.cede { position: fixed; z-index: 3; margin: 0; pointer-events: none; animation: tiemblaCede 220ms infinite alternate;
+    clip-path: polygon(4% 2%, 100% 0, 96% 98%, 0 100%); border-radius: 0; }
+#qteOverlay #qteGiveUpBtn { z-index: 4; transition: scale 160ms var(--rebote), background-color 160ms; }
+#qteOverlay #qteGiveUpBtn.cerca { scale: 1.35; background: var(--hueso, #e9e6da); color: var(--tinta); }
+/* Frenesí: el rayo sube con el dedo y se carga (--carga 0…1) */
+#gameScreen #frenzyBtn.sostenido { animation: frenzyFlow 1.6s linear infinite; position: relative; z-index: 5;
+    filter: brightness(calc(1 + .6 * var(--carga, 0))) drop-shadow(0 0 calc(18px * var(--carga, 0)) #f2a33a); scale: calc(1 + .3 * var(--carga, 0)); }
 /* Carta en pelea: dos espadas cruzadas en bermellón en vez de «PELEADA» */
 #gameScreen .card.qte-locked::after, #gameScreen .card.qte-contested::after {
     content: "" !important; width: 46%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 0; background: var(--acento);
@@ -377,3 +386,5 @@ body.mesa button.desliza.desliza-mini::after {
     .pfrag, .pluz, #gameScreen .card, #gameScreen .hud-stripe, #gameScreen #frenzyBtn, #gameScreen #centerCards::before,
     .aviso-ico, .pbarrido.pasa, #qteOverlay .qte-card-slot .card { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
+
+@keyframes tiemblaCede { to { rotate: 1.5deg; } }

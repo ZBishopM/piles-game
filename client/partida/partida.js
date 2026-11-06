@@ -118,6 +118,105 @@
         if ((msg.countered || []).includes(currentNickname)) avisoIco('escudo', document.getElementById('comboBox'));
     });
 
+    // ── Gestos que siguen al dedo y se deshacen hasta llegar ──────────────────────
+    // Ceder: la carta en disputa, hasta la bandera blanca de abajo. Frenesí: el rayo, desde la
+    // racha hasta arriba. Llegar lo manda; antes, soltar o volver la deja en su sitio. El recorrido
+    // se mide al pulsar (lo que queda hasta la bandera o hasta el borde de arriba).
+    const vuelve = (el, prop) => { const ida = el.style[prop]; el.style[prop] = ''; if (ida) el.animate([{ [prop]: ida }, { [prop]: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3, 1.6, .5, 1)' }); };
+    const qte = document.getElementById('qteOverlay'), bandera = document.getElementById('qteGiveUpBtn'), hueco = document.getElementById('qteCard');
+    let cede = null;   // { id, x, y, d, hecho, copia }
+    // La caja de la pelea va recortada (clip-path): lo que baja es una copia por fuera de ella
+    const copiaCede = () => {
+        const c = hueco.querySelector('.card'), r = c?.getBoundingClientRect();
+        if (!r) return null;
+        const e = c.cloneNode(true);
+        e.classList.add('cede');
+        Object.assign(e.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+        qte.append(e);
+        hueco.style.visibility = 'hidden';
+        return e;
+    };
+    const sinCopia = c => { c?.copia?.remove(); hueco.style.visibility = ''; };
+    if (qte && bandera && hueco) {
+        envolver('onSwapConflict', () => { sinCopia(cede); cede = null; bandera.classList.remove('cerca'); });
+        envolver('closeQteOverlay', () => { sinCopia(cede); cede = null; qte.querySelectorAll('.card.cede').forEach(e => e.remove()); hueco.style.visibility = ''; });
+        qte.addEventListener('pointerdown', e => {
+            if (!qteActive || bandera.hidden || e.target.closest('#qteGiveUpBtn')) return;   // el toque cuenta igual (lobby.html)
+            const f = bandera.getBoundingClientRect();
+            cede = { id: e.pointerId, x: e.clientX, y: e.clientY, d: Math.max(120, f.top + f.height / 2 - e.clientY), hecho: false, copia: null };
+            try { qte.setPointerCapture(e.pointerId); } catch { /* */ }
+        });
+        qte.addEventListener('pointermove', e => {
+            const c = cede;
+            if (!c || c.id !== e.pointerId || c.hecho) return;
+            const dy = e.clientY - c.y;
+            if (dy < 16 || dy < Math.abs(e.clientX - c.x)) { if (c.copia) c.copia.style.translate = ''; bandera.classList.remove('cerca'); return; }
+            c.copia ??= copiaCede();
+            if (!c.copia) return;
+            const p = lim(dy / c.d, 0, 1);
+            c.copia.style.translate = `0 ${dy}px`;
+            bandera.classList.toggle('cerca', p > .6);
+            if (p < 1) return;
+            c.hecho = true;
+            bandera.classList.remove('cerca');
+            bandera.hidden = true;
+            c.copia.animate([{ opacity: 1 }, { opacity: 0, scale: '.5' }], { duration: 240, fill: 'forwards' });
+            playSfx('drop'); zumba(25);
+            send({ type: 'give_up_card' });
+        });
+        const finCede = e => {
+            const c = cede;
+            if (!c || c.id !== e.pointerId) return;
+            cede = null;
+            bandera.classList.remove('cerca');
+            if (c.hecho || !c.copia) return;
+            const ida = c.copia.style.translate || '0 0';
+            c.copia.animate([{ translate: ida }, { translate: '0 0' }], { duration: 260, easing: 'cubic-bezier(.3, 1.6, .5, 1)' }).finished.finally(() => sinCopia(c));
+            c.copia.style.translate = '';
+        };
+        qte.addEventListener('pointerup', finCede);
+        qte.addEventListener('pointercancel', finCede);
+    }
+
+    const racha = document.getElementById('comboBox'), rayo = document.getElementById('frenzyBtn');
+    let sube = null;   // { id, x, y, d, hecho, movido }
+    if (racha && rayo) {
+        racha.addEventListener('pointerdown', e => {
+            if (rayo.hidden || soyEspectador) return;
+            sube = { id: e.pointerId, x: e.clientX, y: e.clientY, d: Math.max(40, e.clientY - 8), hecho: false, movido: false };
+            try { racha.setPointerCapture(e.pointerId); } catch { /* */ }
+            rayo.classList.add('sostenido');
+        });
+        racha.addEventListener('pointermove', e => {
+            const s = sube;
+            if (!s || s.id !== e.pointerId || s.hecho) return;
+            const dy = s.y - e.clientY;
+            if (dy > TOQUE_PX) s.movido = true;
+            const p = lim(dy / s.d, 0, 1);
+            rayo.style.translate = `0 ${-Math.max(0, dy)}px`;
+            rayo.style.setProperty('--carga', p.toFixed(3));
+            if (p < 1) return;
+            s.hecho = true;
+            zumba(30);
+            fireFrenzy();
+        });
+        const finSube = e => {
+            const s = sube;
+            if (!s || s.id !== e.pointerId) return;
+            sube = null;
+            rayo.classList.remove('sostenido');
+            rayo.style.removeProperty('--carga');
+            if (s.hecho) { rayo.style.translate = ''; return; }
+            vuelve(rayo, 'translate');
+            // Un toque no lo suelta (se soltaba sin querer): el rayo da un saltito hacia arriba
+            if (!s.movido && e.type === 'pointerup') rayo.animate([{ translate: '0 0' }, { translate: '0 -14px' }, { translate: '0 0' }], { duration: 380, easing: 'ease-out' });
+        };
+        racha.addEventListener('pointerup', finSube);
+        racha.addEventListener('pointercancel', finSube);
+        // El clic del ratón o del dedo ya no lo suelta; el del teclado (detail 0) sí
+        racha.addEventListener('click', e => { if (e.detail > 0 && e.target.closest('#frenzyBtn')) { e.stopPropagation(); e.preventDefault(); } }, true);
+    }
+
     // ── Vivo aunque no juegues: fragmentos de fondo y barrido ─────────────────────
     const tablero = document.getElementById('gameScreen');
     for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
