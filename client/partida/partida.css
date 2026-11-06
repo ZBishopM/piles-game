@@ -47,8 +47,8 @@ body:has(#gameScreen.active) { background: #060606; }
 /* Del menú a la partida: la escena sigue a la vista mientras la cámara se lanza al centro (partida.js) */
 body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inset: 0; z-index: 30; pointer-events: none; transform-origin: 50% 36%; }
 
-/* ── Luces de fuera de cámara: una lámpara que se mece, el neón de al lado que parpadea, faros que
-   cruzan y alguien que pasa delante de la luz. DETRÁS del juego (z −1: sobre los fragmentos,
+/* ── Luces de fuera de cámara: una lámpara que se mece, el neón de al lado que parpadea y faros que
+   cruzan (la sombra de alguien que pasaba se quitó: una franja negra cada 17 s distraía). DETRÁS del juego (z −1: sobre los fragmentos,
    bajo mesa, marcador y cartas); el tapete es algo translúcido y se intuyen sobre la mesa.
    Sin blur ni mix-blend: el borde suave lo da el gradiente, y solo se animan transform y
    opacity (en la GPU, sin repintar). */
@@ -62,9 +62,6 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 .pluz.faros { background: linear-gradient(90deg, transparent 30%, rgb(169 182 137 / 18%) 42%, rgb(233 230 218 / 30%) 50%, rgb(169 182 137 / 18%) 56%, transparent 66%);
     transform: skewX(-22deg); translate: -120% 0; animation: faros 13s cubic-bezier(.5, 0, .5, 1) infinite; }
 @keyframes faros { 0%, 72% { translate: -120% 0; } 100% { translate: 130% 0; } }
-.pluz.paso { background: linear-gradient(90deg, transparent 22%, rgb(0 0 0 / 40%) 38%, rgb(0 0 0 / 50%) 46%, rgb(0 0 0 / 40%) 54%, transparent 70%);
-    transform: skewX(-8deg); translate: -100% 0; animation: paso 17s ease-in-out infinite; animation-delay: -6s; }
-@keyframes paso { 0%, 80% { translate: -100% 0; } 100% { translate: 110% 0; } }
 /* Una sola luz sobre la mesa: los bordes (fragmentos, faros) se apagan y no compiten. Va
    encima de las otras luces (es la última) y debajo del tablero. Fija, sin filtros. */
 .pluz.velo { will-change: auto; background: radial-gradient(ellipse 60% 42% at 50% 46%, rgb(0 0 0 / 0%) 0%, rgb(0 0 0 / 25%) 55%, rgb(0 0 0 / 75%) 100%); }

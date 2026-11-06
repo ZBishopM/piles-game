@@ -222,7 +222,7 @@
     for (const f of ['f1', 'f2', 'f3']) { const d = document.createElement('div'); d.className = `pfrag ${f}`; d.setAttribute('aria-hidden', 'true'); tablero.prepend(d); }
     const barrido = document.createElement('div'); barrido.className = 'pbarrido'; barrido.setAttribute('aria-hidden', 'true'); document.body.append(barrido);
     const barrer = () => { if (REDUCED_MOTION?.matches) return; barrido.classList.remove('pasa'); void barrido.offsetWidth; barrido.classList.add('pasa'); };
-    for (const l of ['lampara', 'neon', 'faros', 'paso', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
+    for (const l of ['lampara', 'neon', 'faros', 'velo']) { const d = document.createElement('div'); d.className = `pluz ${l}`; d.setAttribute('aria-hidden', 'true'); tablero.append(d); }
     envolver('switchSet', barrer);
     envolver('onFrenzyFired', barrer);
     // Frenesí cargado: el fondo se calienta (CSS #gameScreen.frenesi)
