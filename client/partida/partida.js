@@ -646,5 +646,145 @@
         cae('yourCards', [{ translate: '0 160px', rotate: '4deg' }, { translate: '0 0', rotate: '0deg' }], 700, 560);
     }
 
+    // ── Verificación: una lista que se tacha a golpes, una columna por quien verifica ──
+    // El servidor manda a todos verification_started / set_verification_result (uno por segundo)
+    // / verification_success|failed. Aquí se guarda el progreso de cada uno; si estás en tu
+    // pantalla de verificación y alguien más verifica, un rayo la parte y entra su columna.
+    // lobby.html sigue pintando lo suyo (oculto por CSS); sus avisos pequeños se ocultan
+    // mientras tu pantalla está abierta.
+    const verifs = new Map();   // nick → { res: [null|{ok, cards}], fin: null | {pos} | {fallos} }
+    const capa = document.getElementById('verifyOverlay');
+    const caja = capa?.querySelector('.verify-box');
+    const columnas = document.createElement('div'); columnas.className = 'vcols';
+    caja?.insertBefore(columnas, document.getElementById('verifyFooter'));
+    const abierta = () => capa?.classList.contains('active');
+    const colDe = nick => [...columnas.children].find(c => c.dataset.nick === nick);
+    const quieto = () => REDUCED_MOTION?.matches;
+
+    function columna(nick) {
+        const v = verifs.get(nick), mia = nick === currentNickname;
+        const c = document.createElement('section');
+        c.className = 'vcol' + (mia ? ' mia' : ''); c.dataset.nick = nick;
+        const cab = document.createElement('h3'); cab.className = 'vcab'; cab.textContent = sinEmoji(nick);
+        const lista = document.createElement('ol'); lista.className = 'vlista';
+        for (let i = 0; i < 6; i++) {
+            const li = document.createElement('li');
+            li.innerHTML = `<b class="vnum">${i + 1}</b><span class="vcartas"></span><span class="vmarca"></span>`;
+            lista.append(li);
+        }
+        const sello = document.createElement('div'); sello.className = 'vsello';
+        c.append(cab, lista, sello);
+        v.res.forEach((r, i) => r && marcar(c, i, r, false));
+        mirando(c, v);
+        if (v.fin) sellar(c, v.fin, false);
+        return c;
+    }
+    /** La fila que el servidor está comprobando ahora: la primera sin resultado. */
+    function mirando(c, v) {
+        const i = v.fin ? -1 : v.res.findIndex(r => !r);
+        c.querySelectorAll('.vlista li').forEach((li, j) => {
+            li.classList.toggle('mira', j === i);
+            // Mientras llega su resultado (1 s), cuatro dorsos se barajan donde caerán las cartas
+            const cartas = li.querySelector('.vcartas');
+            if (j === i && !cartas.children.length) for (let k = 0; k < 4; k++) { const d = document.createElement('i'); d.className = 'vmini dorso'; d.style.animationDelay = `${-k * 90}ms`; cartas.append(d); }
+            if (j !== i) cartas.querySelectorAll('.dorso').forEach(d => d.remove());
+        });
+    }
+    function marcar(c, i, r, anima = true) {
+        const li = c.querySelectorAll('.vlista li')[i]; if (!li) return;
+        const cartas = li.querySelector('.vcartas'); cartas.textContent = '';
+        for (const card of r.cards || []) { const m = document.createElement('i'); m.className = 'vmini'; applyCardSprite(m, card); cartas.append(m); }
+        li.classList.add(r.ok ? 'ok' : 'mal');
+        li.querySelector('.vmarca').innerHTML = ico(r.ok ? 'check' : 'cruz');
+        if (!anima || quieto()) return;
+        [...cartas.children].forEach((m, k) => m.animate([{ translate: '0 -26px', rotate: `${k % 2 ? 9 : -9}deg`, opacity: 0 }, { translate: '0 0', rotate: '0deg', opacity: 1 }],
+            { duration: 260, delay: k * 55, easing: 'cubic-bezier(.2, 1.4, .4, 1)', fill: 'backwards' }));
+        li.querySelector('.vmarca').animate([{ scale: 3, rotate: '-25deg', opacity: 0 }, { scale: .85, rotate: '4deg', opacity: 1, offset: .6 }, { scale: 1, rotate: '0deg' }],
+            { duration: 320, delay: 200, easing: 'ease-out', fill: 'backwards' });
+        if (r.ok) li.animate([{ '--tacha': 0 }, { '--tacha': 1 }], { duration: 260, delay: 380, easing: 'cubic-bezier(.3, 1.5, .5, 1)', fill: 'backwards' });
+        else li.animate([{ translate: '0 0' }, { translate: '-9px 0' }, { translate: '7px 0' }, { translate: '-4px 0' }, { translate: '0 0' }], { duration: 360, delay: 200 });
+        setTimeout(() => chispas(li.querySelector('.vmarca'), r.ok ? 5 : 8, !r.ok), 330);
+    }
+    function sellar(c, fin, anima = true) {
+        const s = c.querySelector('.vsello');
+        c.classList.add(fin.pos ? 'gana' : 'falla');
+        if (fin.pos) c.dataset.pos = fin.pos;
+        s.textContent = fin.pos ? t('pos.ord', { n: fin.pos }) : '✕';
+        mirando(c, { fin });
+        if (!anima || quieto()) return;
+        s.animate([{ scale: 4, rotate: '-30deg', opacity: 0 }, { scale: .9, rotate: '-8deg', opacity: 1, offset: .55 }, { scale: 1, rotate: '-10deg' }],
+            { duration: 420, easing: 'ease-out' });
+        c.animate([{ translate: '0 0' }, { translate: '0 10px', offset: .25 }, { translate: '0 -3px', offset: .6 }, { translate: '0 0' }], { duration: 420, delay: 160 });
+        setTimeout(() => chispas(s, fin.pos === 1 ? 18 : 10, fin.pos === 1 || !fin.pos), 200);
+    }
+    function chispas(el, n, roja) {
+        const fx = document.getElementById('fxLayer'), r = el?.getBoundingClientRect(); if (!fx || !r) return;
+        const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+        for (let i = 0; i < n; i++) {
+            const s = document.createElement('i'); s.className = 'vfx esquirla' + (roja && i % 2 ? ' roja' : '');
+            Object.assign(s.style, { left: `${cx}px`, top: `${cy}px` }); fx.append(s);
+            const a = Math.PI * 2 * i / n + Math.random() * .6, d = 30 + Math.random() * 40;
+            s.animate([{ translate: '0 0', rotate: '0deg', opacity: 1 }, { translate: `${Math.cos(a) * d}px ${Math.sin(a) * d}px`, rotate: `${a * 200}deg`, opacity: 0 }],
+                { duration: 480, easing: 'cubic-bezier(.2, .7, .4, 1)' }).finished.finally(() => s.remove());
+        }
+    }
+    /** Entra la columna de otro: el rayo cae donde se parte la pantalla. */
+    function partir(nick) {
+        const c = columna(nick);
+        const antes = new Map([...columnas.children].map(x => [x, x.getBoundingClientRect()]));
+        columnas.append(c); columnas.dataset.n = columnas.children.length;
+        if (quieto()) return;
+        // Las que ya estaban se apartan desde donde estaban (FLIP)
+        for (const [x, r0] of antes) { const r1 = x.getBoundingClientRect(); x.animate([{ translate: `${r0.left - r1.left}px ${r0.top - r1.top}px` }, { translate: '0 0' }], { duration: 380, delay: 140, easing: 'cubic-bezier(.2, 1.3, .4, 1)', fill: 'backwards' }); }
+        const r = c.getBoundingClientRect(), b = caja.getBoundingClientRect();
+        const vertical = r.top > b.top + 20 && Math.abs(r.left - b.left) < 20;   // la columna nueva va debajo (móvil)
+        const rayo = document.createElement('div'); rayo.className = 'vfx vrayo' +(vertical ? ' tumbado' : '');
+        rayo.innerHTML = vertical
+            ? '<svg viewBox="0 0 400 60" preserveAspectRatio="none"><path d="M0 34 120 18 128 40 260 12 266 36 400 22 240 50 234 28 112 52 106 30 0 44z"/></svg>'
+            : '<svg viewBox="0 0 60 400" preserveAspectRatio="none"><path d="M34 0 18 120 40 128 12 260 36 266 22 400 50 240 28 234 52 112 30 106 44 0z"/></svg>';
+        Object.assign(rayo.style, vertical
+            ? { left: `${b.left}px`, top: `${r.top - 6}px`, width: `${b.width}px` }
+            : { left: `${r.left - 6}px`, top: `${b.top - 20}px`, height: `${b.height + 40}px` });
+        document.getElementById('fxLayer').append(rayo);
+        rayo.animate([{ clipPath: vertical ? 'inset(0 100% 0 0)' : 'inset(0 0 100% 0)', opacity: 1 },{ clipPath: 'inset(0 0 0 0)', opacity: 1, offset: .25 }, { opacity: 1, offset: .7 }, { opacity: 0 }],
+            { duration: 620, easing: 'linear' }).finished.finally(() => rayo.remove());
+        capa.animate([{ backgroundColor: 'rgb(233 230 218 / 55%)' }, { backgroundColor: 'rgb(6 6 6 / 92%)' }], { duration: 300, delay: 120, fill: 'backwards' });
+        caja.animate([{ translate: '0 0' }, { translate: '-8px 5px' }, { translate: '7px -4px' }, { translate: '-3px 2px' }, { translate: '0 0' }], { duration: 300, delay: 140 });
+        c.animate([{ clipPath: vertical ? 'inset(0 0 100% 0)' : 'inset(0 0 0 100%)', opacity: .4 }, { clipPath: 'inset(0 0 0 0)', opacity: 1 }],
+            { duration: 360, delay: 160, easing: 'cubic-bezier(.7, 0, .2, 1)', fill: 'backwards' });
+        setTimeout(() => chispas(rayo, 14, true), 170);
+    }
+
+    envolver('openVerifyOverlay', nick => {
+        verifs.set(nick, { res: Array(6).fill(null), fin: null });
+        if (nick === currentNickname) {
+            // Los que ya estaban verificando entran a la vez; los que terminaron, fuera
+            for (const [n, v] of verifs) if (n !== nick && v.fin) verifs.delete(n);
+            columnas.textContent = '';
+            for (const n of [nick, ...[...verifs.keys()].filter(n => n !== nick)]) columnas.append(columna(n));
+            columnas.dataset.n = columnas.children.length;
+        } else if (abierta()) {
+            colDe(nick)?.remove();
+            partir(nick);
+        }
+    });
+    envolver('revealVerifySet', (nick, i, ok, cards) => {
+        const v = verifs.get(nick); if (!v) return;
+        v.res[i] = { ok, cards };
+        const c = abierta() && colDe(nick); if (!c) return;
+        marcar(c, i, v.res[i]); mirando(c, v);
+    });
+    envolver('onVerificationSuccess', (nick, pos) => {
+        const v = verifs.get(nick); if (!v) return;
+        v.fin = { pos };
+        const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
+    });
+    envolver('onVerificationFailed', (nick, fallos) => {
+        const v = verifs.get(nick); if (!v) return;
+        v.fin = { fallos };
+        const c = abierta() && colDe(nick); if (c) sellar(c, v.fin);
+    });
+    envolver('clearMatchNotifications', () => { verifs.clear(); columnas.textContent = ''; });
+
     window.partida = { avisoIco, destello, ico, encajarCentro };
 })();

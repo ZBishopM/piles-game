@@ -379,7 +379,86 @@ body.mesa button.desliza.desliza-mini::after {
 #gameScreen .spec-mini-set.current { background: rgb(232 64 42 / 18%); }
 #gameScreen .spec-player-name b { color: var(--hueso); font-weight: 900; }
 
+/* ── Verificación: una lista por quien verifica, que se tacha a golpes (partida.js) ─────
+   Tu columna con la cabecera en bermellón; las de los demás, en hueso. Un rayo parte la
+   pantalla cuando entra otra. El sello final dice el puesto de cada uno. */
+@property --tacha { syntax: "<number>"; inherits: false; initial-value: 1; }
+#verifyOverlay { background: rgb(6 6 6 / 92%) !important; padding: 16px; font-family: var(--sans); color: var(--hueso); }
+#verifyOverlay .verify-box { background: none; border-radius: 0; padding: 0; min-width: 0; max-width: none; width: auto; }
+#verifyTitle, #verifySets, body:has(#verifyOverlay.active) #verifyNotifications .verify-notif { display: none !important; }
+/* Lo que vuela en la partida (cartas, ondas) iría encima: mientras verificas, solo lo de aquí */
+body:has(#verifyOverlay.active) #fxLayer > :not(.vfx) { visibility: hidden; }
+.vcols { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 300px)); justify-content: center; width: min(1240px, calc(100vw - 32px)); }
+.vcols[data-n="1"] { grid-template-columns: minmax(0, 360px); }
+@media (max-width: 640px) { .vcols:not([data-n="1"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }
+.vcol { position: relative; isolation: isolate; padding: 10px 12px 14px; filter: drop-shadow(7px 8px 0 rgb(0 0 0 / 75%)); min-width: 0; }
+.vcol::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--tinta);
+    box-shadow: inset 0 0 0 2px rgb(169 182 137 / 45%); clip-path: polygon(8px 0, 100% 5px, calc(100% - 8px) 100%, 0 calc(100% - 5px)); }
+.vcab { margin: -2px -4px 10px; padding: 6px 10px; background: var(--hueso); color: var(--tinta); font: 900 .95rem/1 var(--sans);
+    text-transform: uppercase; letter-spacing: .02em; transform: skewX(-10deg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vcol.mia .vcab { background: var(--acento); }
+.vlista { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.vlista li { position: relative; display: grid; grid-template-columns: 1.6em 1fr 30px; align-items: center; gap: 8px; padding: 5px 4px;
+    min-height: 44px; transition: background 200ms; }
+.vnum { font: 900 1.5rem/1 var(--sans); font-style: italic; color: var(--salvia); text-align: center; }
+.vcartas { display: flex; gap: 3px; min-width: 0; }
+.vmini { display: block; flex: 0 1 30px; aspect-ratio: 34 / 52; background: #fff url("../cards.webp") no-repeat; background-size: 1600% 1300%;
+    clip-path: polygon(6% 2%, 100% 0, 94% 98%, 0 100%); }
+.vmarca { width: 28px; height: 28px; display: grid; place-items: center; box-shadow: inset 0 0 0 2px rgb(233 230 218 / 20%); transform: skewX(-8deg); }
+.vmarca .ico { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 3.5; stroke-linecap: square; }
+/* La que se está comprobando: barre una luz y el número late */
+.vlista li.mira { background: linear-gradient(100deg, transparent 30%, rgb(233 230 218 / 16%) 50%, transparent 70%) 0 0 / 300% 100%; animation: vmira 900ms linear infinite; }
+.vlista li.mira .vnum { color: var(--acento); animation: vlate 450ms steps(2) infinite; }
+@keyframes vmira { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+/* El servidor manda un set por segundo: una mecha bermellón se consume en ese segundo y los
+   dorsos se barajan; el resultado cae cuando la mecha llega al final */
+.vlista li.mira::before { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--acento);
+    transform-origin: 0 50%; animation: vmecha 1000ms linear both; }
+@keyframes vmecha { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.vmini.dorso { background: var(--militar) repeating-linear-gradient(45deg, rgb(169 182 137 / 35%) 0 3px, transparent 3px 7px);
+    animation: vbaraja 360ms ease-in-out infinite alternate; }
+@keyframes vbaraja { from { translate: 0 -3px; rotate: -6deg; } to { translate: 0 3px; rotate: 6deg; } }
+@keyframes vlate { 50% { opacity: .35; } }
+/* Bien: se tacha (la raya crece) y la marca en salvia. Mal: fondo bermellón y la cruz */
+.vlista li.ok .vmarca { background: var(--salvia); color: var(--tinta); box-shadow: none; }
+.vlista li.ok::after { content: ""; position: absolute; left: 2.2em; right: 40px; top: 50%; height: 4px; margin-top: -2px; background: var(--hueso);
+    box-shadow: 2px 2px 0 var(--tinta); transform-origin: 0 50%; transform: rotate(-4deg) scaleX(var(--tacha)); pointer-events: none; }
+.vlista li.ok .vcartas { opacity: .55; }
+.vlista li.mal { background: rgb(232 64 42 / 22%); }
+.vlista li.mal .vnum { color: var(--acento); }
+.vlista li.mal .vmarca { background: var(--acento); color: var(--tinta); box-shadow: none; }
+/* El sello del final: el puesto, en grande y torcido, encima de la lista */
+.vsello { display: none; position: absolute; left: 50%; top: 54%; translate: -50% -50%; rotate: -10deg; padding: 8px 20px 10px;
+    font: 900 clamp(2rem, 9vw, 3.4rem)/1 var(--sans); text-transform: uppercase; pointer-events: none;
+    background: var(--hueso); color: var(--tinta); clip-path: polygon(6px 0, 100% 4px, calc(100% - 6px) 100%, 0 calc(100% - 4px));
+    filter: drop-shadow(5px 6px 0 var(--acento)); }
+.vcol:is(.gana, .falla) .vsello { display: block; }
+.vcol.gana[data-pos="1"] .vsello { background: var(--acento); filter: drop-shadow(5px 6px 0 var(--tinta)); }
+.vcol.falla .vsello { background: var(--tinta); color: var(--acento); box-shadow: inset 0 0 0 4px var(--acento); }
+.vcol.falla .vlista { opacity: .6; }
+/* El rayo que parte la pantalla: cartoon, relleno hueso, trazo tinta y sombra dura bermellón */
+#fxLayer .vrayo { position: fixed; z-index: 125; width: 56px; margin-left: -28px; pointer-events: none; filter: drop-shadow(6px 4px 0 #e8402a); }
+#fxLayer .vrayo.tumbado { width: auto; height: 48px; margin: -24px 0 0; }
+#fxLayer .vrayo svg { display: block; width: 100%; height: 100%; overflow: visible; }
+#fxLayer .vrayo path { fill: #e9e6da; stroke: #0e0e0e; stroke-width: 4; stroke-linejoin: miter; vector-effect: non-scaling-stroke; }
+#verifyFooter { margin-top: 16px; font: 900 1rem var(--sans); text-transform: uppercase; color: var(--hueso) !important; }
+#verifyOverlay #verifyCloseBtn { width: auto; margin: 12px auto 0; min-height: 40px; padding: 8px 22px; border-radius: 0; background: var(--acento); color: var(--tinta);
+    font: 900 .85rem var(--sans); text-transform: uppercase; clip-path: polygon(6px 0, 100% 3px, calc(100% - 6px) 100%, 0 calc(100% - 3px)); }
+/* PC: la lista a tamaño de pantalla, no de móvil */
+@media (min-width: 900px) and (min-height: 600px) {
+    .vcols { grid-template-columns: repeat(auto-fit, minmax(280px, 380px)); }
+    .vcols[data-n="1"] { grid-template-columns: minmax(0, 440px); }
+    .vlista li { min-height: 60px; grid-template-columns: 1.6em 1fr 38px; }
+    .vnum { font-size: 2.1rem; }
+    .vmini { flex-basis: 40px; }
+    .vmarca { width: 36px; height: 36px; }
+    .vcab { font-size: 1.2rem; padding: 8px 12px; }
+    #verifyFooter { font-size: 1.3rem; }
+    #verifyOverlay #verifyCloseBtn { font-size: 1rem; min-height: 48px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+    .vlista li.mira, .vlista li.mira .vnum, .vmini.dorso { animation: none; }
     .pfrag, .pluz, #gameScreen .card, #gameScreen .hud-stripe, #gameScreen #frenzyBtn, #gameScreen #centerCards::before,
     .aviso-ico, .pbarrido.pasa, #qteOverlay .qte-card-slot .card { animation-duration: 1ms !important; animation-iteration-count: 1 !important; }
 }
