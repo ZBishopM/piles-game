@@ -10,10 +10,13 @@
 const TINTA = '#0b0c09';
 
 /** Columnas de la hoja (filas: 0 puño salvia = rival, 1 puño bermellón = tú). */
-const POSES = ['abierta', 'tensa', 'agarra', 'puno', 'pistola', 'ok', 'puntilla1', 'puntilla2'] as const;
+const POSES = ['abierta', 'tensa', 'agarra', 'puno', 'pistola', 'ok', 'puntilla1', 'puntilla2', 'like'] as const;
 type NombrePose = typeof POSES[number];
 const HOJA = '/partida/guantes.webp', CELDA = 256;
 const MUNECA = [128, 203];          // píxel de la muñeca en cada celda (anclas.json ÷ 2)
+/** El «like» se renderizó tumbado (puño de lado, pulgar arriba): su muñeca está a la izquierda
+ *  y la imagen se gira −90° para que, como las demás, tenga los dedos «arriba» en el guante. */
+const DE_LADO: Partial<Record<NombrePose, { muneca: [number, number]; giro: number }>> = { like: { muneca: [53, 128], giro: -90 } };
 const MUNECA_PUNTA = 140;           // de la muñeca a la yema del medio, abierta (px de celda)
 const BAJO_PUNO = 10;               // del centro de la muñeca al borde del puño, donde nace el brazo
 
@@ -35,16 +38,24 @@ function guante(capa: SVGElement, color: string, fila: 0 | 1, tam: number) {
     const mano = el('g');
     const ventana = el('svg', { width: CELDA, height: CELDA, viewBox: `0 0 ${CELDA} ${CELDA}`, x: -MUNECA[0], y: -MUNECA[1] });
     ventana.append(el('image', { href: HOJA, width: CELDA * POSES.length, height: CELDA * 2 }));
-    mano.append(ventana);
+    const giro = el('g');
+    giro.append(ventana);
+    mano.append(giro);
     capa.append(brazo, mano);
     const k = tam * 1.14 / MUNECA_PUNTA;
     let actual = '';
     return {
+        mano,
+        /** Dolor: el guante entero se pone rojo (filtro `#guanteRojo` de la capa). */
+        rojo(si: boolean) { if (si) mano.setAttribute('filter', 'url(#guanteRojo)'); else mano.removeAttribute('filter'); },
         set(x: number, y: number, rot: number, sx: number, sy: number, pose: NombrePose, ax: number, ay: number, onda: number) {
             mano.setAttribute('transform', `translate(${x} ${y}) rotate(${rot}) scale(${k * sx} ${k * sy})`);
             if (pose !== actual) {
                 actual = pose;
                 ventana.setAttribute('viewBox', `${POSES.indexOf(pose) * CELDA} ${fila * CELDA} ${CELDA} ${CELDA}`);
+                const lado = DE_LADO[pose], m = lado?.muneca ?? MUNECA;
+                ventana.setAttribute('x', String(-m[0])); ventana.setAttribute('y', String(-m[1]));
+                giro.setAttribute('transform', lado ? `rotate(${lado.giro})` : '');
             }
             // El brazo: de su origen al borde del puño, con una curva que ondula.
             const rad = rot * Math.PI / 180, mx = x - Math.sin(rad) * BAJO_PUNO * k * sy, my = y + Math.cos(rad) * BAJO_PUNO * k * sy;
@@ -71,14 +82,27 @@ function muestra(claves: Clave[], t: number) {
 }
 
 type Rect = { left: number; top: number; width: number; height: number };
+/** Cómo acaba la pelea, cuando se sabe: quién gana y cuánto dura tu aturdimiento si pierdes. */
+export type Final = { gano: boolean; aturdido: number };
+
+/** Un tramo de animación de `ms`, cuadro a cuadro: `f(u)` con u de 0 a 1. */
+const tramo = (ms: number, f: (u: number) => void) => new Promise<void>(fin => {
+    const t0 = performance.now();
+    const cuadro = (ahora: number) => { const u = Math.min(1, (ahora - t0) / ms); f(u); if (u < 1) requestAnimationFrame(cuadro); else fin(); };
+    requestAnimationFrame(cuadro);
+});
 
 /** El arrebato: `carta` (un elemento ya colocado en `obj`) sale de `desde` (tu hueco); la mano
  *  del rival sale de `rival` (su franja) o de arriba; la tuya, de abajo. Dura `dura` ms.
- *  `robo`: sin pelea; el guante del rival te la quita y se la lleva a su franja. */
-export function arrebato(fx: HTMLElement, carta: HTMLElement, desde: Rect, obj: Rect, rival: Rect | null, dura = 650, robo = false): Promise<void> {
+ *  `robo`: sin pelea; el guante del rival te la quita y se la lleva a su franja.
+ *  `final`: las dos manos se quedan forcejeando hasta que se resuelve la pelea, y entonces
+ *  la que gana abofetea a la otra (desenlace). */
+export function arrebato(fx: HTMLElement, carta: HTMLElement, desde: Rect, obj: Rect, rival: Rect | null, dura = 650, robo = false, final?: Promise<Final | null>): Promise<void> {
     const W = innerWidth, H = innerHeight;
     const capa = el('svg', { width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     Object.assign(capa.style, { position: 'fixed', inset: '0', zIndex: '123', pointerEvents: 'none', overflow: 'visible' });
+    // Rojo de dolor: el blanco del guante pasa a bermellón y la tinta sigue negra
+    capa.innerHTML = '<defs><filter id="guanteRojo" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  .1 .1 .08 0 0  .06 .06 .05 0 0  0 0 0 1 0"/></filter></defs>';
     fx.append(capa);
     const tam = Math.min(obj.width * 0.95, 150);
     const R = guante(capa, '#a9b689', 0, tam), Y = robo ? null : guante(capa, '#e8402a', 1, tam);
@@ -156,7 +180,102 @@ export function arrebato(fx: HTMLElement, carta: HTMLElement, desde: Rect, obj: 
             else fin();
         };
         requestAnimationFrame(cuadro);
-    }).then(() => {
+    }).then(async () => {
+        if (final && Y) await desenlace(final);
         for (const e of [capa, carta]) e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' }).finished.finally(() => e.remove());
     });
+
+    // ── Mientras dura la pelea, forcejean; al acabar, la que gana abofetea a la otra ──
+    type Pos = ReturnType<typeof muestra>;
+    function ponCarta(r: Pos, y: Pos) {
+        const tir = (r.y - (top - g * 0.55)) * 0.6 + (y.y - (bot + g * 0.6)) * 0.4;
+        carta.style.transform = `translate(0px, ${tir}px) rotate(${(r.rot - 180) * 0.8}deg) scale(1)`;
+    }
+    // (declaraciones de función: se usan desde el `then` de arriba, después del return)
+    function ponR(p: Pos) { R.set(p.x, p.y, p.rot, p.sx, p.sy, p.pose, ax, ay, p.onda); }
+    function ponY(p: Pos) { Y!.set(p.x, p.y, p.rot, p.sx, p.sy, p.pose, bx, by, p.onda); }
+    function entre(a: Pos, b: Partial<Pos>, u: number): Pos {
+        const l = (p: number, q: number | undefined) => q === undefined ? p : p + (q - p) * u;
+        return { x: l(a.x, b.x), y: l(a.y, b.y), rot: l(a.rot, b.rot), sx: l(a.sx, b.sx), sy: l(a.sy, b.sy), onda: l(a.onda, b.onda), pose: u < 0.5 ? a.pose : (b.pose ?? a.pose) };
+    }
+    /** El golpe: una estrella de cómic donde da la mano, que salta y se apaga. */
+    function estrella(x: number, y: number) {
+        const n = 9, pts = Array.from({ length: n * 2 }, (_, i) => {
+            const a = i * Math.PI / n, rr = (i % 2 ? 0.45 : 1) * tam * 0.55 * (0.85 + 0.3 * ((i * 7) % 3) / 2);
+            return `${(Math.cos(a) * rr).toFixed(1)},${(Math.sin(a) * rr).toFixed(1)}`;
+        }).join(' ');
+        const e = el('polygon', { points: pts, fill: '#f4f1e6', stroke: TINTA, 'stroke-width': 4, 'stroke-linejoin': 'round' });
+        capa.append(e);
+        void tramo(220, u => e.setAttribute('transform', `translate(${x} ${y}) rotate(${u * 25}) scale(${0.3 + u * 1.1})`)).then(() =>
+            e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: 'forwards' }).finished.finally(() => e.remove()));
+    }
+    async function desenlace(final: Promise<Final | null>) {
+        let res: Final | null = null, llego = false;
+        void final.then(f => { res = f; llego = true; });
+        const r0 = muestra(rv, 1), y0 = muestra(yo, 1);
+        let r = r0, y = y0;
+        const t1 = performance.now();
+        await new Promise<void>(listo => {
+            const cuadro = (ahora: number) => {
+                const s = (ahora - t1) / 1000, w = Math.sin(s * Math.PI * 4.4), w2 = Math.sin(s * Math.PI * 6.2 + 1);
+                r = { ...r0, y: r0.y - w * g * 0.16, rot: 180 + w2 * 6, sx: 1 + w * 0.08, sy: 1 - w * 0.08, onda: w * 40 };
+                y = { ...y0, y: y0.y - w * g * 0.12, rot: -w2 * 5, sx: 1 - w * 0.08, sy: 1 + w * 0.1, onda: -w * 30 };
+                ponR(r); ponY(y); ponCarta(r, y);
+                if (llego) listo(); else requestAnimationFrame(cuadro);
+            };
+            requestAnimationFrame(cuadro);
+        });
+        if (!res) return;   // se cortó sin resultado: se van sin más
+        const { gano, aturdido } = res;
+        const cy0 = top + obj.height / 2;
+        const golpea = gano ? y : r, recibe = gano ? r : y, ponG = gano ? ponY : ponR, ponV = gano ? ponR : ponY;
+        const lado = gano ? 1 : -1;
+        // Carga: la mano que gana suelta la carta y echa el brazo atrás
+        const carga = { x: golpea.x + lado * tam * 0.9, y: golpea.y + (gano ? g * 0.5 : -g * 0.4), rot: (gano ? 0 : 180) - lado * 45, sx: 0.85, sy: 1.3, pose: 'abierta' as const, onda: lado * 50 };
+        await tramo(200, u => { ponG(entre(golpea, carga, suave(u))); ponV(entre(recibe, { sy: 1.1 }, u)); });
+        // ¡Zas!: de canto contra la otra mano
+        const pega = { x: recibe.x - lado * tam * 0.15, y: recibe.y + (gano ? g * 0.1 : -g * 0.1), rot: (gano ? 0 : 180) + lado * 60, sx: 1.35, sy: 0.75, pose: 'abierta' as const, onda: -lado * 30 };
+        const desdeG = entre(golpea, carga, 1);
+        await tramo(80, u => ponG(entre(desdeG, pega, u)));
+        estrella(recibe.x, recibe.y + (gano ? g * 0.35 : -g * 0.35));
+        try { navigator.vibrate?.(gano ? 30 : [40, 30, 60]); } catch { /* */ }
+        const tocada = { ...recibe, pose: 'tensa' as const };
+        if (gano) {
+            // El ladrón sale despedido a su franja dando vueltas; la carta cae en tu mano; tú, «like»
+            const vuela = { x: ax, y: ay - g, rot: 180 + 220, sx: 0.7, sy: 1.4, pose: 'tensa' as const, onda: 80 };
+            // «like»: puño de lado con el pulgar arriba (rot 90: los dedos a la derecha, la muñeca a la izquierda)
+            const vuelve = { x: cx - tam * 0.75, y: bot + g * 0.75, rot: 90, sx: 1, sy: 1, pose: 'like' as const, onda: 0 };
+            await tramo(380, u => {
+                const q = suave(u);
+                ponV(entre(tocada, vuela, q));
+                ponG(entre(pega, vuelve, q));
+                carta.style.transform = `translate(${sx0 * q}px, ${sy0 * q}px) rotate(${(1 - q) * 12}deg) scale(${1 + (k0 - 1) * q})`;
+            });
+            await tramo(160, u => ponG(entre(vuelve, { sx: 1 + 0.08 * Math.sin(u * Math.PI), sy: 1 + 0.08 * Math.sin(u * Math.PI) }, 1)));
+            return;
+        }
+        // Pierdes: tu guante se pone rojo y se encoge abajo, latiendo de dolor mientras dura el aturdimiento
+        Y!.rojo(true);
+        const ret = { x: cx - tam * 0.2, y: H - g * 0.35, rot: 12, sx: 1, sy: 1, pose: 'tensa' as const, onda: 0 };
+        const llevaR = { x: ax, y: ay - g, rot: 180, sx: 0.9, sy: 1.2, pose: 'agarra' as const, onda: -40 };
+        await tramo(300, u => {
+            const q = suave(u);
+            ponV(entre(tocada, ret, q));
+            ponG(entre(pega, llevaR, q));
+            carta.style.transform = `translate(${(ax - cx) * q}px, ${(ay - g - cy0) * q}px) rotate(${q * -30}deg) scale(${1 + (k0 * 0.6 - 1) * q})`;
+        });
+        carta.style.opacity = '0';
+        // Las rayitas del dolor, alrededor del guante, al ritmo del latido
+        const rayas = el('path', { fill: 'none', stroke: TINTA, 'stroke-width': 4, 'stroke-linecap': 'round' });
+        capa.append(rayas);
+        const P = Math.PI;
+        await tramo(Math.max(400, aturdido - 580), u => {
+            const s = u * Math.max(400, aturdido - 580) / 1000, lat = Math.abs(Math.sin(s * P / 0.32));   // ~3 latidos por segundo
+            const k = 1 + 0.16 * lat;
+            ponV({ ...ret, sx: k, sy: k * (1 - 0.05 * lat), rot: 12 + Math.sin(s * 40) * 2 });   // tiembla
+            const R0 = tam * 0.75 * k, R1 = R0 + tam * 0.22 * lat, mx = ret.x, my = ret.y - tam * 0.5;
+            rayas.setAttribute('d', [-0.9, -0.3, 0.3, 0.9].map(a => `M${mx + Math.sin(a) * R0} ${my - Math.cos(a) * R0} L${mx + Math.sin(a) * R1} ${my - Math.cos(a) * R1}`).join(' '));
+            rayas.setAttribute('opacity', String(0.3 + 0.7 * lat));
+        });
+    }
 }

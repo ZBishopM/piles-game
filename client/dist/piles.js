@@ -751,7 +751,18 @@
   function isStunned() {
     return Date.now() < stunnedUntil;
   }
+  var finalManos = null;
+  var esperaAturdido = null;
+  function resolverManos(f) {
+    if (esperaAturdido) {
+      clearTimeout(esperaAturdido);
+      esperaAturdido = null;
+    }
+    finalManos?.(f);
+    finalManos = null;
+  }
   function startStun(ms) {
+    if (finalManos && esperaAturdido) resolverManos({ gano: false, aturdido: ms });
     stunnedUntil = Date.now() + ms;
     porId("gameScreen").classList.add("stunned");
     const bar = porId("stunBar");
@@ -789,7 +800,11 @@
       est.allSets[est.currentSetIndex][enMano] = null;
       if (!est.centerCards.some((c) => c.id === cardId)) est.centerCards = [...est.centerCards, mia];
       renderYourCards();
-      if (desde) emitir("arrebato", desde, mia, players.find((p) => p !== est.currentNickname) ?? null);
+      if (desde) {
+        resolverManos(null);
+        const final = new Promise((r) => finalManos = r);
+        emitir("arrebato", desde, mia, players.find((p) => p !== est.currentNickname) ?? null, final);
+      }
     }
     const card = est.centerCards.find((c) => c && c.id === cardId) || null;
     qteBlockedCards.add(cardId);
@@ -971,6 +986,8 @@
     }
     const iWon = winnerName === est.currentNickname;
     playSfx(iWon ? "fightWon" : "fightLost");
+    if (iWon) resolverManos({ gano: true, aturdido: 0 });
+    else if (finalManos) esperaAturdido = setTimeout(() => resolverManos({ gano: false, aturdido: 0 }), 400);
     est.qteWonSlot = iWon && est.qteContestedCard ? { card: est.qteContestedCard, index: est.qteContestedIndex } : null;
     porId("qteClickBtn").style.display = "none";
     cancelGiveUpHold();
@@ -1003,6 +1020,7 @@
     }, info?.random ? FIGHT_RESULT_MS + 900 : FIGHT_RESULT_MS);
   }
   function closeQteOverlay() {
+    if (finalManos && !esperaAturdido) resolverManos(null);
     est.qteActive = false;
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
@@ -1365,6 +1383,7 @@
     const isFlipped = cards.length > 0;
     if (playerName === est.currentNickname) {
       est.myFlippedSets[setIndex] = isFlipped;
+      if (setIndex === est.currentSetIndex) document.getElementById("yourCards")?.classList.toggle("volteado", isFlipped);
       updateSetNav();
     } else {
       if (!opponentFlippedSets.has(playerName)) {
@@ -1878,6 +1897,7 @@
   function renderYourCards() {
     const div = porId("yourCards");
     div.innerHTML = "";
+    div.classList.toggle("volteado", !!est.myFlippedSets[est.currentSetIndex]);
     const set = est.allSets[est.currentSetIndex] || [];
     set.forEach((card, i) => {
       if (!card) {
@@ -2023,8 +2043,7 @@
       done = true;
       el2.remove();
       flyingCards.delete(cardData.id);
-      const row = document.getElementById(rowId);
-      row?.querySelectorAll(".card").forEach((c) => {
+      document.querySelectorAll("#yourCards .card, #centerCards .card").forEach((c) => {
         if (c.dataset.cardId === String(cardData.id)) c.style.visibility = "";
       });
       if (land) markLanded(rowId, index, won);
@@ -5719,10 +5738,11 @@
 
   // ../client/partida/manos.ts
   var TINTA = "#0b0c09";
-  var POSES = ["abierta", "tensa", "agarra", "puno", "pistola", "ok", "puntilla1", "puntilla2"];
+  var POSES = ["abierta", "tensa", "agarra", "puno", "pistola", "ok", "puntilla1", "puntilla2", "like"];
   var HOJA = "/partida/guantes.webp";
   var CELDA = 256;
   var MUNECA = [128, 203];
+  var DE_LADO = { like: { muneca: [53, 128], giro: -90 } };
   var MUNECA_PUNTA = 140;
   var BAJO_PUNO = 10;
   var SVGNS = "http://www.w3.org/2000/svg";
@@ -5739,16 +5759,28 @@
     const mano2 = el("g");
     const ventana = el("svg", { width: CELDA, height: CELDA, viewBox: `0 0 ${CELDA} ${CELDA}`, x: -MUNECA[0], y: -MUNECA[1] });
     ventana.append(el("image", { href: HOJA, width: CELDA * POSES.length, height: CELDA * 2 }));
-    mano2.append(ventana);
+    const giro = el("g");
+    giro.append(ventana);
+    mano2.append(giro);
     capa.append(brazo, mano2);
     const k = tam * 1.14 / MUNECA_PUNTA;
     let actual = "";
     return {
+      mano: mano2,
+      /** Dolor: el guante entero se pone rojo (filtro `#guanteRojo` de la capa). */
+      rojo(si) {
+        if (si) mano2.setAttribute("filter", "url(#guanteRojo)");
+        else mano2.removeAttribute("filter");
+      },
       set(x, y, rot, sx, sy, pose, ax, ay, onda) {
         mano2.setAttribute("transform", `translate(${x} ${y}) rotate(${rot}) scale(${k * sx} ${k * sy})`);
         if (pose !== actual) {
           actual = pose;
           ventana.setAttribute("viewBox", `${POSES.indexOf(pose) * CELDA} ${fila * CELDA} ${CELDA} ${CELDA}`);
+          const lado = DE_LADO[pose], m = lado?.muneca ?? MUNECA;
+          ventana.setAttribute("x", String(-m[0]));
+          ventana.setAttribute("y", String(-m[1]));
+          giro.setAttribute("transform", lado ? `rotate(${lado.giro})` : "");
         }
         const rad = rot * Math.PI / 180, mx = x - Math.sin(rad) * BAJO_PUNO * k * sy, my = y + Math.cos(rad) * BAJO_PUNO * k * sy;
         const dx = mx - ax, dy = my - ay, n = Math.hypot(dx, dy) || 1, px = -dy / n, py = dx / n;
@@ -5769,10 +5801,21 @@
     const l = (p, q) => p + (q - p) * u;
     return { x: l(a.x, b.x), y: l(a.y, b.y), rot: l(a.rot ?? 0, b.rot ?? 0), sx: l(a.sx ?? 1, b.sx ?? 1), sy: l(a.sy ?? 1, b.sy ?? 1), onda: l(a.onda ?? 0, b.onda ?? 0), pose: u < 0.5 ? a.pose : b.pose };
   }
-  function arrebato(fx, carta, desde, obj, rival, dura = 650, robo = false) {
+  var tramo = (ms, f) => new Promise((fin) => {
+    const t0 = performance.now();
+    const cuadro = (ahora) => {
+      const u = Math.min(1, (ahora - t0) / ms);
+      f(u);
+      if (u < 1) requestAnimationFrame(cuadro);
+      else fin();
+    };
+    requestAnimationFrame(cuadro);
+  });
+  function arrebato(fx, carta, desde, obj, rival, dura = 650, robo = false, final) {
     const W2 = innerWidth, H2 = innerHeight;
     const capa = el("svg", { width: W2, height: H2, viewBox: `0 0 ${W2} ${H2}` });
     Object.assign(capa.style, { position: "fixed", inset: "0", zIndex: "123", pointerEvents: "none", overflow: "visible" });
+    capa.innerHTML = '<defs><filter id="guanteRojo" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  .1 .1 .08 0 0  .06 .06 .05 0 0  0 0 0 1 0"/></filter></defs>';
     fx.append(capa);
     const tam = Math.min(obj.width * 0.95, 150);
     const R = guante(capa, "#a9b689", 0, tam), Y = robo ? null : guante(capa, "#e8402a", 1, tam);
@@ -5849,9 +5892,108 @@
         else fin();
       };
       requestAnimationFrame(cuadro);
-    }).then(() => {
+    }).then(async () => {
+      if (final && Y) await desenlace(final);
       for (const e of [capa, carta]) e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).finished.finally(() => e.remove());
     });
+    function ponCarta(r, y) {
+      const tir = (r.y - (top - g * 0.55)) * 0.6 + (y.y - (bot + g * 0.6)) * 0.4;
+      carta.style.transform = `translate(0px, ${tir}px) rotate(${(r.rot - 180) * 0.8}deg) scale(1)`;
+    }
+    function ponR(p) {
+      R.set(p.x, p.y, p.rot, p.sx, p.sy, p.pose, ax, ay, p.onda);
+    }
+    function ponY(p) {
+      Y.set(p.x, p.y, p.rot, p.sx, p.sy, p.pose, bx, by, p.onda);
+    }
+    function entre(a, b, u) {
+      const l = (p, q) => q === void 0 ? p : p + (q - p) * u;
+      return { x: l(a.x, b.x), y: l(a.y, b.y), rot: l(a.rot, b.rot), sx: l(a.sx, b.sx), sy: l(a.sy, b.sy), onda: l(a.onda, b.onda), pose: u < 0.5 ? a.pose : b.pose ?? a.pose };
+    }
+    function estrella(x, y) {
+      const n = 9, pts = Array.from({ length: n * 2 }, (_, i) => {
+        const a = i * Math.PI / n, rr = (i % 2 ? 0.45 : 1) * tam * 0.55 * (0.85 + 0.3 * (i * 7 % 3) / 2);
+        return `${(Math.cos(a) * rr).toFixed(1)},${(Math.sin(a) * rr).toFixed(1)}`;
+      }).join(" ");
+      const e = el("polygon", { points: pts, fill: "#f4f1e6", stroke: TINTA, "stroke-width": 4, "stroke-linejoin": "round" });
+      capa.append(e);
+      void tramo(220, (u) => e.setAttribute("transform", `translate(${x} ${y}) rotate(${u * 25}) scale(${0.3 + u * 1.1})`)).then(() => e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 120, fill: "forwards" }).finished.finally(() => e.remove()));
+    }
+    async function desenlace(final2) {
+      let res = null, llego = false;
+      void final2.then((f) => {
+        res = f;
+        llego = true;
+      });
+      const r0 = muestra(rv, 1), y0 = muestra(yo, 1);
+      let r = r0, y = y0;
+      const t1 = performance.now();
+      await new Promise((listo) => {
+        const cuadro = (ahora) => {
+          const s = (ahora - t1) / 1e3, w = Math.sin(s * Math.PI * 4.4), w2 = Math.sin(s * Math.PI * 6.2 + 1);
+          r = { ...r0, y: r0.y - w * g * 0.16, rot: 180 + w2 * 6, sx: 1 + w * 0.08, sy: 1 - w * 0.08, onda: w * 40 };
+          y = { ...y0, y: y0.y - w * g * 0.12, rot: -w2 * 5, sx: 1 - w * 0.08, sy: 1 + w * 0.1, onda: -w * 30 };
+          ponR(r);
+          ponY(y);
+          ponCarta(r, y);
+          if (llego) listo();
+          else requestAnimationFrame(cuadro);
+        };
+        requestAnimationFrame(cuadro);
+      });
+      if (!res) return;
+      const { gano, aturdido } = res;
+      const cy0 = top + obj.height / 2;
+      const golpea = gano ? y : r, recibe = gano ? r : y, ponG = gano ? ponY : ponR, ponV = gano ? ponR : ponY;
+      const lado = gano ? 1 : -1;
+      const carga = { x: golpea.x + lado * tam * 0.9, y: golpea.y + (gano ? g * 0.5 : -g * 0.4), rot: (gano ? 0 : 180) - lado * 45, sx: 0.85, sy: 1.3, pose: "abierta", onda: lado * 50 };
+      await tramo(200, (u) => {
+        ponG(entre(golpea, carga, suave(u)));
+        ponV(entre(recibe, { sy: 1.1 }, u));
+      });
+      const pega = { x: recibe.x - lado * tam * 0.15, y: recibe.y + (gano ? g * 0.1 : -g * 0.1), rot: (gano ? 0 : 180) + lado * 60, sx: 1.35, sy: 0.75, pose: "abierta", onda: -lado * 30 };
+      const desdeG = entre(golpea, carga, 1);
+      await tramo(80, (u) => ponG(entre(desdeG, pega, u)));
+      estrella(recibe.x, recibe.y + (gano ? g * 0.35 : -g * 0.35));
+      try {
+        navigator.vibrate?.(gano ? 30 : [40, 30, 60]);
+      } catch {
+      }
+      const tocada = { ...recibe, pose: "tensa" };
+      if (gano) {
+        const vuela = { x: ax, y: ay - g, rot: 180 + 220, sx: 0.7, sy: 1.4, pose: "tensa", onda: 80 };
+        const vuelve2 = { x: cx - tam * 0.75, y: bot + g * 0.75, rot: 90, sx: 1, sy: 1, pose: "like", onda: 0 };
+        await tramo(380, (u) => {
+          const q = suave(u);
+          ponV(entre(tocada, vuela, q));
+          ponG(entre(pega, vuelve2, q));
+          carta.style.transform = `translate(${sx0 * q}px, ${sy0 * q}px) rotate(${(1 - q) * 12}deg) scale(${1 + (k0 - 1) * q})`;
+        });
+        await tramo(160, (u) => ponG(entre(vuelve2, { sx: 1 + 0.08 * Math.sin(u * Math.PI), sy: 1 + 0.08 * Math.sin(u * Math.PI) }, 1)));
+        return;
+      }
+      Y.rojo(true);
+      const ret = { x: cx - tam * 0.2, y: H2 - g * 0.35, rot: 12, sx: 1, sy: 1, pose: "tensa", onda: 0 };
+      const llevaR = { x: ax, y: ay - g, rot: 180, sx: 0.9, sy: 1.2, pose: "agarra", onda: -40 };
+      await tramo(300, (u) => {
+        const q = suave(u);
+        ponV(entre(tocada, ret, q));
+        ponG(entre(pega, llevaR, q));
+        carta.style.transform = `translate(${(ax - cx) * q}px, ${(ay - g - cy0) * q}px) rotate(${q * -30}deg) scale(${1 + (k0 * 0.6 - 1) * q})`;
+      });
+      carta.style.opacity = "0";
+      const rayas = el("path", { fill: "none", stroke: TINTA, "stroke-width": 4, "stroke-linecap": "round" });
+      capa.append(rayas);
+      const P = Math.PI;
+      await tramo(Math.max(400, aturdido - 580), (u) => {
+        const s = u * Math.max(400, aturdido - 580) / 1e3, lat = Math.abs(Math.sin(s * P / 0.32));
+        const k = 1 + 0.16 * lat;
+        ponV({ ...ret, sx: k, sy: k * (1 - 0.05 * lat), rot: 12 + Math.sin(s * 40) * 2 });
+        const R0 = tam * 0.75 * k, R1 = R0 + tam * 0.22 * lat, mx = ret.x, my = ret.y - tam * 0.5;
+        rayas.setAttribute("d", [-0.9, -0.3, 0.3, 0.9].map((a) => `M${mx + Math.sin(a) * R0} ${my - Math.cos(a) * R0} L${mx + Math.sin(a) * R1} ${my - Math.cos(a) * R1}`).join(" "));
+        rayas.setAttribute("opacity", String(0.3 + 0.7 * lat));
+      });
+    }
   }
 
   // ../client/partida/partida.ts
@@ -6767,7 +6909,7 @@
       verifs.clear();
       columnas.textContent = "";
     });
-    function arrebato2(desde, card, rival, dura = 650, robo = false) {
+    function arrebato2(desde, card, rival, dura = 650, robo = false, final) {
       const mesa = document.getElementById("centerCards")?.getBoundingClientRect();
       const cw = Math.min(desde.width * 1.7, innerWidth * 0.32), ch = cw * desde.height / desde.width;
       const ccx = innerWidth / 2, ccy = mesa ? mesa.bottom - ch * 0.62 : desde.top - ch;
@@ -6777,12 +6919,12 @@
       zumba(20);
       const fx = porId("fxLayer");
       fx.classList.add("sobre-pelea");
-      return arrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo).finally(() => setTimeout(() => {
+      return arrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo, final).finally(() => setTimeout(() => {
         if (!fx.querySelector("svg")) fx.classList.remove("sobre-pelea");
       }, 220));
     }
-    al("arrebato", (desde, card, rival) => {
-      void arrebato2(desde, card, rival);
+    al("arrebato", (desde, card, rival, final) => {
+      void arrebato2(desde, card, rival, 650, false, final);
     });
     al("robo", (desde, card, rival) => {
       void arrebato2(desde, card, rival, 480, true);

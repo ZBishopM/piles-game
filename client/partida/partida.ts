@@ -13,7 +13,7 @@ import { playSfx } from '../juego/sonido.js';
 import { playTaunt } from '../juego/burlas.js';
 import { onPlayerCardClick, onCenterCardClick, owesCard, switchSet, flipCurrentSet, qteNotifs } from '../juego/toques.js';
 import { isStunned } from '../juego/pelea.js';
-import { arrebato as manosArrebato } from './manos.js';
+import { arrebato as manosArrebato, type Final } from './manos.js';
 
 (() => {
     const ICONOS = {
@@ -808,7 +808,7 @@ import { arrebato as manosArrebato } from './manos.js';
      *  se la disputan: la mano del rival (desde su franja del marcador) y la tuya. */
     /** `robo`: no hay pelea, el rival se la llevó antes (llegaste tarde): su guante te la quita
      *  de la mano y se va, sin que aparezca el tuyo. */
-    function arrebato(desde: DOMRect, card: Partial<CardInfo>, rival?: string | null, dura = 650, robo = false) {
+    function arrebato(desde: DOMRect, card: Partial<CardInfo>, rival?: string | null, dura = 650, robo = false, final?: Promise<Final | null>) {
         const mesa = document.getElementById('centerCards')?.getBoundingClientRect();
         const cw = Math.min(desde.width * 1.7, innerWidth * 0.32), ch = cw * desde.height / desde.width;
         const ccx = innerWidth / 2, ccy = mesa ? mesa.bottom - ch * 0.62 : desde.top - ch;
@@ -819,10 +819,10 @@ import { arrebato as manosArrebato } from './manos.js';
         // Por encima de la pelea, que entra a la vez (sin esperar a las manos): se ve quién arrancó qué.
         const fx = porId('fxLayer');
         fx.classList.add('sobre-pelea');
-        return manosArrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo)
+        return manosArrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo, final)
             .finally(() => setTimeout(() => { if (!fx.querySelector('svg')) fx.classList.remove('sobre-pelea'); }, 220));   // tras el fundido (160 ms)
     }
-    al('arrebato', (desde: DOMRect, card: CardInfo, rival: string | null) => { void arrebato(desde, card, rival); });
+    al('arrebato', (desde: DOMRect, card: CardInfo, rival: string | null, final?: Promise<Final | null>) => { void arrebato(desde, card, rival, 650, false, final); });
     al('robo', (desde: DOMRect, card: CardInfo, rival: string) => { void arrebato(desde, card, rival, 480, true); });
 
     window.partida = { avisoIco, destello, ico, encajarCentro, arrebato };

@@ -16,7 +16,22 @@ export function isStunned() { return Date.now() < stunnedUntil; }
 
 /** El servidor manda la duración porque es quien la aplica de verdad; aquí
  *  solo se pinta. No hay texto: el tablero apagado es el mensaje. */
+// ── Las manos toon de tu pelea (partida/manos.ts): forcejean hasta que se resuelve ──
+/** Cómo acabó tu pelea, para las manos: quién gana y cuánto dura tu aturdimiento. null = se
+ *  cortó sin resultado (fin de partida, salir…): las manos se van sin bofetada. */
+type FinalManos = { gano: boolean; aturdido: number } | null;
+let finalManos: ((f: FinalManos) => void) | null = null;
+let esperaAturdido: ReturnType<typeof setTimeout> | null = null;
+function resolverManos(f: FinalManos) {
+    if (esperaAturdido) { clearTimeout(esperaAturdido); esperaAturdido = null; }
+    finalManos?.(f);
+    finalManos = null;
+}
+
 export function startStun(ms: number) {
+    // Perdiste la pelea: el aturdimiento llega justo detrás del resultado y es lo que dura el
+    // latido de tu mano roja.
+    if (finalManos && esperaAturdido) resolverManos({ gano: false, aturdido: ms });
     stunnedUntil = Date.now() + ms;
     porId('gameScreen').classList.add('stunned');
     const bar = porId('stunBar');
@@ -57,7 +72,11 @@ export function onSwapConflict(players: string[], cardId: number, durationMs: nu
         est.allSets[est.currentSetIndex][enMano] = null;
         if (!est.centerCards.some(c => c.id === cardId)) est.centerCards = [...est.centerCards, mia];
         renderYourCards();
-        if (desde) emitir('arrebato', desde, mia, players.find(p => p !== est.currentNickname) ?? null);
+        if (desde) {
+            resolverManos(null);   // una pelea anterior que no se cerró
+            const final = new Promise<FinalManos>(r => (finalManos = r));
+            emitir('arrebato', desde, mia, players.find(p => p !== est.currentNickname) ?? null, final);
+        }
     }
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
@@ -305,6 +324,10 @@ export function onQteResolved(winnerName: string, info?: Partial<Msg<'qte_resolv
 
     const iWon = winnerName === est.currentNickname;
     playSfx(iWon ? 'fightWon' : 'fightLost');
+    // Las manos: si ganas, ya; si pierdes, al llegar tu aturdimiento (startStun). Si no llega
+    // (cediste: sin bloqueo), bofetada sin latido.
+    if (iWon) resolverManos({ gano: true, aturdido: 0 });
+    else if (finalManos) esperaAturdido = setTimeout(() => resolverManos({ gano: false, aturdido: 0 }), 400);
     // Si ganaste, el swap_success que viene detrás animará la carta desde el
     // centro hasta tu set. Se guarda de dónde sale antes de que el tablero
     // cambie debajo.
@@ -345,6 +368,7 @@ export function onQteResolved(winnerName: string, info?: Partial<Msg<'qte_resolv
 }
 
 export function closeQteOverlay() {
+    if (finalManos && !esperaAturdido) resolverManos(null);   // se cerró sin resultado
     est.qteActive = false;
     cancelGiveUpHold();
     const rendirse = giveUpBtn();

@@ -28,7 +28,12 @@ POSES = {
     "pistola":   {"i": (0, 0, 1.08), "m": (2, 88, 1), "a": (4, 88, 1), "p": (-75, -5, -5, 1.05)},
     # ok: el índice se enrosca hacia la palma y el pulgar sube a tocar su yema: el aro se ve de lado
     # (índice y pulgar se estiran como goma para que el aro quede abierto)
-    "ok":        {"i": (-4, 55, 2.6), "m": (4, 6, 1), "a": (14, 10, 1), "p": (8, 72, 0, 2.0)},
+    # ok: índice y pulgar cierran un círculo de verdad encima y a un lado de la palma, de cara,
+    # de no más de media mano de ancho (radio 0,14 + dedos finos ≈ 0,43 de 0,85)
+    "ok":        {"i": (-4, 55, 1), "m": (6, 6, 1), "a": (18, 10, 1), "p": (8, 72, 0, 1),
+                  "aro": (0.26, 20, (-0.55, -0.17, 0.9))},   # el aro, de los propios dedos: fuera ≈ 0,7, hueco ≈ 0,3
+    # like: puño con el pulgar estirado hacia fuera; la cámara gira 90° (VISTA) y queda arriba
+    "like":      {"i": (0, 88, 1), "m": (0, 90, 1), "a": (0, 88, 1), "p": (-95, -4, -6, 1.5)},
     "puntilla1": {"i": (-10, 6, 1.05), "m": (10, 20, 0.95), "a": (8, 85, 1), "p": (10, 60, 25, 1)},
     "puntilla2": {"i": (-4, 20, 0.95), "m": (16, 4, 1.05), "a": (8, 85, 1), "p": (10, 60, 25, 1)},
 }
@@ -92,6 +97,18 @@ def cadena(base, rot, dobla, L, eje_dobla):
     return pts
 
 
+def aro(params, desde, hasta, paso=12):
+    """Puntos de un arco del aro del «ok» (grados; 0 = el lado de la palma, 90 = arriba).
+    params = (radio, inclinación°, centro): un círculo de verdad, de cara a la cámara,
+    con la parte de arriba algo echada hacia atrás, hacia donde apuntan los dedos."""
+    rho, incl, c = params
+    c = Vector(c)
+    u, v = Vector((1, 0, 0)), Vector((0, math.sin(math.radians(incl)), math.cos(math.radians(incl))))
+    n = max(2, int(abs(hasta - desde) / paso))
+    return [c + rho * (math.cos(math.radians(a)) * u + math.sin(math.radians(a)) * v)
+            for a in (desde + (hasta - desde) * i / n for i in range(n + 1))]
+
+
 def tubo(mb, pts, r0, r1, paso=0.035):
     """Un dedo liso: bolas muy juntas a lo largo de la línea de falanges (las cápsulas sueltas
     abultaban cada nudillo). El radio va de r0 en la base a r1 en la yema."""
@@ -118,6 +135,42 @@ def pieza(nombre):
     ob = bpy.data.objects.new(nombre, mb)
     esc.collection.objects.link(ob)
     return mb, ob
+
+
+def dedo_liso(nombre, pts, r0, r1):
+    """Un dedo como tubo de curva (no metabolas): para el aro del «ok», donde los campos de
+    las metabolas rellenaban el hueco. Tubo + bola en la yema, fundidos con remallado."""
+    cu = bpy.data.curves.new(nombre, "CURVE")
+    cu.dimensions, cu.bevel_depth, cu.bevel_resolution, cu.use_fill_caps = "3D", 1.0, 6, True
+    sp = cu.splines.new("NURBS")
+    sp.points.add(len(pts) - 1)
+    for i, p in enumerate(pts):
+        sp.points[i].co = (*p, 1)
+        sp.points[i].radius = r0 + (r1 - r0) * i / (len(pts) - 1)
+    sp.order_u, sp.use_endpoint_u, sp.resolution_u = 3, True, 12
+    ob = bpy.data.objects.new(nombre, cu)
+    esc.collection.objects.link(ob)
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=r1, location=pts[-1], segments=24, ring_count=12)
+    bola = bpy.context.view_layer.objects.active
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = ob
+    ob.select_set(True)
+    bpy.ops.object.convert(target="MESH")
+    bola.select_set(True)
+    bpy.ops.object.join()
+    me = bpy.context.view_layer.objects.active
+    rm = me.modifiers.new("una", "REMESH")
+    rm.mode, rm.voxel_size = "VOXEL", 0.012
+    bpy.ops.object.modifier_apply(modifier="una")
+    me.data.materials.clear()
+    me.data.materials.append(BLANCO)
+    me.data.materials.append(TINTA)
+    lis = me.modifiers.new("liso", "CORRECTIVE_SMOOTH")
+    lis.factor, lis.iterations, lis.use_only_smooth = 0.6, 6, True
+    s = me.modifiers.new("contorno", "SOLIDIFY")
+    s.thickness, s.offset, s.use_flip_normals, s.material_offset, s.use_rim = 0.035, 1, True, 1, False
+    for p in me.data.polygons:
+        p.use_smooth = True
 
 
 def a_malla(ob):
@@ -148,6 +201,7 @@ def guante(pose):
     # y entre dedos vecinos sí sale el contorno, como la raya de los guantes de época.
     mb, ob = pieza("palma")
     piezas = [ob]
+    lisos = []   # dedos de tubo liso (el aro del «ok»)
     # Palma: un óvalo abombado (más grueso en el dorso) y la muñeca
     pal = mb.elements.new(type="ELLIPSOID")
     # (lo visible de una metabola es ≈ 0,55 × radio × tamaño con este umbral: medido en el render)
@@ -168,7 +222,13 @@ def guante(pose):
         nud = NUDILLO[k] + Vector((0, FONDO[k], 0))
         pts = cadena(nud + Vector((0, 0, -0.12)), rot, dobla, LARGO[k] * est, "X")
         pts[0] = nud + Vector((0, 0.04, -0.3))   # el dedo nace dentro de la palma
-        tubo(dm, pts, GROSOR, GROSOR * 1.12)   # salchicha: engorda hacia la yema
+        if k == "i" and "aro" in pose:   # el índice se enrosca formando el aro (dedo_liso, abajo)
+            rho, incl, c = pose["aro"]
+            pts = [nud + Vector((0, 0.04, -0.3)), nud] + aro(pose["aro"], 25, 200)
+            lisos.append(("indice", pts, 0.1, 0.1))
+            piezas.pop(); bpy.data.objects.remove(do)
+        else:
+            tubo(dm, pts, GROSOR, GROSOR * 1.12)   # salchicha: engorda hacia la yema
         yemas[k] = pts[-1]
     # Pulgar: sale del lado del índice, abajo; «adelante» lo gira hacia la palma (+Y)
     abre, adel, dobla, est = pose["p"]
@@ -178,10 +238,17 @@ def guante(pose):
     rot = Matrix.Rotation(math.radians(abre), 3, "Y") @ Matrix.Rotation(math.radians(-adel), 3, "X")
     pts = cadena(base, rot, dobla, LARGO["p"] * est, "X")
     pts[0] = base + Vector((0.16, 0.04, -0.08))
-    tubo(pm, pts, GROSOR * 1.02, GROSOR * 1.25)   # pulgar en paleta
+    if "aro" in pose:   # el pulgar sube y cierra el aro por abajo hasta la yema del índice
+        pts = [base + Vector((0.16, 0.04, -0.08)), base] + aro(pose["aro"], 330, 205)
+        lisos.append(("pulgar", pts, 0.11, 0.105))
+        piezas.pop(); bpy.data.objects.remove(po)
+    else:
+        tubo(pm, pts, GROSOR * 1.02, GROSOR * 1.25)   # pulgar en paleta
     yemas["p"] = pts[-1]
     for o in piezas:
         a_malla(o)
+    for nombre, pts, r0, r1 in lisos:
+        dedo_liso(nombre, pts, r0, r1)
     # Las tres costuras del dorso
     for x in (-0.13, 0, 0.13):
         cu = bpy.data.curves.new("costura", "CURVE")
@@ -232,19 +299,20 @@ esc.camera = cam
 
 px = lambda p: [round(world_to_camera_view(esc, cam, p).x * RES, 1), round((1 - world_to_camera_view(esc, cam, p).y) * RES, 1)]
 anclas = {}
-VISTA = {"ok": -75}   # giro de cámara (°, alrededor del guante) por pose; «pose@giro» lo fuerza
+VISTA = {}   # giro de cámara (°, alrededor del guante) por pose; «pose@giro» lo fuerza
+ROLL = {"like": -90}   # la imagen girada (°): el like es un puño de lado con el pulgar arriba
 
 
-def mirar(az):
+def mirar(az, roll=0):
     a = math.radians(az)
     cam.location = (6 * math.sin(a), -6 * math.cos(a), 0.85)
-    cam.rotation_euler = (math.radians(90), 0, a)
+    cam.rotation_euler = (math.radians(90), math.radians(roll), a)
     sol.rotation_euler = (math.radians(60), 0, a + math.radians(-35))   # la luz gira con la cámara
 
 
 for nombre in SOLO:
     nombre, _, az = nombre.partition("@")
-    mirar(float(az) if az else VISTA.get(nombre, 0))
+    mirar(float(az) if az else VISTA.get(nombre, 0), ROLL.get(nombre, 0))
     yemas = guante(POSES[nombre])
     bpy.context.view_layer.update()
     clave = f"{nombre}@{az}" if az else nombre

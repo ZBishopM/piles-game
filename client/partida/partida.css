@@ -192,10 +192,13 @@ body.mesa.en-partida.entrando #escenario { display: block; position: fixed; inse
 #fxLayer .card.vuela.disputada { z-index: 121; box-shadow: 0 0 0 3px var(--acento, #e8402a); }
 #fxLayer.sobre-pelea { z-index: 155; }   /* el arrebato se ve sobre la pelea que empieza (#qteOverlay: 150) */
 /* Cara sin revelar: dorsos, como los sets de los demás en el marcador de arriba */
-#tablas .tabla:not(.muestra) .tcarta:not(.vacia) {
-    background: repeating-linear-gradient(135deg, transparent 0 7px, rgb(169 182 137 / 9%) 7px 8px), #0b0c09;
+/* Volteado = boca arriba para los demás: tú le ves el dorso (en la tabla al girar y en tu mano) */
+#tablas .tabla.muestra .tcarta:not(.vacia),
+#gameScreen #yourCards.volteado .card:not(.card-empty) {
+    background: repeating-linear-gradient(135deg, transparent 0 7px, rgb(169 182 137 / 9%) 7px 8px), #0b0c09 !important;
     box-shadow: inset 0 0 0 2px rgb(169 182 137 / 55%), inset 0 0 0 6px #0b0c09, inset 0 0 0 7px rgb(169 182 137 / 25%);
 }
+#gameScreen #yourCards.volteado .card:not(.card-empty) > * { visibility: hidden; }
 #tablas .tojo { position: absolute; top: -14px; right: -10px; width: 30px; height: 30px; display: none; place-items: center;
     background: var(--acento); color: #fff; transform: skewX(-6deg); }
 #tablas .tojo .ico { width: 20px; height: 20px; }

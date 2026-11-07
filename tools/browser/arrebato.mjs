@@ -41,6 +41,16 @@ async function mesa(nick) {
   const enMano = await p.evaluate(x => juego.est.allSets.flat().some(c => c?.id === x), x);
   ok(!enMano, 'pelea: la carta salió de tu mano');
   ok(await p.evaluate(() => juego.est.qteActive), 'pelea: la pelea empezó sin esperar a las manos');
+  for (const ms of [300, 1200, 2400]) {
+    await wait(ms === 300 ? 150 : ms - (ms === 1200 ? 300 : 1200));
+    const vista = await p.evaluate(x => {
+      const e = document.querySelector(`#centerCards .card[data-card-id="${x}"]`);
+      const s = e && getComputedStyle(e);
+      return e ? { vis: s.visibility, op: s.opacity, disp: s.display, inline: e.style.visibility } : null;
+    }, x);
+    info(`a los ${ms} ms, la carta peleada en el centro: ${JSON.stringify(vista)}`);
+    ok(!!vista && vista.vis === 'visible' && vista.disp !== 'none', `pelea (${ms} ms): la carta peleada se ve en el centro`);
+  }
   await wait(4000);
   info(`errores: ${JSON.stringify(p.errores)}`);
   r.ws.close(); await ctx.close();

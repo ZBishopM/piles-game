@@ -430,6 +430,7 @@ export function onSetFlipped(playerName: string, setIndex: number, cards: CardIn
 
     if (playerName === est.currentNickname) {
         est.myFlippedSets[setIndex] = isFlipped;
+        if (setIndex === est.currentSetIndex) document.getElementById('yourCards')?.classList.toggle('volteado', isFlipped);
         updateSetNav();
     } else {
         if (!opponentFlippedSets.has(playerName)) {

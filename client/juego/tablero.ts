@@ -135,6 +135,8 @@ export function renderCenterCards() {
 export function renderYourCards() {
     const div = porId('yourCards');
     div.innerHTML = '';
+    // Un set volteado se ve como los demás lo ven de ti: boca arriba para ellos, tú le ves el dorso
+    div.classList.toggle('volteado', !!est.myFlippedSets[est.currentSetIndex]);
     const set = est.allSets[est.currentSetIndex] || [];
     set.forEach((card, i) => {
         // Un hueco vacío es una carta soltada que aún no se ha repuesto.
@@ -365,9 +367,10 @@ export function flyCard(cardData: CardInfo | null | undefined, from: DOMRect | n
         flyingCards.delete(cardData.id);
         // Descubrir SIEMPRE, pase lo que pase con la transición: una carta
         // invisible para siempre sería mucho peor que ver la copia de más.
-        // El nodo de ahora, que puede no ser `dest` si hubo redibujado.
-        const row = document.getElementById(rowId);
-        row?.querySelectorAll<HTMLElement>('.card').forEach(c => { if (c.dataset.cardId === String(cardData.id)) c.style.visibility = ''; });
+        // El nodo de ahora, que puede no ser `dest` si hubo redibujado. Y en las DOS filas: una
+        // cogida por adelantado vuela a tu mano, pero si a mitad de vuelo hay pelea la carta
+        // vuelve al centro, y ahí se quedaba escondida toda la pelea («no se ve la peleada»).
+        document.querySelectorAll<HTMLElement>('#yourCards .card, #centerCards .card').forEach(c => { if (c.dataset.cardId === String(cardData.id)) c.style.visibility = ''; });
         if (land) markLanded(rowId, index, won);
     };
     el.dataset.row = rowId;

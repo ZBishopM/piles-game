@@ -33,6 +33,8 @@ for (const [nombre, dy, ms, pasos, dx = 0] of casos) {
   const n = await cuenta(p, 'flip_set');
   info(`${nombre}: ${n} flip_set`);
   ok(n === 1, `${nombre}: revela`);
+  const [rev, dorso] = await p.evaluate(() => [!!juego.est.myFlippedSets[juego.est.currentSetIndex], document.getElementById('yourCards').classList.contains('volteado')]);
+  ok(rev === dorso, `${nombre}: tu mano enseña ${rev ? 'el dorso (volteado)' : 'el frente'}`);
 }
 // Coger una carta del centro y revelar enseguida: el servidor retiene la cogida 300 ms
 // (ventana de pelea) y antes ignoraba el revelado que llegaba en ese rato.
