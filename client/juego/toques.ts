@@ -111,45 +111,6 @@ function bindTap(container: HTMLElement | null, handler: (tap: string, el: HTMLE
     });
 }
 
-/** Coger una carta se pinta YA, sin esperar al servidor.
- *
- *  El viaje de ida y vuelta se nota, y mientras dura no pasaba nada en pantalla.
- *  Así que la carta se mete en tu hueco en cuanto la tocas, en fantasma. Si el
- *  servidor la confirma, la sustituye la de verdad y no se ha visto ni un
- *  parpadeo. Si llegaste tarde, `rollbackGhost` la deshace.
- *
- *  Solo al coger: soltar no tiene con qué equivocarse —la carta es tuya— y la
- *  animación de vuelo ya la cubre. */
-function showGhost(card: CardInfo) {
-    const div = document.getElementById('yourCards');
-    if (!div) return;
-    const slot = (est.allSets[est.currentSetIndex] || []).findIndex(c => !c);
-    if (slot === -1 || !div.children[slot]) return;
-    const ghost = buildCard(card);
-    ghost.classList.add('card-ghost');
-    div.replaceChild(ghost, div.children[slot]);
-}
-
-/** Deshace la carta pintada por adelantado. */
-function rollbackGhost() {
-    const ghosts = document.querySelectorAll('.card-ghost');
-    if (!ghosts.length) return;
-    ghosts.forEach(el => el.classList.add('ghost-out'));
-    setTimeout(() => {
-        // Puede haber llegado ya un redibujado; `renderYourCards` deja el hueco
-        // como toca de todas formas.
-        renderYourCards();
-    }, 160);
-}
-
-/** Carta pedida, esperando al servidor. El estilo `.card-pending` ya existía y
- *  ya se limpiaba al fallar, pero no lo ponía nadie: el hueco entre el toque y
- *  la respuesta se veía igual que no haber tocado. */
-function markPending(el: HTMLElement | null | undefined) {
-    clearPending();
-    if (el) el.classList.add('card-pending');
-}
-
 export function clearPending() {
     document.querySelectorAll('.card-pending')
         .forEach(el => el.classList.remove('card-pending'));
@@ -249,14 +210,39 @@ export function onCenterCardClick(cardId: number, el?: HTMLElement | null) {
     // `swap_failed` borraba la carta fantasma de la primera.
     if (enVuelo(est.pendingTake)) return;
     const card = est.centerCards.find(c => c.id === cardId);
-    if (!card) return;
-    // El hueco donde estaba, para animar el vuelo desde ahí.
-    est.pendingTake = { centerIndex: est.centerSlots.indexOf(cardId), card, t: Date.now() };
-    markPending(el);
-    showGhost(card);
+    const set = est.currentSetIndex, slot = (est.allSets[set] || []).findIndex(c => !c);
+    if (!card || slot === -1) return;
+    const centerIndex = est.centerSlots.indexOf(cardId);
+    const desde = cardRectAt('centerCards', centerIndex);
+    est.pendingTake = { centerIndex, card, t: Date.now(), set, slot };
     // Por id: el centro se reordena en cuanto alguien coge o suelta, así que
     // una posición deja de referirse a la misma carta.
     send({ type: 'take_card', card_id: card.id });
+    // Por adelantado, como al soltar: la carta deja el centro y vuela a tu hueco ya.
+    // swap_success lo confirma sin repetir nada; si otro la tenía, o hay pelea, la
+    // mano del rival te la arranca (deshacerCoger, pelea.ts).
+    est.allSets[set][slot] = card;
+    est.centerCards = est.centerCards.filter(c => c.id !== card.id);
+    renderYourCards();
+    renderCenterCards();
+    flyCard(card, desde, 'yourCards', slot);
+}
+
+/** La cogida por adelantado no se hizo: sale de tu mano. Si otro se la llevó (`gone`), un
+ *  guante te la arranca de la mano (desde la franja de `by`, si el servidor lo dice; solo
+ *  lo dice si tiene burla); si no (regla), vuelve al centro. */
+function deshacerCoger(gone: boolean, by?: string | null) {
+    const t = est.pendingTake;
+    if (!t) return;
+    const set = est.allSets[t.set];
+    if (set?.[t.slot]?.id === t.card.id) {
+        const desde = t.set === est.currentSetIndex ? cardRectAt('yourCards', t.slot) : null;
+        set[t.slot] = null;
+        if (desde && gone) emitir('robo', desde, t.card, by ?? null);
+    }
+    if (!gone && !est.centerCards.some(c => c.id === t.card.id)) est.centerCards = [...est.centerCards, t.card];
+    renderYourCards();
+    renderCenterCards();
 }
 
 /** Movimiento confirmado. La carta vuela de donde salió a donde ha llegado:
@@ -268,8 +254,7 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
     const wonFight = !drop && !take && won !== null;
 
     // Medir el punto de partida antes de que el redibujado borre los nodos.
-    const fromCenter = take ? cardRectAt('centerCards', take.centerIndex)
-        : (won && wonFight && won.index !== null ? cardRectAt('centerCards', won.index) : null);
+    const fromCenter = won && wonFight && won.index !== null ? cardRectAt('centerCards', won.index) : null;
 
     const oldSet = (est.allSets[msg.set_index] || []).slice();
 
@@ -287,12 +272,8 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
             flyCard(won.card, fromCenter, 'yourCards', slot, true);
         }
         est.qteWonSlot = null;
-    } else if (take) {
-        // (Una soltada ya voló al centro al tocarla: onPlayerCardClick.)
-        // Cogida: del centro al hueco que había quedado libre.
-        const slot = findChangedSlot(oldSet, msg.your_new_set);
-        if (slot !== -1) flyCard(take.card, fromCenter, 'yourCards', slot);
     }
+    // (Soltadas y cogidas ya volaron al tocarlas: onPlayerCardClick, onCenterCardClick.)
     est.pendingDrop = null;
     est.pendingTake = null;
     clearPending();
@@ -312,9 +293,9 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
 /** `msg` puede ser solo `{ kind: 'gone' }`: lo sintetiza `stunned` (red.ts). */
 export function onSwapFailed(msg: Partial<Msg<'swap_failed'>>) {
     deshacerSoltar();
+    deshacerCoger((msg.kind || 'rule') === 'gone' && !!msg.code, msg.by);
     est.pendingDrop = null;
     est.pendingTake = null;
-    rollbackGhost();
     clearPending();
     emitir('onSwapFailed', msg);   // aquí y no al final: lo de abajo sale antes en casi todos los casos
 

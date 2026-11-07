@@ -35,7 +35,8 @@ interface Estado {
     sfxMuted: boolean;
     /** Soltada y pintada ya en el centro (por adelantado); `set`: de qué set salió, para deshacerla. */
     pendingDrop: { index: number; set: number; card: CardInfo; t: number } | null;
-    pendingTake: { centerIndex: number; card: CardInfo; t: number } | null;
+    /** Cogida por adelantado: la carta ya está pintada en `set`/`slot` de tu mano. */
+    pendingTake: { centerIndex: number; card: CardInfo; t: number; set: number; slot: number } | null;
     qteActive: boolean; qteTimerInterval: Timer | null; qtePlayers: string[];
     qteContestedCard: CardInfo | null; qteMyCardId: number | null; qteContestedIndex: number | null;
     qteWonSlot: { card: CardInfo; index: number | null } | null; qteResultTimer: Timer | null;

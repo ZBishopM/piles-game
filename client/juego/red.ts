@@ -534,8 +534,10 @@ export function handleMsg(msg: ServerMessage) {
             const drawn = new Set(est.centerSlots.filter(id => id !== null));
             // Una soltada tuya aún sin confirmar sigue en el centro aunque este
             // aviso (de otra jugada) sea de antes de que el servidor la procesara.
-            const pd = est.pendingDrop;
-            const center = pd && !msg.center_cards.some(c => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+            // Y una cogida tuya sin confirmar ya no está: la tienes en la mano.
+            const pd = est.pendingDrop, pt = est.pendingTake;
+            let center = pd && !msg.center_cards.some(c => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+            if (pt) center = center.filter(c => c.id !== pt.card.id);
             const arrived = center.find(c => !drawn.has(c.id));
             est.centerCards = center;
             est.mirones = msg.spectators ?? 0;

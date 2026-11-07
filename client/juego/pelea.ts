@@ -5,7 +5,7 @@ import { est, qteBlockedCards, porId, type Msg } from './estado.js';
 /** Un aviso de pelea lleva sus temporizadores colgados (ver cerrarAvisoPelea). */
 type Aviso = HTMLElement & { _timer?: ReturnType<typeof setInterval>; _failsafe?: ReturnType<typeof setTimeout> };
 import { send } from './red.js';
-import { renderCenterCards, buildCard } from './tablero.js';
+import { renderCenterCards, renderYourCards, buildCard, cardRectAt } from './tablero.js';
 import { playSfx } from './sonido.js';
 import { clearPending, qteNotifs, FIGHT_RESULT_MS } from './toques.js';
 
@@ -47,6 +47,18 @@ export function clearStun() {
 
 export function onSwapConflict(players: string[], cardId: number, durationMs: number) {
     const isParticipant = players.includes(est.currentNickname);
+    // Si la carta está en TU mano (la cogiste por adelantado, o ya era tuya y el rival la
+    // pidió a tiempo según su ping), su guante te la arranca y empieza la pelea: vuelve al
+    // centro, disputada. Sin esto parecía que «ya la tenía» y de pronto había pelea.
+    const enMano = isParticipant ? (est.allSets[est.currentSetIndex] || []).findIndex(c => c?.id === cardId) : -1;
+    if (enMano !== -1) {
+        const mia = est.allSets[est.currentSetIndex][enMano]!;
+        const desde = cardRectAt('yourCards', enMano);
+        est.allSets[est.currentSetIndex][enMano] = null;
+        if (!est.centerCards.some(c => c.id === cardId)) est.centerCards = [...est.centerCards, mia];
+        renderYourCards();
+        if (desde) emitir('arrebato', desde, mia, players.find(p => p !== est.currentNickname) ?? null);
+    }
     // Por id, no por posición. El servidor ya identificaba la carta así; ahora
     // el cliente también, y de paso el hueco donde está ya no se mueve. La
     // carta se guarda aparte para el overlay: al acabar la pelea ya no estará

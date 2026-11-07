@@ -127,8 +127,8 @@
       g.classList.add("barre");
       let id = null, sobre = null;
       const debajo = (e) => {
-        const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("button");
-        return el && g.contains(el) && !el.disabled ? el : null;
+        const el2 = document.elementFromPoint(e.clientX, e.clientY)?.closest("button");
+        return el2 && g.contains(el2) && !el2.disabled ? el2 : null;
       };
       const marcar = (b) => {
         if (b === sobre) return;
@@ -209,9 +209,9 @@
   });
   document.documentElement.style.setProperty("--t-peleada", JSON.stringify(t("card.fought")));
   function porId(id) {
-    const el = document.getElementById(id);
-    if (!el) throw new Error(`falta #${id} en lobby.html`);
-    return el;
+    const el2 = document.getElementById(id);
+    if (!el2) throw new Error(`falta #${id} en lobby.html`);
+    return el2;
   }
   var miNombre = () => (document.querySelector("#nombre")?.value ?? "").trim();
   var est = {
@@ -781,6 +781,15 @@
   }
   function onSwapConflict(players, cardId, durationMs) {
     const isParticipant = players.includes(est.currentNickname);
+    const enMano = isParticipant ? (est.allSets[est.currentSetIndex] || []).findIndex((c) => c?.id === cardId) : -1;
+    if (enMano !== -1) {
+      const mia = est.allSets[est.currentSetIndex][enMano];
+      const desde = cardRectAt("yourCards", enMano);
+      est.allSets[est.currentSetIndex][enMano] = null;
+      if (!est.centerCards.some((c) => c.id === cardId)) est.centerCards = [...est.centerCards, mia];
+      renderYourCards();
+      if (desde) emitir("arrebato", desde, mia, players.find((p) => p !== est.currentNickname) ?? null);
+    }
     const card = est.centerCards.find((c) => c && c.id === cardId) || null;
     qteBlockedCards.add(cardId);
     if (isParticipant) {
@@ -843,7 +852,7 @@
       notif.className = "qte-battle-notif";
       const funEmojis = ["\u2694\uFE0F", "\u{1F94A}", "\u{1F4A5}", "\u{1F525}", "\u26A1"];
       const emoji = funEmojis[Math.floor(Math.random() * funEmojis.length)];
-      const el = (cls, txt) => {
+      const el2 = (cls, txt) => {
         const e = document.createElement("div");
         e.className = cls;
         if (txt !== void 0) e.textContent = txt;
@@ -855,17 +864,17 @@
         e.textContent = txt;
         return e;
       };
-      const versus = el("qbn-versus");
+      const versus = el2("qbn-versus");
       versus.append(span("qbn-player", players[0]), span("qbn-vs", "\u2694\uFE0F"), span("qbn-player", players[1]));
-      const scores = el("qbn-scores");
+      const scores = el2("qbn-scores");
       players.slice(0, 2).forEach((name) => {
         const s = span("", t("qte.clicks", { n: 0 }));
         s.dataset.nick = name;
         scores.append(s);
       });
-      const bar = el("qbn-bar");
-      bar.append(el("qbn-bar-fill"));
-      notif.append(el("qbn-title", `${emoji} ${t("qte.fight")}`), versus, scores, bar);
+      const bar = el2("qbn-bar");
+      bar.append(el2("qbn-bar-fill"));
+      notif.append(el2("qbn-title", `${emoji} ${t("qte.fight")}`), versus, scores, bar);
       area.appendChild(notif);
       cerrarAvisoPelea(cardId);
       qteNotifs.set(cardId, notif);
@@ -936,8 +945,8 @@
     porId("qteBox").classList.add("tie");
     porId("qteDesc").textContent = t(round > 1 ? "qte.tie_desc_round" : "qte.tie_desc", { score: marcador, round });
     est.qtePlayers.forEach((n) => {
-      const el = document.getElementById(`qte-n-${n}`);
-      if (el) el.textContent = "0";
+      const el2 = document.getElementById(`qte-n-${n}`);
+      if (el2) el2.textContent = "0";
     });
     playSfx("tiebreak");
     const fill = porId("qteTimerFill");
@@ -973,8 +982,8 @@
       const box = document.getElementById(`qte-score-${name}`);
       if (box) box.classList.add(name === winnerName ? "won" : "lost");
       const n = info?.clicks?.[name];
-      const el = document.getElementById(`qte-n-${name}`);
-      if (el && n !== void 0) el.textContent = String(n);
+      const el2 = document.getElementById(`qte-n-${name}`);
+      if (el2 && n !== void 0) el2.textContent = String(n);
     });
     const titulo = porId("qteTitle");
     titulo.classList.remove("tie");
@@ -1010,7 +1019,7 @@
     overlay.classList.remove("active");
     porId("qteClickBtn").disabled = false;
     porId("qteCard").innerHTML = "";
-    document.querySelectorAll(".qte-player-score").forEach((el) => el.classList.remove("won", "lost"));
+    document.querySelectorAll(".qte-player-score").forEach((el2) => el2.classList.remove("won", "lost"));
     porId("qteBox").classList.remove("tie");
     porId("qteTitle").classList.remove("tie");
     if (est.qteContestedCard) cerrarAvisoPelea(est.qteContestedCard.id);
@@ -1099,21 +1108,21 @@
     container.addEventListener("pointerdown", (e) => {
       start = null;
       if (e.pointerType === "mouse" && e.button !== 0) return;
-      const el = e.target.closest("[data-tap]");
-      if (!el || !container.contains(el)) return;
+      const el2 = e.target.closest("[data-tap]");
+      if (!el2 || !container.contains(el2)) return;
       start = {
-        tap: el.dataset.tap,
+        tap: el2.dataset.tap,
         x: e.clientX,
         y: e.clientY,
         t: Date.now(),
-        el,
+        el: el2,
         fired: false,
         pointer: e.pointerType
       };
-      el.classList.add("tapped");
+      el2.classList.add("tapped");
       if (!alSoltar && (e.pointerType === "mouse" || !canScroll())) {
         start.fired = true;
-        handler(start.tap, el);
+        handler(start.tap, el2);
       }
     });
     const cancel = (e) => {
@@ -1137,57 +1146,36 @@
       handler(s.tap, s.el);
     });
   }
-  function showGhost(card) {
-    const div = document.getElementById("yourCards");
-    if (!div) return;
-    const slot = (est.allSets[est.currentSetIndex] || []).findIndex((c) => !c);
-    if (slot === -1 || !div.children[slot]) return;
-    const ghost = buildCard(card);
-    ghost.classList.add("card-ghost");
-    div.replaceChild(ghost, div.children[slot]);
-  }
-  function rollbackGhost() {
-    const ghosts = document.querySelectorAll(".card-ghost");
-    if (!ghosts.length) return;
-    ghosts.forEach((el) => el.classList.add("ghost-out"));
-    setTimeout(() => {
-      renderYourCards();
-    }, 160);
-  }
-  function markPending(el) {
-    clearPending();
-    if (el) el.classList.add("card-pending");
-  }
   function clearPending() {
-    document.querySelectorAll(".card-pending").forEach((el) => el.classList.remove("card-pending"));
+    document.querySelectorAll(".card-pending").forEach((el2) => el2.classList.remove("card-pending"));
   }
-  function refuseTap(el) {
-    if (!el) return;
+  function refuseTap(el2) {
+    if (!el2) return;
     playSfx("refused");
-    el.classList.remove("refused");
-    void el.offsetWidth;
-    el.classList.add("refused");
-    setTimeout(() => el.classList.remove("refused"), 300);
+    el2.classList.remove("refused");
+    void el2.offsetWidth;
+    el2.classList.add("refused");
+    setTimeout(() => el2.classList.remove("refused"), 300);
   }
   bindTap(
     document.getElementById("centerCards"),
-    (v, el) => {
-      if (!est.soyEspectador) onCenterCardClick(Number(v), el);
+    (v, el2) => {
+      if (!est.soyEspectador) onCenterCardClick(Number(v), el2);
     },
     "center"
   );
   bindTap(
     document.getElementById("yourCards"),
-    (v, el) => {
-      if (!est.soyEspectador) onPlayerCardClick(Number(v), el);
+    (v, el2) => {
+      if (!est.soyEspectador) onPlayerCardClick(Number(v), el2);
     },
     "own",
     { alSoltar: true }
   );
   var PENDING_MAX_MS = 2500;
   var enVuelo = (p) => !!p && Date.now() - p.t < PENDING_MAX_MS;
-  function onPlayerCardClick(index, el) {
-    if (est.qteActive || isStunned() || owesCard()) return refuseTap(el);
+  function onPlayerCardClick(index, el2) {
+    if (est.qteActive || isStunned() || owesCard()) return refuseTap(el2);
     if (enVuelo(est.pendingDrop)) return;
     const set = est.currentSetIndex, card = (est.allSets[set] || [])[index];
     if (!card) return;
@@ -1210,7 +1198,7 @@
     renderYourCards();
     renderCenterCards();
   }
-  function onCenterCardClick(cardId, el) {
+  function onCenterCardClick(cardId, el2) {
     const rechazo = (why) => {
       if (owesCard()) {
         diag.note("tap_refused", {
@@ -1221,26 +1209,45 @@
           p_take_ms: est.pendingTake ? Date.now() - est.pendingTake.t : null
         });
       }
-      return refuseTap(el);
+      return refuseTap(el2);
     };
     if (est.qteActive) return rechazo("qte");
     if (isStunned()) return rechazo("stun");
     if (qteBlockedCards.has(cardId)) return rechazo("blocked");
-    if (!owesCard()) return refuseTap(el);
+    if (!owesCard()) return refuseTap(el2);
     if (enVuelo(est.pendingTake)) return;
     const card = est.centerCards.find((c) => c.id === cardId);
-    if (!card) return;
-    est.pendingTake = { centerIndex: est.centerSlots.indexOf(cardId), card, t: Date.now() };
-    markPending(el);
-    showGhost(card);
+    const set = est.currentSetIndex, slot = (est.allSets[set] || []).findIndex((c) => !c);
+    if (!card || slot === -1) return;
+    const centerIndex = est.centerSlots.indexOf(cardId);
+    const desde = cardRectAt("centerCards", centerIndex);
+    est.pendingTake = { centerIndex, card, t: Date.now(), set, slot };
     send({ type: "take_card", card_id: card.id });
+    est.allSets[set][slot] = card;
+    est.centerCards = est.centerCards.filter((c) => c.id !== card.id);
+    renderYourCards();
+    renderCenterCards();
+    flyCard(card, desde, "yourCards", slot);
+  }
+  function deshacerCoger(gone, by) {
+    const t2 = est.pendingTake;
+    if (!t2) return;
+    const set = est.allSets[t2.set];
+    if (set?.[t2.slot]?.id === t2.card.id) {
+      const desde = t2.set === est.currentSetIndex ? cardRectAt("yourCards", t2.slot) : null;
+      set[t2.slot] = null;
+      if (desde && gone) emitir("robo", desde, t2.card, by ?? null);
+    }
+    if (!gone && !est.centerCards.some((c) => c.id === t2.card.id)) est.centerCards = [...est.centerCards, t2.card];
+    renderYourCards();
+    renderCenterCards();
   }
   function onSwapSuccess(msg) {
     const drop = est.pendingDrop;
     const take = est.pendingTake;
     const won = est.qteWonSlot;
     const wonFight = !drop && !take && won !== null;
-    const fromCenter = take ? cardRectAt("centerCards", take.centerIndex) : won && wonFight && won.index !== null ? cardRectAt("centerCards", won.index) : null;
+    const fromCenter = won && wonFight && won.index !== null ? cardRectAt("centerCards", won.index) : null;
     const oldSet = (est.allSets[msg.set_index] || []).slice();
     if (msg.your_new_set) est.allSets[msg.set_index] = msg.your_new_set;
     est.centerCards = msg.center_cards;
@@ -1253,9 +1260,6 @@
         flyCard(won.card, fromCenter, "yourCards", slot, true);
       }
       est.qteWonSlot = null;
-    } else if (take) {
-      const slot = findChangedSlot(oldSet, msg.your_new_set);
-      if (slot !== -1) flyCard(take.card, fromCenter, "yourCards", slot);
     }
     est.pendingDrop = null;
     est.pendingTake = null;
@@ -1264,9 +1268,9 @@
   }
   function onSwapFailed(msg) {
     deshacerSoltar();
+    deshacerCoger((msg.kind || "rule") === "gone" && !!msg.code, msg.by);
     est.pendingDrop = null;
     est.pendingTake = null;
-    rollbackGhost();
     clearPending();
     emitir("onSwapFailed", msg);
     if (est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
@@ -1319,9 +1323,9 @@
     }, delayMs);
   }
   function updateSwapHint(texto) {
-    const el = porId("swapHint");
-    el.textContent = texto;
-    el.classList.toggle("selected", owesCard());
+    const el2 = porId("swapHint");
+    el2.textContent = texto;
+    el2.classList.toggle("selected", owesCard());
   }
   function switchSet(index) {
     if (index === est.currentSetIndex) return;
@@ -1839,22 +1843,22 @@
       }
       const card = est.centerCards.find((c) => c.id === id);
       if (!card) continue;
-      const el = buildCard(card);
+      const el2 = buildCard(card);
       const { angle, dx, dy } = thrownStyle(card.id);
-      el.style.setProperty("--throw-rot", `${angle}deg`);
-      el.style.setProperty("--throw-x", `${dx}%`);
-      el.style.setProperty("--throw-y", `${dy}%`);
-      el.classList.add("thrown");
-      if (est.pendingTake?.card.id === card.id) el.classList.add("card-pending");
+      el2.style.setProperty("--throw-rot", `${angle}deg`);
+      el2.style.setProperty("--throw-x", `${dx}%`);
+      el2.style.setProperty("--throw-y", `${dy}%`);
+      el2.classList.add("thrown");
+      if (est.pendingTake?.card.id === card.id) el2.classList.add("card-pending");
       if (qteBlockedCards.size) {
         if (qteBlockedCards.has(card.id)) {
-          el.classList.add(est.qteActive ? "qte-locked" : "qte-contested");
+          el2.classList.add(est.qteActive ? "qte-locked" : "qte-contested");
         } else if (est.qteActive) {
-          el.classList.add("qte-waiting");
+          el2.classList.add("qte-waiting");
         }
       }
-      el.dataset.tap = String(card.id);
-      div.appendChild(el);
+      el2.dataset.tap = String(card.id);
+      div.appendChild(el2);
     }
     emitir("renderCenterCards");
   }
@@ -1870,9 +1874,9 @@
         div.appendChild(gap);
         return;
       }
-      const el = buildCard(card);
-      el.dataset.tap = String(i);
-      div.appendChild(el);
+      const el2 = buildCard(card);
+      el2.dataset.tap = String(i);
+      div.appendChild(el2);
     });
     updateSetNav();
     updateOwingUi();
@@ -1960,12 +1964,12 @@
   }
   var SPRITE_COLS = 16;
   var SPRITE_ROWS = 13;
-  function applyCardSprite(el, card) {
+  function applyCardSprite(el2, card) {
     const type = card.clothing_type ?? 0;
     const variant = (card.id ?? 0) % 4;
     const col = type % 4 * 4 + variant;
     const row = Math.floor(type / 4);
-    el.style.backgroundPosition = `${col / (SPRITE_COLS - 1) * 100}% ${row / (SPRITE_ROWS - 1) * 100}%`;
+    el2.style.backgroundPosition = `${col / (SPRITE_COLS - 1) * 100}% ${row / (SPRITE_ROWS - 1) * 100}%`;
   }
   var flyingCards = /* @__PURE__ */ new Set();
   function cardName(type, fallback) {
@@ -1973,16 +1977,16 @@
     return PilesI18n.has(k) ? t(k) : fallback || "";
   }
   function buildCard(card) {
-    const el = document.createElement("div");
-    el.className = "card";
-    el.dataset.cardId = String(card.id);
-    applyCardSprite(el, card);
-    if (flyingCards.has(card.id)) el.style.visibility = "hidden";
-    return el;
+    const el2 = document.createElement("div");
+    el2.className = "card";
+    el2.dataset.cardId = String(card.id);
+    applyCardSprite(el2, card);
+    if (flyingCards.has(card.id)) el2.style.visibility = "hidden";
+    return el2;
   }
   function cardRectAt(rowId, index) {
-    const el = document.getElementById(rowId)?.children[index];
-    return el ? el.getBoundingClientRect() : null;
+    const el2 = document.getElementById(rowId)?.children[index];
+    return el2 ? el2.getBoundingClientRect() : null;
   }
   function flyCard(cardData, from, rowId, index, won = false) {
     emitir("vuela", cardData, from);
@@ -1992,19 +1996,19 @@
       if (dest) markLanded(rowId, index, won);
       return;
     }
-    const el = buildCard(cardData);
-    el.style.left = `${from.left}px`;
-    el.style.top = `${from.top}px`;
-    el.style.width = `${from.width}px`;
-    el.style.height = `${from.height}px`;
-    porId("fxLayer").appendChild(el);
+    const el2 = buildCard(cardData);
+    el2.style.left = `${from.left}px`;
+    el2.style.top = `${from.top}px`;
+    el2.style.width = `${from.width}px`;
+    el2.style.height = `${from.height}px`;
+    porId("fxLayer").appendChild(el2);
     dest.style.visibility = "hidden";
     flyingCards.add(cardData.id);
     let done = false;
     const finish = (land = true) => {
       if (done) return;
       done = true;
-      el.remove();
+      el2.remove();
       flyingCards.delete(cardData.id);
       const row = document.getElementById(rowId);
       row?.querySelectorAll(".card").forEach((c) => {
@@ -2012,26 +2016,26 @@
       });
       if (land) markLanded(rowId, index, won);
     };
-    el.dataset.row = rowId;
-    el.finishFlight = finish;
+    el2.dataset.row = rowId;
+    el2.finishFlight = finish;
     const dx = to.left + to.width / 2 - (from.left + from.width / 2);
     const dy = to.top + to.height / 2 - (from.top + from.height / 2);
     requestAnimationFrame(() => {
-      el.style.transform = `translate(${dx}px, ${dy}px) scale(${to.width / from.width})`;
+      el2.style.transform = `translate(${dx}px, ${dy}px) scale(${to.width / from.width})`;
     });
-    el.addEventListener("transitionend", () => finish(), { once: true });
+    el2.addEventListener("transitionend", () => finish(), { once: true });
     setTimeout(() => finish(), 900);
   }
   function markLanded(rowId, index, won = false) {
     if (!emitir("aterriza", rowId, index, won)) return;
-    const el = document.getElementById(rowId)?.children[index];
-    if (!el) return;
+    const el2 = document.getElementById(rowId)?.children[index];
+    if (!el2) return;
     const cls = won ? "card-won" : "card-landed";
-    el.classList.remove("card-landed", "card-won");
-    void el.offsetWidth;
-    el.classList.add(cls);
+    el2.classList.remove("card-landed", "card-won");
+    void el2.offsetWidth;
+    el2.classList.add(cls);
     shakeBoard(won);
-    if (won) sparkBurst(el.getBoundingClientRect());
+    if (won) sparkBurst(el2.getBoundingClientRect());
   }
   var REDUCED_MOTION = window.matchMedia?.("(prefers-reduced-motion: reduce)");
   function shakeBoard(hard = false) {
@@ -2061,14 +2065,14 @@
   function graceNotif(nickname) {
     const area = document.getElementById("verifyNotifications");
     if (!area) return null;
-    let el = area.querySelector(`[data-grace="${CSS.escape(nickname)}"]`);
-    if (!el) {
-      el = document.createElement("div");
-      el.className = "qte-battle-notif";
-      el.dataset.grace = nickname;
-      area.appendChild(el);
+    let el2 = area.querySelector(`[data-grace="${CSS.escape(nickname)}"]`);
+    if (!el2) {
+      el2 = document.createElement("div");
+      el2.className = "qte-battle-notif";
+      el2.dataset.grace = nickname;
+      area.appendChild(el2);
     }
-    return el;
+    return el2;
   }
   function clearGrace(nickname) {
     const t2 = graceTimers.get(nickname);
@@ -2079,20 +2083,20 @@
     document.querySelector(`[data-grace="${CSS.escape(nickname)}"]`)?.remove();
   }
   function pintarAviso(nickname, titulo, lineas) {
-    const el = graceNotif(nickname);
-    if (!el) return null;
-    el.classList.remove("wait-poll");
+    const el2 = graceNotif(nickname);
+    if (!el2) return null;
+    el2.classList.remove("wait-poll");
     const t2 = document.createElement("div");
     t2.className = "qbn-title";
     t2.textContent = titulo;
-    el.replaceChildren(t2, ...lineas.map(([texto, estilo]) => {
+    el2.replaceChildren(t2, ...lineas.map(([texto, estilo]) => {
       const d = document.createElement("div");
       d.style.cssText = estilo || "text-align:center";
       d.textContent = texto;
       return d;
     }));
-    emitir("pintarAviso", el, nickname, titulo);
-    return el;
+    emitir("pintarAviso", el2, nickname, titulo);
+    return el2;
   }
   function onPlayerDisconnected(nickname, seconds) {
     if (!graceNotif(nickname)) return;
@@ -2126,9 +2130,9 @@
     const paint = () => {
       const lineas = [[t("wait.q", { n: left })]];
       if (voto !== null) lineas.push([t(voto ? "wait.voted_wait" : "wait.voted_cancel"), "text-align:center;opacity:0.8;margin-top:4px"]);
-      const el = pintarAviso(nickname, `\u{1F50C} ${nickname}`, lineas);
-      if (!el) return;
-      el.classList.add("wait-poll");
+      const el2 = pintarAviso(nickname, `\u{1F50C} ${nickname}`, lineas);
+      if (!el2) return;
+      el2.classList.add("wait-poll");
       if (est.soyEspectador || voto !== null) return;
       const botones = document.createElement("div");
       botones.className = "wait-poll-btns";
@@ -2144,7 +2148,7 @@
         });
         botones.appendChild(b);
       }
-      el.appendChild(botones);
+      el2.appendChild(botones);
     };
     paint();
     graceTimers.set(nickname, setInterval(() => {
@@ -2164,7 +2168,7 @@
   }
   function clearGraceNotices() {
     for (const n of [...graceTimers.keys()]) clearGrace(n);
-    document.querySelectorAll("[data-grace]").forEach((el) => el.remove());
+    document.querySelectorAll("[data-grace]").forEach((el2) => el2.remove());
   }
   var debtTimer;
   function startDebtCountdown(ms) {
@@ -2350,9 +2354,9 @@
       return gap;
     }
     const info = specCards[id] || {};
-    const el = buildCard({ id, clothing_type: info.c ?? 0, name: info.n ?? "" });
-    el.title = `${cardName(info.c, info.n) || t("card.generic")} \xB7 #${id}`;
-    return el;
+    const el2 = buildCard({ id, clothing_type: info.c ?? 0, name: info.n ?? "" });
+    el2.title = `${cardName(info.c, info.n) || t("card.generic")} \xB7 #${id}`;
+    return el2;
   }
   function renderSpectator() {
     if (!est.soyEspectador || !est.specState) return;
@@ -2933,9 +2937,9 @@
     if (typeof window.agToast === "function") {
       const crear = window.agToast;
       window.agToast = (opts) => {
-        const el = crear(opts);
-        el?.querySelector(".ag-toast-close")?.setAttribute("aria-label", t("toast.close"));
-        return el;
+        const el2 = crear(opts);
+        el2?.querySelector(".ag-toast-close")?.setAttribute("aria-label", t("toast.close"));
+        return el2;
       };
     }
   }
@@ -3199,8 +3203,9 @@
         break;
       case "game_update": {
         const drawn = new Set(est.centerSlots.filter((id) => id !== null));
-        const pd = est.pendingDrop;
-        const center = pd && !msg.center_cards.some((c) => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+        const pd = est.pendingDrop, pt = est.pendingTake;
+        let center = pd && !msg.center_cards.some((c) => c.id === pd.card.id) ? [...msg.center_cards, pd.card] : msg.center_cards;
+        if (pt) center = center.filter((c) => c.id !== pt.card.id);
         const arrived = center.find((c) => !drawn.has(c.id));
         est.centerCards = center;
         est.mirones = msg.spectators ?? 0;
@@ -3534,7 +3539,7 @@
     const CW_M = 0.05, CH_M = 0.07;
     const lerp = (a, b, k) => a + (b - a) * k;
     const ROJO = "#e8402a";
-    const suave = (a, b, x) => {
+    const suave2 = (a, b, x) => {
       const k = Math.min(1, Math.max(0, (x - a) / (b - a)));
       return k * k * (3 - 2 * k);
     };
@@ -3575,14 +3580,14 @@
     }
     function dibujar(dt) {
       g.globalCompositeOperation = "destination-out";
-      g.fillStyle = `rgba(0, 0, 0, ${lerp(0.32, 0.8, suave(BALA, RAPIDO, vel))})`;
+      g.fillStyle = `rgba(0, 0, 0, ${lerp(0.32, 0.8, suave2(BALA, RAPIDO, vel))})`;
       g.fillRect(0, 0, cv.width, cv.height);
       g.globalCompositeOperation = "source-over";
       preparar();
       const e = gana >= 0 ? reloj - gana : -1;
       g.save();
       if (e > 0.15 && e < 0.7) {
-        const a = 18 * devicePixelRatio * (1 - suave(0.15, 0.7, e));
+        const a = 18 * devicePixelRatio * (1 - suave2(0.15, 0.7, e));
         g.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
       }
       const mesas = [{ x: 0, z: 0 }, ...X2.mesas ?? []].map((m) => ({ ...m, d: proy(m.x, 0, m.z)[2] })).sort((a, b) => b.d - a.d);
@@ -3606,7 +3611,7 @@
       particulas(dt);
       g.restore();
       if (e > 0.15 && e < 0.45) {
-        g.fillStyle = `rgba(233, 230, 218, ${0.5 * (1 - suave(0.15, 0.45, e))})`;
+        g.fillStyle = `rgba(233, 230, 218, ${0.5 * (1 - suave2(0.15, 0.45, e))})`;
         g.fillRect(0, 0, cv.width, cv.height);
       }
       X2.apagon += ((X2.cortado ? 1 : 0) - X2.apagon) * Math.min(1, dt * 3);
@@ -3801,9 +3806,9 @@
       }
       const s2 = M2.s;
       for (const [i, k] of M2.celdas.entries()) {
-        const dl = Math.hypot(k.x, k.z) * 0.5 + i % 7 * 0.012, u = suave(M2.t0 + dl, M2.t0 + dl + 0.55, reloj);
+        const dl = Math.hypot(k.x, k.z) * 0.5 + i % 7 * 0.012, u = suave2(M2.t0 + dl, M2.t0 + dl + 0.55, reloj);
         if (u <= 0) continue;
-        const sale = M2.salen ? suave(M2.salen, M2.salen + 0.4, reloj) : 0;
+        const sale = M2.salen ? suave2(M2.salen, M2.salen + 0.4, reloj) : 0;
         const x = lerp(0, k.x, u) * (1 + sale * 2), z = lerp(0, k.z, u) * (1 + sale * 2);
         const lado = !M2.huecos && !k.c ? s2 * 0.52 : s2 * 0.47;
         quad(x, 0.02 + Math.sin(u * Math.PI) * 0.3, z, lado, lado, (1 - u) * (3 + i % 5), M2.huecos ? ROJO : k.c ? "#0e0e0e" : "#e9e6da", M2.huecos ? "#0e0e0e" : null);
@@ -3846,7 +3851,7 @@
       const obj = ASIENTOS[V.a];
       ASIENTOS.forEach((a, p) => {
         if (p === V.a || !X2.ocupados[p]) return;
-        const u = suave(V.t0 + p * 0.35, V.t0 + p * 0.35 + 0.5, reloj);
+        const u = suave2(V.t0 + p * 0.35, V.t0 + p * 0.35 + 0.5, reloj);
         if (u <= 0) return;
         const x = lerp(a.x * 0.6, obj.x * 0.62 + p * 0.04, u), z = lerp(a.z * 0.6, obj.z * 0.62 - p * 0.03, u);
         quad(x, 0.03 + Math.sin(u * Math.PI) * 0.15, z, CW_M, CH_M, u * 6 + p, "#a9b689", "#0e0e0e");
@@ -3941,19 +3946,19 @@
         if (ac.p !== p || t2 < ac.t - 0.9 || t2 > ac.t + 0.8) continue;
         if (t2 < ac.t) {
           const s2 = (t2 - (ac.t - 0.9)) / 0.9;
-          col = s2 < 0.6 ? Math.round(5 * suave(0, 1, s2 / 0.6)) : 6 + Math.round(5 * ((s2 - 0.6) / 0.4) ** 2);
+          col = s2 < 0.6 ? Math.round(5 * suave2(0, 1, s2 / 0.6)) : 6 + Math.round(5 * ((s2 - 0.6) / 0.4) ** 2);
           carta = { mano: true };
         } else {
           const r = (t2 - ac.t) / 0.8;
           col = r < 0.12 ? 11 : 20 + Math.min(3, Math.floor((r - 0.12) / 0.88 * 4));
-          if (t2 < ac.t + 0.6) carta = { vuela: suave(ac.t, ac.t + 0.6, t2), giro: ac.giro };
+          if (t2 < ac.t + 0.6) carta = { vuela: suave2(ac.t, ac.t + 0.6, t2), giro: ac.giro };
         }
       }
       return { a, p, col, carta, d: proy(a.x, 0.6, a.z)[2] };
     }
     function figura(q, e) {
-      const victoria = q.p === 0 && e >= 0 ? suave(0.12, 0.8, e) : -1;
-      const arriba = 1 - suave(1, 1.3, cam.pitch);
+      const victoria = q.p === 0 && e >= 0 ? suave2(0.12, 0.8, e) : -1;
+      const arriba = 1 - suave2(1, 1.3, cam.pitch);
       if (arriba < 0.02) return;
       g.globalAlpha = arriba;
       if (!X2.ocupados[q.p]) silla(q.a, q.p, arriba);
@@ -4016,21 +4021,21 @@
       const A = ASIENTOS[0], B = ASIENTOS[1];
       const ab = [B.x - A.x, B.z - A.z], nab = Math.hypot(...ab);
       let tira = Math.sin(reloj * 2.6) * 0.7 + Math.sin(reloj * 7.3) * 0.3;
-      if (e >= 0) tira = lerp(tira, -1.6, suave(0, 0.15, e));
+      if (e >= 0) tira = lerp(tira, -1.6, suave2(0, 0.15, e));
       const mesa = { x: DIS.x + ab[0] / nab * tira * 0.05, z: DIS.z + ab[1] / nab * tira * 0.05 };
-      const vuelo = e >= 0 ? suave(0.15, 0.85, e) : 0;
+      const vuelo = e >= 0 ? suave2(0.15, 0.85, e) : 0;
       if (vuelo === 0) quad(mesa.x, 0.03, mesa.z, CW_M, CH_M, 0.5 + tira * 0.12, "#a9b689", "#0e0e0e");
       else cartaAlzada(mesa, A, vuelo, e);
       for (const S of [A, B]) {
         if (S === A && e > 0.15) continue;
-        if (S === B && e >= 0) k = disputa * (1 - suave(0.12, 0.3, e));
+        if (S === B && e >= 0) k = disputa * (1 - suave2(0.12, 0.3, e));
         const m = Math.hypot(S.x, S.z), u = [S.x / m, S.z / m], perp = [-u[1], u[0]];
         const lado = Math.sign((mesa.x - S.x) * perp[0] + (mesa.z - S.z) * perp[1]) || 1;
         const cu = base(S, S === A ? 0 : 1);
         const hom = { x: cu.x - u[0] * 0.05 + perp[0] * 0.2 * lado, y: 0.42, z: cu.z - u[1] * 0.05 + perp[1] * 0.2 * lado };
         const reposo = { x: S.x * 0.8 + perp[0] * 0.15 * lado, y: 0.06, z: S.z * 0.8 + perp[1] * 0.15 * lado };
         const fin = { x: mesa.x + u[0] * 0.1, y: 0.05, z: mesa.z + u[1] * 0.1 };
-        const kk = suave(0, 0.3, k);
+        const kk = suave2(0, 0.3, k);
         const mano2 = { x: lerp(reposo.x, fin.x, kk), y: lerp(reposo.y, fin.y, kk) + Math.sin(kk * Math.PI) * 0.15, z: lerp(reposo.z, fin.z, kk) };
         const tirando = (S === A ? -tira : tira) > 0.2;
         brazo(hom, mano2, kk < 0.85 ? 0 : tirando ? 2 : 1, [perp[0] * lado, perp[1] * lado]);
@@ -4875,12 +4880,12 @@
       estado.textContent = "";
     }, ms);
   };
-  var sacude = (el) => {
-    el?.classList.remove("mal");
-    void el?.offsetWidth;
-    el?.classList.add("mal");
+  var sacude = (el2) => {
+    el2?.classList.remove("mal");
+    void el2?.offsetWidth;
+    el2?.classList.add("mal");
     vibrar([20, 40, 20]);
-    setTimeout(() => el?.classList.remove("mal"), 700);
+    setTimeout(() => el2?.classList.remove("mal"), 700);
   };
   var seVa = (c) => {
     if (!c) return;
@@ -5183,28 +5188,28 @@
   }
   var PZ = ["p1", "p2", "p3"].map((id) => porId(id));
   var DIFS = { F\u00E1cil: "easy", Normal: "normal", Dif\u00EDcil: "hard" };
-  function caja(el, x, y, w, h, html, clave) {
-    el.classList.remove("oculta");
-    Object.assign(el.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
-    if (el.dataset.k !== clave) {
-      el.dataset.k = clave;
-      el.innerHTML = `<div class="dentro">${html}</div>`;
+  function caja(el2, x, y, w, h, html, clave) {
+    el2.classList.remove("oculta");
+    Object.assign(el2.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+    if (el2.dataset.k !== clave) {
+      el2.dataset.k = clave;
+      el2.innerHTML = `<div class="dentro">${html}</div>`;
       return true;
     }
     return false;
   }
-  function plegar(el) {
-    el.classList.add("oculta");
-    el.dataset.k = "";
+  function plegar(el2) {
+    el2.classList.add("oculta");
+    el2.dataset.k = "";
   }
   var seg = (act, valores, actual) => `<div class="fila segs" style="--n:${valores.length};--i:${Math.max(0, valores.indexOf(actual))}">` + valores.map((v) => `<button class="seg${v === actual ? " si" : ""}" data-act="${act}" data-v="${v}">${T(v)}</button>`).join("") + '<i class="resalte"></i></div>';
   var tambor = (act, min, max, v) => `<span class="tambor" data-tambor="${act}" data-min="${min}" data-max="${max}" style="--v:${v};--min:${min}" role="spinbutton" aria-valuenow="${v}" aria-valuemin="${min}" aria-valuemax="${max}"><span class="rodillo">` + Array.from({ length: max - min + 1 }, (_, k) => `<span${k + min === v ? ' class="ya"' : ""}>${k + min}</span>`).join("") + "</span></span>";
-  function girarTambor(el, v) {
-    const min = +el.dataset.min, max = +el.dataset.max;
+  function girarTambor(el2, v) {
+    const min = +el2.dataset.min, max = +el2.dataset.max;
     v = Math.max(min, Math.min(max, v));
-    el.style.setProperty("--v", String(v));
-    el.setAttribute("aria-valuenow", String(v));
-    el.querySelectorAll(".rodillo span").forEach((s, k) => s.classList.toggle("ya", k + min === v));
+    el2.style.setProperty("--v", String(v));
+    el2.setAttribute("aria-valuenow", String(v));
+    el2.querySelectorAll(".rodillo span").forEach((s, k) => s.classList.toggle("ya", k + min === v));
     return v;
   }
   var AL_GIRAR = { jug: (v) => {
@@ -5285,8 +5290,8 @@
       const actual = Object.keys(IDIOMAS).find((k) => IDIOMAS[k] === window.PilesI18n?.lang) ?? "ES";
       pon3(1, M, ZONA + ALTO_ELO + SEP, col, 44, seg("idioma", Object.keys(IDIOMAS), actual), "idioma");
     }
-    PZ.forEach((el, i) => {
-      if (!usadas.has(i)) plegar(el);
+    PZ.forEach((el2, i) => {
+      if (!usadas.has(i)) plegar(el2);
     });
   }
   function actuar(act, b) {
@@ -5367,11 +5372,11 @@
     requestAnimationFrame(moverDiales);
     if (document.body.classList.contains("en-partida") || typeof agDial !== "function") return;
     const ocupado = [...document.querySelectorAll(OCUPA)].filter((e) => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3).map((e) => e.getBoundingClientRect());
-    const tam = dialesMesa.map((el) => [el.offsetWidth, el.offsetHeight]);
+    const tam = dialesMesa.map((el2) => [el2.offsetWidth, el2.offsetHeight]);
     X.anclas.forEach((a, p) => {
-      const el = dialesMesa[p], e = X.elo?.[p];
+      const el2 = dialesMesa[p], e = X.elo?.[p];
       if (!a.ok || !e) {
-        el.style.opacity = "0";
+        el2.style.opacity = "0";
         return;
       }
       const ax = a.x ?? 0, ay = a.y ?? 0;
@@ -5380,13 +5385,13 @@
         const [antesQuien, antesV] = claveDial[p].split("|");
         const antes = antesQuien === quien ? Number(antesV) : e.v;
         claveDial[p] = k;
-        agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
+        agDial(el2, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
       }
       const s = (a.s ?? 1) * (W() < 760 ? 0.75 : 1);
-      el.style.transform = `translate(${ax}px, ${ay}px) translate(-50%, -100%) scale(${s})`;
+      el2.style.transform = `translate(${ax}px, ${ay}px) translate(-50%, -100%) scale(${s})`;
       const [w, h] = tam[p];
-      el.style.opacity = chocaDial({ left: ax - w * s / 2, right: ax + w * s / 2, top: ay - h * s, bottom: ay }, ocupado) ? "0" : "1";
-      el.classList.toggle("tuyo", p === X.tu);
+      el2.style.opacity = chocaDial({ left: ax - w * s / 2, right: ax + w * s / 2, top: ay - h * s, bottom: ay }, ocupado) ? "0" : "1";
+      el2.classList.toggle("tuyo", p === X.tu);
     });
   }
   requestAnimationFrame(moverDiales);
@@ -5688,6 +5693,143 @@
     return mano;
   }, jugar, volver, elegir, irA };
 
+  // ../client/partida/manos.ts
+  var TINTA = "#0b0c09";
+  var POSES = ["abierta", "tensa", "agarra", "puno", "pistola", "ok", "puntilla1", "puntilla2"];
+  var HOJA = "/partida/guantes.webp";
+  var CELDA = 256;
+  var MUNECA = [128, 203];
+  var MUNECA_PUNTA = 140;
+  var BAJO_PUNO = 10;
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var el = (tag, attrs = {}) => {
+    const e = document.createElementNS(SVGNS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+    return e;
+  };
+  function guante(capa, color, fila, tam) {
+    const brazo = el("g");
+    const borde = el("path", { fill: "none", stroke: color, "stroke-width": tam * 0.3, "stroke-linecap": "round" });
+    const tubo = el("path", { fill: "none", stroke: TINTA, "stroke-width": tam * 0.22, "stroke-linecap": "round" });
+    brazo.append(borde, tubo);
+    const mano2 = el("g");
+    const ventana = el("svg", { width: CELDA, height: CELDA, viewBox: `0 0 ${CELDA} ${CELDA}`, x: -MUNECA[0], y: -MUNECA[1] });
+    ventana.append(el("image", { href: HOJA, width: CELDA * POSES.length, height: CELDA * 2 }));
+    mano2.append(ventana);
+    capa.append(brazo, mano2);
+    const k = tam * 1.14 / MUNECA_PUNTA;
+    let actual = "";
+    return {
+      set(x, y, rot, sx, sy, pose, ax, ay, onda) {
+        mano2.setAttribute("transform", `translate(${x} ${y}) rotate(${rot}) scale(${k * sx} ${k * sy})`);
+        if (pose !== actual) {
+          actual = pose;
+          ventana.setAttribute("viewBox", `${POSES.indexOf(pose) * CELDA} ${fila * CELDA} ${CELDA} ${CELDA}`);
+        }
+        const rad = rot * Math.PI / 180, mx = x - Math.sin(rad) * BAJO_PUNO * k * sy, my = y + Math.cos(rad) * BAJO_PUNO * k * sy;
+        const dx = mx - ax, dy = my - ay, n = Math.hypot(dx, dy) || 1, px = -dy / n, py = dx / n;
+        const c1x = ax + dx * 0.33 + px * onda, c1y = ay + dy * 0.33 + py * onda;
+        const c2x = ax + dx * 0.7 - px * onda * 0.8, c2y = ay + dy * 0.7 - py * onda * 0.8;
+        const d = `M${ax} ${ay} C${c1x} ${c1y} ${c2x} ${c2y} ${mx} ${my}`;
+        borde.setAttribute("d", d);
+        tubo.setAttribute("d", d);
+      }
+    };
+  }
+  var suave = (u) => u * u * (3 - 2 * u);
+  function muestra(claves, t2) {
+    let j = claves.findIndex((c) => c.t > t2);
+    if (j === -1) j = claves.length - 1;
+    const a = claves[Math.max(0, j - 1)], b = claves[j];
+    const u = b.t === a.t ? 1 : suave(Math.min(1, Math.max(0, (t2 - a.t) / (b.t - a.t))));
+    const l = (p, q) => p + (q - p) * u;
+    return { x: l(a.x, b.x), y: l(a.y, b.y), rot: l(a.rot ?? 0, b.rot ?? 0), sx: l(a.sx ?? 1, b.sx ?? 1), sy: l(a.sy ?? 1, b.sy ?? 1), onda: l(a.onda ?? 0, b.onda ?? 0), pose: u < 0.5 ? a.pose : b.pose };
+  }
+  function arrebato(fx, carta, desde, obj, rival, dura = 650, robo = false) {
+    const W2 = innerWidth, H2 = innerHeight;
+    const capa = el("svg", { width: W2, height: H2, viewBox: `0 0 ${W2} ${H2}` });
+    Object.assign(capa.style, { position: "fixed", inset: "0", zIndex: "123", pointerEvents: "none", overflow: "visible" });
+    fx.append(capa);
+    const tam = Math.min(obj.width * 0.95, 150);
+    const R = guante(capa, "#a9b689", 0, tam), Y = robo ? null : guante(capa, "#e8402a", 1, tam);
+    const cx = obj.left + obj.width / 2, top = obj.top, bot = obj.top + obj.height;
+    const hx = desde.left + desde.width / 2, hy = desde.top;
+    const ax = rival ? rival.left + rival.width / 2 : cx + W2 * 0.25, ay = rival ? rival.top + rival.height : -40;
+    const bx = cx - W2 * 0.1, by = H2 + 60;
+    const g = tam * 0.75;
+    const rv = [
+      { t: 0, x: ax, y: ay, rot: 180, sx: 0.8, sy: 0.8, pose: "puntilla1", onda: 0 },
+      { t: 0.1, x: ax + (hx - ax) * 0.35, y: ay + (hy - g - ay) * 0.35, rot: 170, sy: 1.1, pose: "puntilla2", onda: 40 },
+      { t: 0.18, x: ax + (hx - ax) * 0.7, y: ay + (hy - g - ay) * 0.7, rot: 190, sy: 0.9, pose: "puntilla1", onda: -40 },
+      { t: 0.26, x: hx, y: hy - g - 10, rot: 180, sx: 1, sy: 1.15, pose: "abierta", onda: 20 },
+      // asoma, se estira
+      { t: 0.32, x: hx, y: hy - g * 0.55, rot: 180, sx: 1.25, sy: 0.8, pose: "agarra", onda: 0 },
+      // ¡zas!, aplastada
+      { t: 0.44, x: cx, y: top - g * 0.5, rot: 172, sx: 0.85, sy: 1.25, pose: "agarra", onda: 60 },
+      // tira hacia arriba
+      { t: 0.52, x: cx + 6, y: top - g * 0.7, rot: 165, sx: 1.2, sy: 1.25, pose: "tensa", onda: 90 },
+      // ¡pillado!
+      { t: 0.58, x: cx - 4, y: top - g * 0.5, rot: 186, sx: 1, sy: 1, pose: "agarra", onda: -50 },
+      { t: 0.7, x: cx, y: top - g * 0.65, rot: 176, sy: 1.15, pose: "agarra", onda: 50 },
+      { t: 0.82, x: cx, y: top - g * 0.4, rot: 185, sy: 0.85, pose: "agarra", onda: -40 },
+      { t: 1, x: cx, y: top - g * 0.55, rot: 180, pose: "agarra", onda: 0 }
+    ];
+    const yo = [
+      { t: 0, x: bx, y: by + 200, pose: "pistola" },
+      { t: 0.42, x: bx, y: by + 200, pose: "pistola" },
+      { t: 0.5, x: cx - tam * 0.2, y: bot + g * 1.3, rot: 18, sx: 0.85, sy: 1.25, pose: "pistola", onda: 30 },
+      // ¡quieto!
+      { t: 0.56, x: cx - tam * 0.2, y: bot + g * 1.4, rot: 6, sx: 1.1, sy: 0.9, pose: "pistola", onda: 10 },
+      // retroceso
+      { t: 0.64, x: cx, y: bot + g * 0.5, rot: 0, sx: 1.25, sy: 0.8, pose: "agarra", onda: -20 },
+      // agarra
+      { t: 0.7, x: cx, y: bot + g * 0.75, sy: 1.2, pose: "agarra", onda: 40 },
+      { t: 0.82, x: cx, y: bot + g * 0.45, sy: 0.85, pose: "agarra", onda: -30 },
+      { t: 1, x: cx, y: bot + g * 0.6, pose: "agarra", onda: 0 }
+    ];
+    const robado = [
+      { t: 0, x: ax, y: ay, rot: 180, sx: 0.8, sy: 0.8, pose: "puntilla1" },
+      { t: 0.18, x: ax + (hx - ax) * 0.5, y: ay + (hy - g - ay) * 0.5, rot: 172, sy: 1.15, pose: "puntilla2", onda: 40 },
+      { t: 0.36, x: hx, y: hy - g - 8, rot: 180, sy: 1.15, pose: "abierta", onda: -20 },
+      { t: 0.46, x: hx, y: hy - g * 0.55, rot: 180, sx: 1.25, sy: 0.8, pose: "agarra" },
+      // ¡zas!
+      { t: 0.62, x: hx + (ax - hx) * 0.2, y: hy - g * 0.9, rot: 188, sx: 0.85, sy: 1.3, pose: "agarra", onda: 60 },
+      { t: 1, x: ax, y: ay - g, rot: 180, sy: 1.2, pose: "agarra", onda: -30 }
+    ];
+    const k0 = desde.width / obj.width;
+    const sx0 = hx - cx, sy0 = desde.top + desde.height / 2 - (top + obj.height / 2);
+    const t0 = performance.now();
+    carta.style.transition = "none";
+    carta.style.transform = `translate(${sx0}px, ${sy0}px) scale(${k0})`;
+    return new Promise((fin) => {
+      const cuadro = (ahora) => {
+        const t2 = Math.min(1, (ahora - t0) / dura);
+        if (robo) {
+          const r2 = muestra(robado, t2);
+          R.set(r2.x, r2.y, r2.rot, r2.sx, r2.sy, r2.pose, ax, ay, r2.onda);
+          const u2 = t2 < 0.46 ? 0 : 1;
+          const tx2 = u2 ? r2.x - cx : sx0, ty2 = u2 ? r2.y + g * 0.85 + desde.height * 0.4 - (top + obj.height / 2) : sy0;
+          carta.style.transform = `translate(${tx2}px, ${ty2}px) rotate(${u2 ? (r2.rot - 180) * 1.5 : 0}deg) scale(${k0})`;
+          if (t2 < 1) requestAnimationFrame(cuadro);
+          else fin();
+          return;
+        }
+        const r = muestra(rv, t2), y = muestra(yo, t2);
+        R.set(r.x, r.y, r.rot, r.sx, r.sy, r.pose, ax, ay, r.onda);
+        Y.set(y.x, y.y, y.rot, y.sx, y.sy, y.pose, bx, by, y.onda);
+        const u = t2 < 0.32 ? 0 : t2 < 0.44 ? suave((t2 - 0.32) / 0.12) : 1;
+        const tir = t2 > 0.44 ? (r.y - (top - g * 0.55)) * 0.6 + (y.y - (bot + g * 0.6)) * 0.4 : 0;
+        const tx = sx0 * (1 - u), ty = sy0 * (1 - u) + tir, s = k0 + (1 - k0) * u, gir = t2 > 0.44 ? (r.rot - 180) * 0.8 : 0;
+        carta.style.transform = `translate(${tx}px, ${ty}px) rotate(${gir}deg) scale(${s})`;
+        if (t2 < 1) requestAnimationFrame(cuadro);
+        else fin();
+      };
+      requestAnimationFrame(cuadro);
+    }).then(() => {
+      for (const e of [capa, carta]) e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).finished.finally(() => e.remove());
+    });
+  }
+
   // ../client/partida/partida.ts
   (() => {
     const ICONOS2 = {
@@ -5782,9 +5924,9 @@
       const chip = document.querySelector("#hud .hud-stripe.mirones");
       if (chip) chip.innerHTML = `${ico2("ojo")}${est.mirones}`;
     });
-    al("pintarAviso", (el, nick, titulo) => {
+    al("pintarAviso", (el2, nick, titulo) => {
       const icono = /🔌/.test(titulo) ? "enchufe" : /🚪/.test(titulo) ? "fuera" : /✅/.test(titulo) ? "check" : null;
-      const tit = el?.querySelector(".qbn-title");
+      const tit = el2?.querySelector(".qbn-title");
       if (!tit) return;
       tit.textContent = sinEmoji(titulo) || nick;
       if (icono) tit.insertAdjacentHTML("afterbegin", ico2(icono) + " ");
@@ -5820,10 +5962,10 @@
       destello(msg.player);
       if ((msg.countered || []).includes(est.currentNickname)) avisoIco("escudo", document.getElementById("comboBox"));
     });
-    const vuelve2 = (el, prop) => {
-      const ida = el.style[prop];
-      el.style[prop] = "";
-      if (ida) el.animate([{ [prop]: ida }, { [prop]: "0 0" }], { duration: 260, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
+    const vuelve2 = (el2, prop) => {
+      const ida = el2.style[prop];
+      el2.style[prop] = "";
+      if (ida) el2.animate([{ [prop]: ida }, { [prop]: "0 0" }], { duration: 260, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
     };
     const qte = document.getElementById("qteOverlay"), bandera = document.getElementById("qteGiveUpBtn"), hueco = document.getElementById("qteCard");
     let cede = null;
@@ -6044,28 +6186,28 @@
       if (cardData && from) trasVuelo.add(cardData.id);
     });
     al("aterriza", (rowId, index) => {
-      const el = document.getElementById(rowId)?.children[index];
-      const id = Number(el?.dataset.cardId);
-      if (el && sinAterrizar.has(id)) return false;
+      const el2 = document.getElementById(rowId)?.children[index];
+      const id = Number(el2?.dataset.cardId);
+      if (el2 && sinAterrizar.has(id)) return false;
       const volo = trasVuelo.delete(id);
-      el?.classList.toggle("solo-aplasta", volo);
-      aterriza = { rowId, el, retraso: volo ? 0 : CAIDA };
+      el2?.classList.toggle("solo-aplasta", volo);
+      aterriza = { rowId, el: el2, retraso: volo ? 0 : CAIDA };
     });
     al("golpe", (fuerte = false) => {
       const a = aterriza;
       if (REDUCED_MOTION?.matches || !a?.el) return;
-      const { rowId, retraso } = a, el = a.el;
+      const { rowId, retraso } = a, el2 = a.el;
       aterriza = null;
-      setTimeout(() => golpe(rowId, el, fuerte), retraso);
+      setTimeout(() => golpe(rowId, el2, fuerte), retraso);
     });
     const ADD = { composite: "add" };
-    function golpe(rowId, el, fuerte) {
+    function golpe(rowId, el2, fuerte) {
       const fila = document.getElementById(rowId);
-      if (!fila || !el.isConnected) return;
+      if (!fila || !el2.isConnected) return;
       const t2 = performance.now();
       energia = Math.min(3.5, energia * Math.exp(-(t2 - ultimo) / 900) + (fuerte ? 1.8 : 1));
       ultimo = t2;
-      const E = energia, r0 = el.getBoundingClientRect(), w = r0.width;
+      const E = energia, r0 = el2.getBoundingClientRect(), w = r0.width;
       const cx = r0.left + w / 2, cy = r0.top + r0.height / 2;
       fila.animate(
         [{ translate: "0 0" }, { translate: `0 ${4 * E}px`, offset: 0.15 }, { translate: `0 ${-0.9 * E}px`, offset: 0.45 }, { translate: "0 0" }],
@@ -6078,7 +6220,7 @@
       for (const otro of ["hud", rowId === "centerCards" ? "yourCards" : "centerCards"])
         document.getElementById(otro)?.animate([{ translate: "0 0" }, { translate: `0 ${2 * E}px`, offset: 0.3 }, { translate: "0 0" }], { duration: 320, delay: 50, ...ADD });
       for (const c of fila.children) {
-        if (c === el || c.classList.contains("center-gap") || c.classList.contains("card-empty")) continue;
+        if (c === el2 || c.classList.contains("center-gap") || c.classList.contains("card-empty")) continue;
         const r = c.getBoundingClientRect(), d = Math.hypot(r.left + r.width / 2 - cx, r.top + r.height / 2 - cy);
         const A = E * (fuerte ? 24 : 16) * Math.exp(-d / (w * 2.5));
         if (A < 0.6) continue;
@@ -6123,13 +6265,13 @@
       return e;
     }
     function seLaLleva(m) {
-      const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`), dest = franja(m.by);
-      if (!el || !dest) {
+      const el2 = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`), dest = franja(m.by);
+      if (!el2 || !dest) {
         destello(m.by);
         return;
       }
       const card = est.centerCards.find((c) => c.id === m.card_id) ?? { id: m.card_id, clothing_type: 0 };
-      const a = el.getBoundingClientRect(), b = dest.getBoundingClientRect();
+      const a = el2.getBoundingClientRect(), b = dest.getBoundingClientRect();
       const e = copia(card, a), s = Math.max(0.15, b.height / a.height);
       const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
       e.animate([
@@ -6147,15 +6289,15 @@
       if (!orig) return;
       sinAterrizar.add(m.card_id);
       requestAnimationFrame(() => {
-        const el = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
+        const el2 = document.querySelector(`#centerCards .card[data-card-id="${m.card_id}"]`);
         const card = est.centerCards.find((c) => c.id === m.card_id);
-        if (!el || !card) {
+        if (!el2 || !card) {
           sinAterrizar.delete(m.card_id);
           return;
         }
-        const b = el.getBoundingClientRect(), a = { left: orig.left + orig.width / 2 - b.width * 0.2, top: orig.top, width: b.width * 0.4, height: b.height * 0.4 };
+        const b = el2.getBoundingClientRect(), a = { left: orig.left + orig.width / 2 - b.width * 0.2, top: orig.top, width: b.width * 0.4, height: b.height * 0.4 };
         const e = copia(card, b);
-        el.style.visibility = "hidden";
+        el2.style.visibility = "hidden";
         const dx = a.left + a.width / 2 - (b.left + b.width / 2), dy = a.top + a.height / 2 - (b.top + b.height / 2);
         e.animate([
           { transform: `translate(${dx}px, ${dy}px) rotate(-20deg) scale(.4)`, opacity: 0.4 },
@@ -6187,28 +6329,28 @@
     };
     const cuenta2 = (s, e) => !!s.el && s.fila === "yourCards" === enZona(s, e);
     function aSuSitio(s, rebote = true) {
-      const el = s.el;
-      if (!el) return;
-      el.classList.remove("sostenida", "casi", "soltada");
+      const el2 = s.el;
+      if (!el2) return;
+      el2.classList.remove("sostenida", "casi", "soltada");
       document.getElementById(s.fila)?.classList.remove("arrastrando");
-      const ida = el.style.translate;
-      el.style.translate = "";
-      if (rebote && ida) el.animate([{ translate: ida }, { translate: "0 0" }], { duration: 280, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
+      const ida = el2.style.translate;
+      el2.style.translate = "";
+      if (rebote && ida) el2.animate([{ translate: ida }, { translate: "0 0" }], { duration: 280, easing: "cubic-bezier(.3, 1.6, .5, 1)" });
     }
-    const jugar2 = (fila, valor, el) => {
+    const jugar2 = (fila, valor, el2) => {
       if (est.soyEspectador || valor == null) return;
-      if (fila === "yourCards") onPlayerCardClick(valor, el);
-      else onCenterCardClick(valor, el);
+      if (fila === "yourCards") onPlayerCardClick(valor, el2);
+      else onCenterCardClick(valor, el2);
     };
     function dejarAlli(s) {
-      const el = s.el;
-      el.classList.remove("sostenida", "casi");
-      el.classList.add("soltada");
-      jugar2(s.fila, s.valor, el);
+      const el2 = s.el;
+      el2.classList.remove("sostenida", "casi");
+      el2.classList.add("soltada");
+      jugar2(s.fila, s.valor, el2);
       const mia = s.fila === "yourCards" ? est.pendingDrop?.index === s.valor : est.pendingTake?.card.id === s.valor;
       if (!mia) return aSuSitio(s);
       setTimeout(() => {
-        if (el.isConnected && el.classList.contains("soltada")) aSuSitio(s);
+        if (el2.isConnected && el2.classList.contains("soltada")) aSuSitio(s);
       }, 2500);
     }
     for (const fila of ["yourCards", "centerCards"]) {
@@ -6218,16 +6360,16 @@
         if (e.pointerType === "mouse" && e.button !== 0) return;
         e.stopPropagation();
         const t2 = e.target.closest("[data-tap]");
-        const el = t2 && row.contains(t2) && !t2.classList.contains("card-empty") ? t2 : null;
-        const valida = !!el;
+        const el2 = t2 && row.contains(t2) && !t2.classList.contains("card-empty") ? t2 : null;
+        const valida = !!el2;
         const zona2 = porId("centerCards").getBoundingClientRect();
-        sostenida = { fila, el, valor: el ? Number(el.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona: zona2, r0: el ? el.getBoundingClientRect() : null };
+        sostenida = { fila, el: el2, valor: el2 ? Number(el2.dataset.tap) : null, x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, hecho: false, zona: zona2, r0: el2 ? el2.getBoundingClientRect() : null };
         try {
           row.setPointerCapture(e.pointerId);
         } catch {
         }
-        if (el && valida && !est.soyEspectador) {
-          el.classList.add("sostenida");
+        if (el2 && valida && !est.soyEspectador) {
+          el2.classList.add("sostenida");
           row.classList.add("arrastrando");
         }
       }, true);
@@ -6517,8 +6659,8 @@
       c.animate([{ translate: "0 0" }, { translate: "0 10px", offset: 0.25 }, { translate: "0 -3px", offset: 0.6 }, { translate: "0 0" }], { duration: 420, delay: 160 });
       setTimeout(() => chispas(s, fin.pos === 1 ? 18 : 10, fin.pos === 1 || !fin.pos), 200);
     }
-    function chispas(el, n, roja) {
-      const fx = document.getElementById("fxLayer"), r = el?.getBoundingClientRect();
+    function chispas(el2, n, roja) {
+      const fx = document.getElementById("fxLayer"), r = el2?.getBoundingClientRect();
       if (!fx || !r) return;
       const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
       for (let i = 0; i < n; i++) {
@@ -6601,7 +6743,27 @@
       verifs.clear();
       columnas.textContent = "";
     });
-    window.partida = { avisoIco, destello, ico: ico2, encajarCentro };
+    function arrebato2(desde, card, rival, dura = 650, robo = false) {
+      const mesa = document.getElementById("centerCards")?.getBoundingClientRect();
+      const cw = Math.min(desde.width * 1.7, innerWidth * 0.32), ch = cw * desde.height / desde.width;
+      const ccx = innerWidth / 2, ccy = mesa ? mesa.bottom - ch * 0.62 : desde.top - ch;
+      const obj = { left: ccx - cw / 2, top: ccy - ch / 2, width: cw, height: ch };
+      const c = copia(card, obj);
+      if (!robo) c.classList.add("disputada");
+      zumba(20);
+      const fx = porId("fxLayer");
+      fx.classList.add("sobre-pelea");
+      return arrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo).finally(() => setTimeout(() => {
+        if (!fx.querySelector("svg")) fx.classList.remove("sobre-pelea");
+      }, 220));
+    }
+    al("arrebato", (desde, card, rival) => {
+      void arrebato2(desde, card, rival);
+    });
+    al("robo", (desde, card, rival) => {
+      void arrebato2(desde, card, rival, 480, true);
+    });
+    window.partida = { avisoIco, destello, ico: ico2, encajarCentro, arrebato: arrebato2 };
   })();
 
   // ../client/juego/index.ts
