@@ -99,7 +99,10 @@ async fn main() {
         .await
         .expect("Failed to bind to address");
 
+    // Sin Nagle: los mensajes del juego son pequeños y van seguidos (swap_success,
+    // combo_update, game_update…); con Nagle uno puede esperar al ACK del anterior.
     axum::serve(listener, app)
+        .tcp_nodelay(true)
         .await
         .expect("Server failed to start");
 }

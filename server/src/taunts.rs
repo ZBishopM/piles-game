@@ -29,6 +29,8 @@ pub struct Taken {
     pub nickname: String,
     pub taunt: Option<String>,
     pub at: Instant,
+    /// La ganó en una pelea: no puede dar pie a otra (ver `pelea_tardia_rival`).
+    pub de_pelea: bool,
 }
 
 /// Últimas cartas cogidas: sala -> carta -> quién. Acotado: cada anotación tira
@@ -47,6 +49,11 @@ impl Recent {
     }
 
     /// `(burla, apodo del ladrón)` si `victim` llega tarde a `card`.
+    /// Quién cogió esta carta hace un momento, cuándo y si fue en una pelea.
+    pub fn quien(&self, lobby: &str, card: u32) -> Option<(Uuid, Instant, bool)> {
+        self.0.get(lobby)?.get(&card).map(|t| (t.by, t.at, t.de_pelea))
+    }
+
     pub fn taunt_for(&self, lobby: &str, card: u32, victim: Uuid, now: Instant) -> Option<(String, String)> {
         let t = self.0.get(lobby)?.get(&card)?;
         if t.by == victim || now.saturating_duration_since(t.at) >= WINDOW {
@@ -66,7 +73,7 @@ mod tests {
     use super::*;
 
     fn taken(by: Uuid, taunt: Option<&str>, at: Instant) -> Taken {
-        Taken { by, nickname: "Ana".into(), taunt: taunt.map(String::from), at }
+        Taken { by, nickname: "Ana".into(), taunt: taunt.map(String::from), at, de_pelea: false }
     }
 
     #[test]

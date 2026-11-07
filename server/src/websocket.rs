@@ -44,6 +44,24 @@ struct QtePlayerData {
 /// Ventana para considerar que dos jugadores van a por la misma carta.
 const CONFLICT_WINDOW: Duration = Duration::from_millis(300);
 
+/// Pelea tardía: lo que tarda en pintarse el cambio y en reaccionar el dedo,
+/// encima del ping.
+const MARGEN_VISTA: Duration = Duration::from_millis(80);
+/// El ping que se tiene en cuenta, como mucho: con segundos de retraso no se
+/// puede pelear por una carta que ya es de otro hace rato.
+const PING_TOPE: Duration = Duration::from_millis(600);
+
+/// ¿Pudo ver quien pide la carta que otro ya se la había llevado?
+///
+/// El servidor dio la carta a otro hace `desde`. Ese cambio le llega a quien
+/// pide a la mitad de su ping, y su toque salió la otra mitad antes de llegar
+/// aquí: no pudo verlo si `desde` < su ida y vuelta. Entonces los dos la vieron
+/// libre y los dos creen que es suya: no hay ganador claro, hay pelea.
+fn no_pudo_verlo(rtt_ms: Option<u32>, desde: Duration) -> bool {
+    let ping = Duration::from_millis(rtt_ms.unwrap_or(0) as u64).min(PING_TOPE);
+    desde < ping + MARGEN_VISTA
+}
+
 /// Cada cuánto se mira si una conexión lleva demasiado callada.
 const IDLE_CHECK: Duration = Duration::from_secs(5);
 /// Cuánto silencio se aguanta EN PARTIDA antes de dar la conexión por caída.
@@ -82,6 +100,9 @@ pub struct AppState {
     pub started: Instant,
     /// Quién cogió qué carta hace un momento, para la burla de quien llega tarde.
     pub recent_takes: Arc<std::sync::Mutex<crate::taunts::Recent>>,
+    /// El último ping (ida y vuelta, ms) que mandó cada conexión. Lo usa la
+    /// pelea tardía: hasta cuándo no pudo ver alguien que una carta ya no estaba.
+    pub rtts: Arc<std::sync::Mutex<HashMap<Uuid, u32>>>,
 }
 
 /// Un desajuste visto una vez, a la espera de volver a verse.
@@ -140,6 +161,7 @@ impl AppState {
             feeds: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             started: Instant::now(),
             recent_takes: Arc::new(std::sync::Mutex::new(Default::default())),
+            rtts: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -701,6 +723,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     if let Ok(mut vistos) = state.last_seen.lock() { vistos.remove(&player_id); }
     if let Ok(mut chat) = state.chat_last.lock() { chat.remove(&player_id); }
     if let Ok(mut d) = state.desync_seen.lock() { d.remove(&player_id); }
+    if let Ok(mut r) = state.rtts.lock() { r.remove(&player_id); }
     if current_lobby.is_some() {
         state.rec_line_player(&player_id, "conn", serde_json::json!({
             "kind": "close", "motivo": motivo, "silencio_ms": silencio_ms,
@@ -1576,6 +1599,18 @@ pub(crate) async fn handle_client_message(
                     return;
                 }
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) {
+                    // Se la llevó otro antes de que pudieras verlo: los dos la visteis
+                    // libre, así que es una pelea y no una carta perdida.
+                    let tardia = game_state.players.iter()
+                        .find(|p| p.id == player_id && p.owes_card())
+                        .and_then(|p| pelea_tardia_rival(&state, &lobby_id, card_id, player_id, game_state)
+                            .map(|r| (p.nickname.clone(), r)));
+                    if let Some((yo, (rival, rival_nick, desde_ms))) = tardia {
+                        pelea_tardia(&state, &lobby_id, card_id,
+                            QtePlayerData { player_id, nickname: yo },
+                            QtePlayerData { player_id: rival, nickname: rival_nick }, desde_ms).await;
+                        return;
+                    }
                     state.send_to_player(&player_id, gone_msg(&state, &lobby_id, card_id, player_id, "card_gone", "Esa carta ya no está")).await;
                     return;
                 }
@@ -2004,6 +2039,7 @@ pub(crate) async fn handle_client_message(
             // El cliente es el único que puede medir su ida y vuelta, así que
             // manda la medida anterior pegada al siguiente ping.
             if let Some(rtt) = rtt_ms {
+                if let Ok(mut m) = state.rtts.lock() { m.insert(player_id, rtt); }
                 state.rec_ping(&player_id, rtt).await;
             }
             state.send_to_player(&player_id, ServerMessage::Pong).await;
@@ -2199,7 +2235,7 @@ async fn execute_delayed_take(
         return;
     };
 
-    note_take(&state, &lobby, &lobby_id, card_id, player_id);
+    note_take(&state, &lobby, &lobby_id, card_id, player_id, false);
     let movido = movimiento(&lobby, "take", card_id, player_id);
     // snapshot() después de award_combo, para que `on_fire` salga ya actualizado.
     let (new_center, players_progress, mirones) = snapshot(&lobby);
@@ -2230,7 +2266,7 @@ fn movimiento(lobby: &crate::game::Lobby, kind: &'static str, card_id: u32, play
 }
 
 /// Apunta que `player_id` acaba de coger `card_id` (con su burla, si tiene).
-fn note_take(state: &AppState, lobby: &crate::game::Lobby, lobby_id: &str, card_id: u32, player_id: Uuid) {
+fn note_take(state: &AppState, lobby: &crate::game::Lobby, lobby_id: &str, card_id: u32, player_id: Uuid, de_pelea: bool) {
     let Some(p) = lobby.players.iter().find(|p| p.id == player_id) else { return };
     if let Ok(mut r) = state.recent_takes.lock() {
         r.record(lobby_id, card_id, crate::taunts::Taken {
@@ -2238,8 +2274,97 @@ fn note_take(state: &AppState, lobby: &crate::game::Lobby, lobby_id: &str, card_
             nickname: p.nickname.clone(),
             taunt: p.taunt.clone(),
             at: Instant::now(),
+            de_pelea,
         });
     }
+}
+
+/// Si `me` pide una carta que ya no está y no pudo ver que se la llevaban
+/// (`no_pudo_verlo`), quién la tiene: `(id, apodo, ms desde que la cogió)`.
+/// Solo vale una cogida normal, que la carta siga en su mano y que nadie esté
+/// peleando ni verificando: lo demás es una carta perdida de verdad.
+fn pelea_tardia_rival(
+    state: &AppState,
+    lobby_id: &str,
+    card_id: u32,
+    me: Uuid,
+    gs: &crate::game::models::GameState,
+) -> Option<(Uuid, String, u64)> {
+    let (by, at, de_pelea) = state.recent_takes.lock().ok()?.quien(lobby_id, card_id)?;
+    if by == me || de_pelea {
+        return None;
+    }
+    let desde = at.elapsed();
+    let rtt = state.rtts.lock().ok().and_then(|m| m.get(&me).copied());
+    if !no_pudo_verlo(rtt, desde) {
+        return None;
+    }
+    let dueno = gs.players.iter().find(|p| p.id == by)?;
+    if dueno.is_verifying || dueno.owed_slot.is_some()
+        || gs.qte_of_player(&by).is_some() || gs.qte_of_player(&me).is_some() || gs.qte_for_card(card_id).is_some()
+        || !dueno.sets.iter().flatten().any(|c| c.map(|c| c.id) == Some(card_id))
+    {
+        return None;
+    }
+    Some((by, dueno.nickname.clone(), desde.as_millis() as u64))
+}
+
+/// La pelea tardía: la carta sale de la mano de quien la cogió (vuelve a
+/// deberla), vuelve al centro y empieza la pelea de siempre (`run_qte`).
+async fn pelea_tardia(state: &AppState, lobby_id: &str, card_id: u32, me: QtePlayerData, them: QtePlayerData, desde_ms: u64) {
+    let Some(mut lobby) = state.lobby_manager.txn(lobby_id).await else { return };
+    let (your_sets, center_cards) = {
+        let Some(gs) = lobby.game_state.as_mut() else { return };
+        // Otra vez, ya con la sala cogida: entre medias pudo cambiar.
+        if gs.qte_for_card(card_id).is_some() || gs.qte_of_player(&me.player_id).is_some() || gs.qte_of_player(&them.player_id).is_some() {
+            return;
+        }
+        let Some(p) = gs.find_player_mut(&them.player_id) else { return };
+        if p.owed_slot.is_some() || p.is_verifying {
+            return;
+        }
+        let hueco = (0..6).flat_map(|s| (0..4).map(move |c| (s, c)))
+            .find(|&(s, c)| p.sets[s][c].map(|x| x.id) == Some(card_id));
+        let Some((s, c)) = hueco else { return };
+        let Some(card) = p.sets[s][c].take() else { return };
+        p.owed_slot = Some((s, c));
+        p.owed_since = Some(Instant::now());
+        gs.center_cards.push(card);
+        for id in [me.player_id, them.player_id] {
+            if let Some(p) = gs.find_player_mut(&id) { p.freeze_combo(); }
+        }
+        gs.active_qtes.retain(|q| q.card_id != card_id);
+        gs.active_qtes.push(crate::game::QteState {
+            participants: vec![
+                (me.player_id, me.nickname.clone()),
+                (them.player_id, them.nickname.clone()),
+            ],
+            card_id,
+            clicks: std::collections::HashMap::new(),
+            conceded_by: None,
+        });
+        let p = gs.players.iter().find(|p| p.id == them.player_id).expect("está, se acaba de tocar");
+        (p.sets.iter().map(|s| set_to_info(s)).collect::<Vec<_>>(),
+         gs.center_cards.iter().map(|&c| CardInfo::from(c)).collect::<Vec<_>>())
+    };
+    lobby.commit().await;
+
+    let rtt = state.rtts.lock().ok().and_then(|m| m.get(&me.player_id).copied());
+    tracing::info!("⚔️ pelea tardía por {}: {} la pidió {} ms después de que {} la cogiera (ping {:?})",
+        card_id, me.nickname, desde_ms, them.nickname, rtt);
+    state.rec_line_lobby(lobby_id, "conn", serde_json::json!({
+        "kind": "pelea_tardia", "card": card_id, "pide": me.nickname, "tenia": them.nickname,
+        "desde_ms": desde_ms, "ping": rtt,
+    })).await;
+    state.broadcast_to_lobby(lobby_id, ServerMessage::SwapConflict {
+        players: vec![me.nickname.clone(), them.nickname.clone()],
+        card_id,
+        qte_duration: QTE_MS,
+    }).await;
+    // Quien la tenía: su mano con el hueco otra vez.
+    state.send_to_player(&them.player_id, ServerMessage::SetsResynced { your_sets, center_cards }).await;
+    tokio::spawn(run_debt_deadline(state.clone(), lobby_id.to_string(), them.player_id));
+    tokio::spawn(run_qte(state.clone(), lobby_id.to_string(), card_id, me, them));
 }
 
 /// El `swap_failed` de "la carta ya no está": con la burla del ladrón si la
@@ -3182,7 +3307,7 @@ async fn run_qte(
             );
         }
         let mirones = lobby.spectators.len();
-        if awarded.is_some() { note_take(&state, &lobby, &lobby_id, card_id, winner.player_id); }
+        if awarded.is_some() { note_take(&state, &lobby, &lobby_id, card_id, winner.player_id, true); }
         let movido = if awarded.is_some() { movimiento(&lobby, "fight", card_id, winner.player_id) } else { None };
         // Los avisos salen con la sala aún cogida (ver `LobbyTxn::save`).
         lobby.save().await;
@@ -3490,6 +3615,21 @@ mod pending_take_tests {
         m.insert(7, intent(yo, Duration::from_millis(900)));
         assert!(!has_pending_take(&m, &yo, CONFLICT_WINDOW));
         assert!(!has_pending_take(&HashMap::new(), &yo, CONFLICT_WINDOW));
+    }
+
+    // «Ya la tenía»: si la carta se fue antes de que pudieras verlo, es pelea.
+    #[test]
+    fn no_pudo_verlo_depende_de_su_ping() {
+        let ms = Duration::from_millis;
+        // Ping 180 ms: hasta 260 ms (180 + 80 de margen) no pudo verlo.
+        assert!(no_pudo_verlo(Some(180), ms(100)));
+        assert!(no_pudo_verlo(Some(180), ms(259)));
+        assert!(!no_pudo_verlo(Some(180), ms(261)), "pasado su ping ya lo veía: la perdió de verdad");
+        // Sin ping medido (un bot), solo el margen.
+        assert!(no_pudo_verlo(None, ms(50)));
+        assert!(!no_pudo_verlo(None, ms(90)));
+        // Con segundos de retraso no se pelea por una carta vieja: tope de 600 ms.
+        assert!(!no_pudo_verlo(Some(3000), ms(700)));
     }
 }
 
