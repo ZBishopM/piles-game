@@ -263,6 +263,7 @@
     // Toques (toques.ts): la carta soltada o cogida que espera respuesta del servidor.
     pendingDrop: null,
     pendingTake: null,
+    volteoEnEspera: null,
     // Pelea (QTE)
     qteActive: false,
     qteTimerInterval: null,
@@ -801,6 +802,7 @@
     if (isParticipant || est.pendingTake?.card.id === cardId) {
       est.pendingDrop = null;
       est.pendingTake = null;
+      est.volteoEnEspera = null;
       clearPending();
     }
     renderCenterCards();
@@ -1263,6 +1265,11 @@
     }
     est.pendingDrop = null;
     est.pendingTake = null;
+    if (est.volteoEnEspera !== null) {
+      const i = est.volteoEnEspera;
+      est.volteoEnEspera = null;
+      flipCurrentSet(i);
+    }
     clearPending();
     updateOwingUi();
   }
@@ -1271,6 +1278,7 @@
     deshacerCoger((msg.kind || "rule") === "gone" && !!msg.code, msg.by);
     est.pendingDrop = null;
     est.pendingTake = null;
+    est.volteoEnEspera = null;
     clearPending();
     emitir("onSwapFailed", msg);
     if (est.qtePlayers.includes(est.currentNickname) || isStunned()) return;
@@ -1339,6 +1347,10 @@
     emitir("switchSet", index, antes);
   }
   function flipCurrentSet(i = est.currentSetIndex) {
+    if (est.pendingTake) {
+      est.volteoEnEspera = i;
+      return;
+    }
     send({ type: "flip_set", set_index: i });
   }
   function updateFlipBtn() {
@@ -1549,6 +1561,7 @@
     opponentFlippedSets.clear();
     est.pendingDrop = null;
     est.pendingTake = null;
+    est.volteoEnEspera = null;
     clearStun();
     document.getElementById("gameScreen")?.classList.remove("owing");
     porId("fxLayer").innerHTML = "";
@@ -4696,11 +4709,22 @@
     if (id && vistaActual !== id) conLobby(() => showScreen(id));
   }
   al("showScreen", (id) => {
+    const deLaPartida = document.body.classList.contains("en-partida");
     document.body.classList.toggle("en-partida", id === "gameScreen");
     if (suprimir || id === "gameScreen") return;
     const destino = DE_LOBBY[id];
     if (!destino) return;
     const ya = destino === "sala" ? EN_SALA.has(pantalla) : A_LOBBY[pantalla] === id;
+    if (ya && destino === "sala" && deLaPartida) {
+      while (pantalla !== "sala" && EN_SALA.has(historial.at(-1) ?? "")) deshacerSinAnimar();
+      esc2.dataset.p = pantalla;
+      escena.ir(pantalla, historial.length);
+      menuSala();
+      repartir(MENUS[pantalla], -1);
+      mano.forEach((c, i) => c.dataset.clave = MENUS[pantalla][i]?.clave ?? "");
+      sincronizarSala();
+      return;
+    }
     if (ya) {
       if (destino === "sala") sincronizarSala();
       return;
@@ -6483,7 +6507,7 @@
       if (!T2 || T2.hecho) return;
       const dx = e.clientX - s.x, dy = e.clientY - s.y, n = T2.els.length, paso = T2.w + SEP2;
       T2.e = lim(dy / T2.entra, 0, 1);
-      T2.f = lim((dy - T2.entra) / T2.giro, 0, 1);
+      T2.f = lim((dy - T2.entra) / T2.giro, 0, owesCard() ? 0.3 : 1);
       if (T2.f === 0 && !T2.fija) {
         T2.ox = lim(dx, -(n - 1 - T2.cur) * paso - 30, T2.cur * paso + 30);
         const sel2 = lim(Math.round(T2.cur - T2.ox / paso), 0, n - 1);

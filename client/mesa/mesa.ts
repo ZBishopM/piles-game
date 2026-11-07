@@ -320,11 +320,22 @@ function alinearLobby(p: string) {
     if (id && vistaActual !== id) conLobby(() => showScreen(id));
 }
 al('showScreen', (id: string) => {
+    const deLaPartida = document.body.classList.contains('en-partida');
     document.body.classList.toggle('en-partida', id === 'gameScreen');
     if (suprimir || id === 'gameScreen') return;
     const destino = DE_LOBBY[id];
     if (!destino) return;
     const ya = destino === 'sala' ? EN_SALA.has(pantalla) : (A_LOBBY[pantalla] === id);
+    // De vuelta de la partida a la misma sala: la cuenta atrás mandó la mano fuera de la
+    // pantalla (cuentaAtras) y nadie la volvía a repartir. Se veía la sala sin menú abajo,
+    // pero el ← → seguía moviendo la mano invisible.
+    if (ya && destino === 'sala' && deLaPartida) {
+        while (pantalla !== 'sala' && EN_SALA.has(historial.at(-1) ?? '')) deshacerSinAnimar();
+        esc.dataset.p = pantalla; escena.ir(pantalla, historial.length);
+        menuSala(); repartir(MENUS[pantalla], -1); mano.forEach((c, i) => (c.dataset.clave = MENUS[pantalla][i]?.clave ?? ''));
+        sincronizarSala();
+        return;
+    }
     if (ya) { if (destino === 'sala') sincronizarSala(); return; }
     // Entraste en una sala desde donde la pediste (inicio, crear, unirse): un paso más, sin perder
     // el camino. Desde cualquier otro sitio (F5, enlace, te echaron…), el camino se rehace.

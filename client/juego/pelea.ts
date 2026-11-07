@@ -86,6 +86,7 @@ export function onSwapConflict(players: string[], cardId: number, durationMs: nu
     if (isParticipant || est.pendingTake?.card.id === cardId) {
         est.pendingDrop = null;
         est.pendingTake = null;
+        est.volteoEnEspera = null;
         clearPending();
     }
     renderCenterCards();

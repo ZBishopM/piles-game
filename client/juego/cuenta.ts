@@ -201,6 +201,7 @@ export function returnToLobby() {
     opponentFlippedSets.clear();
     est.pendingDrop = null;
     est.pendingTake = null;
+    est.volteoEnEspera = null;
     clearStun();
     document.getElementById('gameScreen')?.classList.remove('owing');
     porId('fxLayer').innerHTML = '';

@@ -579,7 +579,9 @@ import { arrebato as manosArrebato } from './manos.js';
         if (!T || T.hecho) return;
         const dx = e.clientX - s.x, dy = e.clientY - s.y, n = T.els.length, paso = T.w + SEP;
         T.e = lim(dy / T.entra, 0, 1);
-        T.f = lim((dy - T.entra) / T.giro, 0, 1);
+        // Debiendo carta no se puede revelar (el servidor lo ignora): la tabla se resiste en
+        // vez de dar la vuelta y quedarse como estaba.
+        T.f = lim((dy - T.entra) / T.giro, 0, owesCard() ? .3 : 1);
         if (T.f === 0 && !T.fija) {   // girando, el set elegido ya no cambia
             T.ox = lim(dx, -(n - 1 - T.cur) * paso - 30, T.cur * paso + 30);
             const sel = lim(Math.round(T.cur - T.ox / paso), 0, n - 1);

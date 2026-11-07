@@ -2,7 +2,7 @@
 //   node browser/arrebato.mjs [carpeta de video] [--base=local|beta]
 // 1 «pelea»: los dos piden la misma carta a la vez → la carta ya estaba en tu mano, el guante
 //   del rival te la arranca y empieza la pelea.
-// 2 «robo»: el rival la coge antes y tú, con la red lenta, la pides tarde → te la quita y se va.
+// 2 «tarde»: el rival la coge antes y tú, con la red lenta, la pides tarde → también es pelea.
 import { lanzar, pagina, wait, ok, info, fin, conRetraso } from './comun.mjs';
 import { unirse, send, esperar } from '../repro/comun.mjs';
 const OUT = process.argv.slice(2).find(a => !a.startsWith('--')) ?? null;
@@ -46,18 +46,22 @@ async function mesa(nick) {
   r.ws.close(); await ctx.close();
 }
 {
-  const { ctx, p, r, x } = await mesa('Robo');
+  // Tarde: el rival ya la tenía y tú, con la red lenta, aún la veías libre. Antes era un
+  // «robo» (la perdías sin pelear); ahora los dos la tocaron libre: pelea.
+  const { ctx, p, r, x } = await mesa('Tarde');
   await conRetraso(p, 1000);        // tu red, muy lenta: aún ves la carta en el centro
   send(r, { type: 'take_card', card_id: x });
   await esperar(r, m => m.type === 'swap_success' && m.your_new_set?.some(c => c?.id === x), 2000);
   await wait(800);
+  const t1 = Date.now();
   await p.evaluate(x => juego.onCenterCardClick(x), x);
   await wait(150);
-  ok(await p.evaluate(x => juego.est.allSets.flat().some(c => c?.id === x), x), 'robo: al tocarla, ya está en tu mano');
-  await wait(2600);
+  ok(await p.evaluate(x => juego.est.allSets.flat().some(c => c?.id === x), x), 'tarde: al tocarla, ya está en tu mano');
+  ok(!!await esperar(r, m => m.type === 'swap_conflict' && m._t > t1, 2500), 'tarde: es pelea, no robo');
+  await wait(2000);   // tu red lenta: la pelea te llega 1 s después
   const res = await p.evaluate(x => ({ mia: juego.est.allSets.flat().some(c => c?.id === x), qte: juego.est.qteActive }), x);
-  info(`robo: ${JSON.stringify(res)}`);
-  ok(!res.mia, 'robo: al final no es tuya');
+  info(`tarde: ${JSON.stringify(res)}`);
+  ok(res.qte && !res.mia, 'tarde: te la arrancan de la mano y empieza la pelea');
   info(`errores: ${JSON.stringify(p.errores)}`);
   r.ws.close(); await ctx.close();
 }

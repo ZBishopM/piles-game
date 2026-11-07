@@ -276,6 +276,7 @@ export function onSwapSuccess(msg: Msg<'swap_success'>) {
     // (Soltadas y cogidas ya volaron al tocarlas: onPlayerCardClick, onCenterCardClick.)
     est.pendingDrop = null;
     est.pendingTake = null;
+    if (est.volteoEnEspera !== null) { const i = est.volteoEnEspera; est.volteoEnEspera = null; flipCurrentSet(i); }
     clearPending();
     updateOwingUi();
 }
@@ -296,6 +297,7 @@ export function onSwapFailed(msg: Partial<Msg<'swap_failed'>>) {
     deshacerCoger((msg.kind || 'rule') === 'gone' && !!msg.code, msg.by);
     est.pendingDrop = null;
     est.pendingTake = null;
+    est.volteoEnEspera = null;   // sin la carta vuelves a deber: no se puede revelar
     clearPending();
     emitir('onSwapFailed', msg);   // aquí y no al final: lo de abajo sale antes en casi todos los casos
 
@@ -403,7 +405,12 @@ export function switchSet(index: number) {
 // ─── Voltear sets ─────────────────────────────────────────────────────────
 // `i`: el set fijado al empezar el gesto. El revelado espera 1 s; si en ese rato
 // cambiabas de set, se volteaba el nuevo en vez del que pediste.
+/** Revelar (u ocultar) un set. Con una cogida en vuelo se espera a que se confirme: el
+ *  servidor retiene la cogida (CONFLICT_WINDOW, 300 ms) y mientras tanto sigues debiendo
+ *  carta, así que un flip_set que llegara entonces lo ignoraba en silencio. Era el «no
+ *  voltea si lo hago rápido»: coger y revelar seguido. */
 export function flipCurrentSet(i = est.currentSetIndex) {
+    if (est.pendingTake) { est.volteoEnEspera = i; return; }
     send({ type: 'flip_set', set_index: i });
 }
 

@@ -44,22 +44,25 @@ struct QtePlayerData {
 /// Ventana para considerar que dos jugadores van a por la misma carta.
 const CONFLICT_WINDOW: Duration = Duration::from_millis(300);
 
-/// Pelea tardía: lo que tarda en pintarse el cambio y en reaccionar el dedo,
-/// encima del ping.
-const MARGEN_VISTA: Duration = Duration::from_millis(80);
-/// El ping que se tiene en cuenta, como mucho: con segundos de retraso no se
-/// puede pelear por una carta que ya es de otro hace rato.
-const PING_TOPE: Duration = Duration::from_millis(600);
+/// Pelea tardía: hasta cuánto después de que otro la cogiera se pelea por ella.
+/// Es el seguro del cliente para dar una jugada por perdida (PENDING_MAX_MS, 2,5 s)
+/// y un poco más: pasado eso la petición es vieja, no un toque de alguien que
+/// aún la veía.
+const VISTA_MAX: Duration = Duration::from_millis(3000);
 
 /// ¿Pudo ver quien pide la carta que otro ya se la había llevado?
 ///
-/// El servidor dio la carta a otro hace `desde`. Ese cambio le llega a quien
-/// pide a la mitad de su ping, y su toque salió la otra mitad antes de llegar
-/// aquí: no pudo verlo si `desde` < su ida y vuelta. Entonces los dos la vieron
-/// libre y los dos creen que es suya: no hay ganador claro, hay pelea.
-fn no_pudo_verlo(rtt_ms: Option<u32>, desde: Duration) -> bool {
-    let ping = Duration::from_millis(rtt_ms.unwrap_or(0) as u64).min(PING_TOPE);
-    desde < ping + MARGEN_VISTA
+/// No: el cliente quita la carta del centro en cuanto sabe que otro la cogió,
+/// así que si la toca es que en SU pantalla seguía libre. Al principio se medía
+/// con su ping (rtt + 80 ms), pero los pings que dice el cliente se quedan cortos
+/// y salían «robos»: los dos la habían visto suya y uno la perdía sin pelear.
+/// El usuario lo pidió claro: si los dos la tocaron libre, pelea. Siempre.
+///
+/// Los bots no tienen pantalla: ven el estado al momento, y para ellos la ventana
+/// es solo lo que tarda su jugada en llegar (80 ms); si no, cada carta que un bot
+/// pide tarde acabaría en pelea.
+fn no_pudo_verlo(es_bot: bool, desde: Duration) -> bool {
+    desde < if es_bot { Duration::from_millis(80) } else { VISTA_MAX }
 }
 
 /// Cada cuánto se mira si una conexión lleva demasiado callada.
@@ -1601,9 +1604,10 @@ pub(crate) async fn handle_client_message(
                 if !game_state.center_cards.iter().any(|c| c.id == card_id) {
                     // Se la llevó otro antes de que pudieras verlo: los dos la visteis
                     // libre, así que es una pelea y no una carta perdida.
+                    let es_bot = lobby.players.iter().any(|p| p.id == player_id && p.is_bot);
                     let tardia = game_state.players.iter()
                         .find(|p| p.id == player_id && p.owes_card())
-                        .and_then(|p| pelea_tardia_rival(&state, &lobby_id, card_id, player_id, game_state)
+                        .and_then(|p| pelea_tardia_rival(&state, &lobby_id, card_id, player_id, es_bot, game_state)
                             .map(|r| (p.nickname.clone(), r)));
                     if let Some((yo, (rival, rival_nick, desde_ms))) = tardia {
                         pelea_tardia(&state, &lobby_id, card_id,
@@ -2288,6 +2292,7 @@ fn pelea_tardia_rival(
     lobby_id: &str,
     card_id: u32,
     me: Uuid,
+    es_bot: bool,
     gs: &crate::game::models::GameState,
 ) -> Option<(Uuid, String, u64)> {
     let (by, at, de_pelea) = state.recent_takes.lock().ok()?.quien(lobby_id, card_id)?;
@@ -2295,8 +2300,7 @@ fn pelea_tardia_rival(
         return None;
     }
     let desde = at.elapsed();
-    let rtt = state.rtts.lock().ok().and_then(|m| m.get(&me).copied());
-    if !no_pudo_verlo(rtt, desde) {
+    if !no_pudo_verlo(es_bot, desde) {
         return None;
     }
     let dueno = gs.players.iter().find(|p| p.id == by)?;
@@ -3619,17 +3623,16 @@ mod pending_take_tests {
 
     // «Ya la tenía»: si la carta se fue antes de que pudieras verlo, es pelea.
     #[test]
-    fn no_pudo_verlo_depende_de_su_ping() {
+    fn no_pudo_verlo_si_aun_la_tocaba_libre() {
         let ms = Duration::from_millis;
-        // Ping 180 ms: hasta 260 ms (180 + 80 de margen) no pudo verlo.
-        assert!(no_pudo_verlo(Some(180), ms(100)));
-        assert!(no_pudo_verlo(Some(180), ms(259)));
-        assert!(!no_pudo_verlo(Some(180), ms(261)), "pasado su ping ya lo veía: la perdió de verdad");
-        // Sin ping medido (un bot), solo el margen.
-        assert!(no_pudo_verlo(None, ms(50)));
-        assert!(!no_pudo_verlo(None, ms(90)));
-        // Con segundos de retraso no se pelea por una carta vieja: tope de 600 ms.
-        assert!(!no_pudo_verlo(Some(3000), ms(700)));
+        // Una persona que la toca es que la veía libre: pelea, sea cual sea su ping.
+        assert!(no_pudo_verlo(false, ms(100)));
+        assert!(no_pudo_verlo(false, ms(1500)), "la veía libre: pelea, no robo");
+        // Pasado el seguro del cliente (2,5 s) la petición es vieja.
+        assert!(!no_pudo_verlo(false, ms(3100)));
+        // Un bot solo en lo que tarda su jugada.
+        assert!(no_pudo_verlo(true, ms(50)));
+        assert!(!no_pudo_verlo(true, ms(90)));
     }
 }
 

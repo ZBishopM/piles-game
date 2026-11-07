@@ -37,6 +37,8 @@ interface Estado {
     pendingDrop: { index: number; set: number; card: CardInfo; t: number } | null;
     /** Cogida por adelantado: la carta ya está pintada en `set`/`slot` de tu mano. */
     pendingTake: { centerIndex: number; card: CardInfo; t: number; set: number; slot: number } | null;
+    /** Revelado pedido con una cogida aún sin confirmar: sale al confirmarse (flipCurrentSet). */
+    volteoEnEspera: number | null;
     qteActive: boolean; qteTimerInterval: Timer | null; qtePlayers: string[];
     qteContestedCard: CardInfo | null; qteMyCardId: number | null; qteContestedIndex: number | null;
     qteWonSlot: { card: CardInfo; index: number | null } | null; qteResultTimer: Timer | null;
@@ -93,6 +95,7 @@ export const est: Estado = {
     // Toques (toques.ts): la carta soltada o cogida que espera respuesta del servidor.
     pendingDrop: null,
     pendingTake: null,
+    volteoEnEspera: null,
 
     // Pelea (QTE)
     qteActive: false,
