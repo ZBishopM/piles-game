@@ -838,6 +838,8 @@ function pintarChat() {
 // Si su Elo cambia (la misma persona), el tambor gira hasta él.
 const dialesMesa = [...document.querySelectorAll<HTMLElement>('.dialMesa')], claveDial = ['', '', '', ''];
 const fotos: (Foto | null)[] = [null, null, null, null];   // la foto de cada dial asentado (con WebGL)
+/** Cuándo se asienta cada dial, y si ya se pidió su foto (el pincel WebGL puede llegar después). */
+const asentado: Promise<unknown>[] = [], pedida = [false, false, false, false];
 // Un dial que tocaría algo del menú, o se saldría de la pantalla, se esconde: la interfaz manda.
 const OCUPA = '#escenario .pieza:not(.oculta), #cartas > .carta, #estado, #titulo, #nombre, #campo.abierto';
 function chocaDial(b: { left: number; right: number; top: number; bottom: number }, ocupado: DOMRect[]) {
@@ -868,11 +870,14 @@ function moverDiales(ahora: number) {
             const [antesQuien, antesV] = claveDial[p].split('|');
             const antes = antesQuien === quien ? Number(antesV) : e.v;
             claveDial[p] = k;
-            fotos[p] = null; el.style.display = '';
-            const listo = agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
-            // Con WebGL, el dial asentado pasa a la escena (mesa/dialesLienzo.ts): se fotografía una
-            // vez y el HTML se esconde. Mientras gira, se ve el HTML.
-            if (enLienzo) Promise.resolve(listo).then(() => document.fonts.ready).then(() => {
+            fotos[p] = null; pedida[p] = false; el.style.display = '';
+            asentado[p] = Promise.resolve(agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 }));
+        }
+        // Con WebGL, el dial asentado pasa a la escena (mesa/dialesLienzo.ts): se fotografía una
+        // vez y el HTML se esconde. Mientras gira, se ve el HTML.
+        if (enLienzo && !pedida[p]) {
+            pedida[p] = true;
+            asentado[p].then(() => document.fonts.ready).then(() => {
                 if (claveDial[p] !== k) return;
                 const r = typeof agRank === 'function' ? agRank(e.v, { pool: e.pool, top3: !!e.top3 }) : null;
                 return fotografiar(el, k, r?.index ?? null, Math.min(3, devicePixelRatio * 1.5));

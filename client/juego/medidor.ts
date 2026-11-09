@@ -31,7 +31,8 @@ function cuadro(ahora: number) {
         medida.lentos = tiempos.filter(t => t > 20).length;
         medida.ping = est.lastRtt ?? null;
         if (caja) caja.textContent = `${medida.fps} FPS · p95 ${medida.p95.toFixed(1)} ms · peor ${Math.round(medida.peor)} ms · lentos ${medida.lentos}/${tiempos.length}\n`
-            + `ping ${medida.ping ?? '—'} ms · ${innerWidth}×${innerHeight} @${devicePixelRatio}x`;
+            + `ping ${medida.ping ?? '—'} ms · ${innerWidth}×${innerHeight} @${devicePixelRatio}x`
+            + ` · ${document.getElementById('juego')?.dataset.pincel === 'pixi' ? 'WebGL' : '2D'}`;
     }
     rafId = requestAnimationFrame(cuadro);
 }

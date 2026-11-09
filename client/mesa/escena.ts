@@ -720,14 +720,14 @@ export const escena = (() => {
         document.body.classList.toggle('lienzo-gl', p.nombre === 'pixi');   // la viñeta, dentro del lienzo
         medir();
     }
-    // ?lienzo=pixi (o localStorage['piles.lienzo'] = 'pixi'): la escena con PixiJS sobre WebGL. Si no
-    // arranca, o el navegador pierde el contexto WebGL, vuelve a Canvas2D sin cortes.
+    // La escena va con PixiJS sobre WebGL. Si no arranca, o el navegador pierde el contexto WebGL,
+    // vuelve a Canvas2D sin cortes. A mano: ?lienzo=2d (o localStorage['piles.lienzo'] = '2d').
     // Para las pruebas (tools/browser/pincel-prueba.mjs): los dos pinceles sobre el mismo dibujo
     (window as unknown as { __pinceles: unknown }).__pinceles = { pincel2d, pincelPixi };
     let pide: string | null = null;
     try { pide = new URLSearchParams(location.search).get('lienzo') ?? localStorage.getItem('piles.lienzo'); } catch { /* */ }
     cv.dataset.pincel = '2d';
-    if (pide === 'pixi') {
+    if (pide !== '2d') {
         const nuevo = document.createElement('canvas');
         pincelPixi(nuevo, cv.width || innerWidth, cv.height || innerHeight, () => {
             console.warn('[escena] WebGL perdido: vuelvo a Canvas2D');
