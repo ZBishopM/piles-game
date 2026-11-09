@@ -555,7 +555,10 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
         mano.classList.add('en-tabla');
         // El recorrido que queda hasta el borde de abajo: un tercio para hacerse tabla, el resto gira
         const queda = innerHeight - s.y - 12, entra = lim(queda * .3, 20, 60);
-        tablas = { capa, els, rev: est.myFlippedSets.slice(), w, k0: r.width / w, cur: est.currentSetIndex, sel: est.currentSetIndex,
+        // k0: la tabla empieza (y acaba) del tamaño de tu mano. En PC la mano es mucho más ancha
+        // que la tabla y ese zoom de entrada y de salida era enorme: allí se queda en un 20 %.
+        const k0 = r.width / w, pc = matchMedia('(pointer: fine)').matches;
+        tablas = { capa, els, rev: est.myFlippedSets.slice(), w, k0: pc ? 1 + (k0 - 1) * 0.2 : k0, cur: est.currentSetIndex, sel: est.currentSetIndex,
             e: 0, f: 0, ox: 0, entra, giro: Math.max(50, queda - entra), fija: owesCard(), hecho: false };
         zumba(8);
     }

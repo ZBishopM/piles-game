@@ -16,6 +16,7 @@ import * as toques from './toques.js';
 import * as pelea from './pelea.js';
 import * as verificacion from './verificacion.js';
 import * as cuenta from './cuenta.js';
+import * as medidor from './medidor.js';   // FPS y ping secretos: º / tres dedos
 import '../mesa/mesa.js';
 import '../partida/partida.js';
 
@@ -34,7 +35,7 @@ for (const b of document.querySelectorAll<HTMLElement>('[data-accion]')) {
 }
 
 // Para las pruebas (tools/browser) y la consola: juego.handleMsg(...), juego.est.centerCards…
-const modulos: Record<string | symbol, unknown>[] = [bus, estado, red, sala, espectador, tablero, sonido, burlas, musica, toques, pelea, verificacion, cuenta];
+const modulos: Record<string | symbol, unknown>[] = [bus, estado, red, sala, espectador, tablero, sonido, burlas, musica, toques, pelea, verificacion, cuenta, medidor];
 window.juego = new Proxy({}, {
     get: (_, k) => modulos.find(m => k in m)?.[k],
     has: (_, k) => modulos.some(m => k in m),

@@ -842,13 +842,20 @@ function chocaDial(b: { left: number; right: number; top: number; bottom: number
     if (b.left < SEP || b.top < SEP || b.right > W() - SEP || b.bottom > H() - SEP) return true;
     return ocupado.some(o => b.left < o.right + SEP && b.right > o.left - SEP && b.top < o.bottom + SEP && b.bottom > o.top - SEP);
 }
-function moverDiales() {
+// Lo que tapa los diales y su tamaño se mide 4 veces por segundo, no en cada cuadro: leer el
+// layout (getComputedStyle, getBoundingClientRect, offsetWidth) a 60–165 Hz obligaba al
+// navegador a recalcular estilos en cada cuadro del menú (medido: ~100 ms de estilo por segundo).
+let ocupado: DOMRect[] = [], tam: number[][] = [], medidoEn = 0;
+function moverDiales(ahora: number) {
     requestAnimationFrame(moverDiales);
     if (document.body.classList.contains('en-partida') || typeof agDial !== 'function') return;
-    const ocupado = [...document.querySelectorAll<HTMLElement>(OCUPA)]
-        .filter(e => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3)
-        .map(e => e.getBoundingClientRect());
-    const tam = dialesMesa.map(el => [el.offsetWidth, el.offsetHeight]);   // todas las lecturas antes de escribir
+    if (ahora - medidoEn > 250) {
+        medidoEn = ahora;
+        ocupado = [...document.querySelectorAll<HTMLElement>(OCUPA)]
+            .filter(e => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3)
+            .map(e => e.getBoundingClientRect());
+        tam = dialesMesa.map(el => [el.offsetWidth, el.offsetHeight]);   // todas las lecturas antes de escribir
+    }
     X.anclas.forEach((a, p) => {
         const el = dialesMesa[p], e = X.elo?.[p];
         if (!a.ok || !e) { el.style.opacity = '0'; return; }

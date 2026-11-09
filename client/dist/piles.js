@@ -3062,7 +3062,7 @@
           writeSeat({ lobby: est.currentLobbyId, token: est.seatToken, seen: Date.now() });
         }
         const enPartida = document.getElementById("gameScreen")?.classList.contains("active");
-        if (!enPartida && Date.now() - est.lastPingAt < 25e3) return;
+        if (!enPartida && !document.getElementById("medidor") && Date.now() - est.lastPingAt < 25e3) return;
         est.lastPingAt = Date.now();
         est.pingSentAt = performance.now();
         if (!est.pendingPongSince) est.pendingPongSince = Date.now();
@@ -3299,6 +3299,88 @@
     return PilesI18n.has(key) ? t(key, msg.args || {}) : fallback;
   }
 
+  // ../client/juego/medidor.ts
+  var medidor_exports = {};
+  __export(medidor_exports, {
+    medida: () => medida,
+    mostrarMedidor: () => mostrarMedidor
+  });
+  var CLAVE = "piles.medidor";
+  var caja = null;
+  var rafId = 0;
+  var tiempos = [];
+  var anterior = 0;
+  var ultimoPintado = 0;
+  var medida = { fps: 0, p95: 0, peor: 0, lentos: 0, ping: null };
+  function cuadro(ahora) {
+    if (anterior) {
+      tiempos.push(ahora - anterior);
+      if (tiempos.length > 120) tiempos.shift();
+    }
+    anterior = ahora;
+    if (ahora - ultimoPintado > 500 && tiempos.length > 10) {
+      ultimoPintado = ahora;
+      const orden = [...tiempos].sort((a, b) => a - b), media = tiempos.reduce((s, t2) => s + t2, 0) / tiempos.length;
+      medida.fps = Math.round(1e3 / media);
+      medida.p95 = orden[Math.floor(orden.length * 0.95)];
+      medida.peor = orden[orden.length - 1];
+      medida.lentos = tiempos.filter((t2) => t2 > 20).length;
+      medida.ping = est.lastRtt ?? null;
+      if (caja) caja.textContent = `${medida.fps} FPS \xB7 p95 ${medida.p95.toFixed(1)} ms \xB7 peor ${Math.round(medida.peor)} ms \xB7 lentos ${medida.lentos}/${tiempos.length}
+ping ${medida.ping ?? "\u2014"} ms \xB7 ${innerWidth}\xD7${innerHeight} @${devicePixelRatio}x`;
+    }
+    rafId = requestAnimationFrame(cuadro);
+  }
+  function mostrarMedidor(si) {
+    try {
+      localStorage.setItem(CLAVE, si ? "1" : "");
+    } catch {
+    }
+    if (!si) {
+      cancelAnimationFrame(rafId);
+      rafId = 0;
+      caja?.remove();
+      caja = null;
+      return;
+    }
+    if (caja) return;
+    caja = document.createElement("div");
+    caja.id = "medidor";
+    Object.assign(caja.style, {
+      position: "fixed",
+      top: "max(4px, env(safe-area-inset-top))",
+      left: "50%",
+      translate: "-50% 0",
+      zIndex: "1000",
+      pointerEvents: "none",
+      whiteSpace: "pre",
+      font: "700 11px/1.3 ui-monospace, monospace",
+      color: "#e9e4d2",
+      background: "rgb(6 6 6 / 82%)",
+      padding: "3px 7px",
+      textAlign: "center"
+    });
+    caja.textContent = "midiendo\u2026";
+    document.body.append(caja);
+    tiempos.length = 0;
+    anterior = 0;
+    rafId = requestAnimationFrame(cuadro);
+  }
+  var cambiar = () => mostrarMedidor(!caja);
+  addEventListener("keydown", (e) => {
+    if (e.code !== "Backquote" || e.repeat) return;
+    const t2 = e.target;
+    if (t2 && (t2.tagName === "INPUT" || t2.tagName === "TEXTAREA" || t2.isContentEditable)) return;
+    cambiar();
+  });
+  addEventListener("touchstart", (e) => {
+    if (e.touches.length === 3) cambiar();
+  }, { passive: true });
+  try {
+    if (localStorage.getItem(CLAVE)) mostrarMedidor(true);
+  } catch {
+  }
+
   // ../client/mesa/dic.ts
   var DIC = {
     "Partida r\xE1pida": ["Quick match", "\u5FEB\u901F\u5339\u914D"],
@@ -3510,6 +3592,7 @@
   // ../client/mesa/escena.ts
   var escena = (() => {
     const cv = porId("juego"), g = cv.getContext("2d");
+    let DPR = devicePixelRatio;
     const DIS = { x: -0.86, z: 0.66 };
     const CAMS0 = {
       // yaw/pitch/roll en rad, distancia, centro en pantalla (0..1), punto al que mira (mx, mz)
@@ -3606,7 +3689,7 @@
       g.fill();
       if (borde2) {
         g.strokeStyle = borde2;
-        g.lineWidth = 1.2 * devicePixelRatio;
+        g.lineWidth = 1.2 * DPR;
         g.stroke();
       }
     }
@@ -3619,7 +3702,7 @@
       const e = gana >= 0 ? reloj - gana : -1;
       g.save();
       if (e > 0.15 && e < 0.7) {
-        const a = 18 * devicePixelRatio * (1 - suave2(0.15, 0.7, e));
+        const a = 18 * DPR * (1 - suave2(0.15, 0.7, e));
         g.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
       }
       const mesas = [{ x: 0, z: 0 }, ...X2.mesas ?? []].map((m) => ({ ...m, d: proy(m.x, 0, m.z)[2] })).sort((a, b) => b.d - a.d);
@@ -3733,7 +3816,7 @@
       }
       if (borde2) {
         g.strokeStyle = borde2;
-        g.lineWidth = ancho2 * devicePixelRatio;
+        g.lineWidth = ancho2 * DPR;
         g.stroke();
       }
     }
@@ -3812,7 +3895,7 @@
       g.fill();
       g.restore();
       g.strokeStyle = "rgba(169,182,137,0.5)";
-      g.lineWidth = 1.2 * devicePixelRatio;
+      g.lineWidth = 1.2 * DPR;
       g.beginPath();
       g.moveTo(cuerda[0], cuerda[1]);
       g.lineTo(L[0], L[1]);
@@ -3868,7 +3951,7 @@
       }
       const zz = -h + (reloj - V.t0) * 0.5 % 1 * 2 * h, a = proy(-h, 0.03, zz), b = proy(h, 0.03, zz);
       g.strokeStyle = "rgba(169,182,137,0.9)";
-      g.lineWidth = 3 * devicePixelRatio;
+      g.lineWidth = 3 * DPR;
       g.shadowColor = "#a9b689";
       g.shadowBlur = 14;
       g.beginPath();
@@ -3916,7 +3999,7 @@
           i ? g.lineTo(x, y) : g.moveTo(x, y);
         }
         g.strokeStyle = "rgba(0, 0, 0, 0.9)";
-        g.lineWidth = 3 * devicePixelRatio;
+        g.lineWidth = 3 * DPR;
         g.stroke();
       }
       const grad = g.createRadialGradient(c0[0], c0[1], 0, c0[0], c0[1], cv.height * 0.5);
@@ -3931,7 +4014,7 @@
       g.fillStyle = grad;
       g.fill();
       g.strokeStyle = "rgba(169, 182, 137, 0.55)";
-      g.lineWidth = 2 * devicePixelRatio;
+      g.lineWidth = 2 * DPR;
       g.stroke();
       let n = 5;
       for (const a of ACC) {
@@ -3956,8 +4039,8 @@
         ASIENTOS.forEach((a, p) => {
           const cu = base(a, p), { fw } = ejes(a), q = proy(cu.x + fw[0] * 0.55, 0.12, cu.z + fw[1] * 0.55);
           X2.anclas[p] = {
-            x: q[0] / devicePixelRatio,
-            y: q[1] / devicePixelRatio,
+            x: q[0] / DPR,
+            y: q[1] / DPR,
             s: Math.min(1, Math.max(0.35, 2 / q[2])),
             ok: q[2] > 0.4 && cam.pitch < 1.2 && X2.ocupados[p] && X2.apagon < 0.5
           };
@@ -4010,7 +4093,7 @@
       g.lineCap = "round";
       chispas = chispas.filter((c) => (c.vida -= dt) > 0);
       for (const c of chispas) {
-        c.vy += 900 * devicePixelRatio * dt * c.peso;
+        c.vy += 900 * DPR * dt * c.peso;
         c.x += c.vx * dt;
         c.y += c.vy * dt;
         c.vx *= 1 - 1.8 * dt;
@@ -4027,7 +4110,7 @@
       for (const r of anillos) {
         const k = 1 - r.vida / r.total;
         g.strokeStyle = `rgba(169, 182, 137, ${(1 - k) * 0.9})`;
-        g.lineWidth = (10 - 8 * k) * devicePixelRatio;
+        g.lineWidth = (10 - 8 * k) * DPR;
         g.beginPath();
         g.ellipse(r.x, r.y, r.radio * k, r.radio * k * 0.55, 0, 0, Math.PI * 2);
         g.stroke();
@@ -4035,17 +4118,17 @@
       g.restore();
     }
     function chispa(x, y, fuerza, peso = 1) {
-      const an = Math.random() * Math.PI * 2, v = fuerza * (0.3 + Math.random()) * devicePixelRatio;
+      const an = Math.random() * Math.PI * 2, v = fuerza * (0.3 + Math.random()) * DPR;
       const vida = 0.4 + Math.random() * 0.7;
       chispas.push({
         x,
         y,
         vx: Math.cos(an) * v,
-        vy: Math.sin(an) * v - fuerza * 0.4 * devicePixelRatio,
+        vy: Math.sin(an) * v - fuerza * 0.4 * DPR,
         vida,
         total: vida,
         peso,
-        ancho: (1.5 + Math.random() * 3) * devicePixelRatio,
+        ancho: (1.5 + Math.random() * 3) * DPR,
         color: Math.random() < 0.45 ? "rgba(232, 64, 42, A)" : Math.random() < 0.6 ? "rgba(169, 182, 137, A)" : "rgba(233, 230, 218, A)"
       });
     }
@@ -4134,7 +4217,7 @@
       }
       g.rotate((1 - u) ** 2 * Math.PI * 5 - cam.roll);
       g.shadowColor = ROJO;
-      g.shadowBlur = (10 + 40 * u) * devicePixelRatio;
+      g.shadowBlur = (10 + 40 * u) * DPR;
       g.fillStyle = "#e9e6da";
       g.beginPath();
       g.moveTo(-w / 2 + w * 0.04, -h / 2);
@@ -4200,7 +4283,7 @@
       g.rotate(-cam.roll + 0.03 * Math.sin(vivo * 0.55) + 0.05 * alcance * haciaMesa + 0.18 * bu * Math.sin(reloj * 24));
       g.scale(voltea ? -1 : 1, 1 + 0.014 * Math.sin(vivo * 1.6));
       const rojo = principal && (p === X2.tu || p === X2.marca) && c[2] > 1;
-      const r = (rojo ? 3.5 : 1.5) * devicePixelRatio, alfa = g.globalAlpha;
+      const r = (rojo ? 3.5 : 1.5) * DPR, alfa = g.globalAlpha;
       g.globalAlpha = (rojo ? 1 : 0.6) * alfa;
       g.drawImage(rojo ? bordeRojo ?? borde : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
       g.globalAlpha = alfa;
@@ -4227,13 +4310,13 @@
       }
       if (!principal) return;
       const tx = proy(cu.x, 1.1, cu.z);
-      g.font = `800 ${Math.max(11 * devicePixelRatio, Math.min(16 * devicePixelRatio, hpx * 0.06))}px Geist, sans-serif`;
+      g.font = `800 ${Math.max(11 * DPR, Math.min(16 * DPR, hpx * 0.06))}px Geist, sans-serif`;
       g.textAlign = "center";
       g.fillStyle = p === X2.tu ? ROJO : "rgba(169, 182, 137, 0.9)";
       g.fillText(X2.nombres ? X2.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
     }
     let antes = 0, asomo = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
-    function cuadro(ms) {
+    function cuadro2(ms) {
       const dt = Math.min(0.05, (ms - antes) / 1e3 || 0);
       antes = ms;
       vel += (velMeta - vel) * Math.min(1, dt * 2.5);
@@ -4251,25 +4334,26 @@
       reloj = ms / 1e3;
       const cl = document.body.classList;
       if (!cl.contains("en-partida") || cl.contains("entrando")) dibujar(dt);
-      requestAnimationFrame(cuadro);
+      requestAnimationFrame(cuadro2);
     }
     function medir() {
-      cv.width = innerWidth * devicePixelRatio;
-      cv.height = innerHeight * devicePixelRatio;
+      DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight)));
+      cv.width = Math.round(innerWidth * DPR);
+      cv.height = Math.round(innerHeight * DPR);
     }
     addEventListener("resize", medir);
     medir();
-    requestAnimationFrame(cuadro);
+    requestAnimationFrame(cuadro2);
     let prof = 0;
     function aPantalla(x, z) {
       const ahora = cam;
       cam = meta;
       preparar();
       const [sx, sy, d] = proy(x, 0.012, z);
-      const s2 = Math.min(1.3, Math.max(0.05, 2 * CW_M * foco / d / devicePixelRatio / 128));
+      const s2 = Math.min(1.3, Math.max(0.05, 2 * CW_M * foco / d / DPR / 128));
       cam = ahora;
       preparar();
-      return { x: sx / devicePixelRatio, y: sy / devicePixelRatio, s: s2 };
+      return { x: sx / DPR, y: sy / DPR, s: s2 };
     }
     return {
       /** Dónde está el centro de la mesa en pantalla, y a qué escala se ve allí una carta. */
@@ -4622,9 +4706,9 @@
     c.classList.remove("respira");
     c.style.transition = "";
     mano.splice(sel, 1);
-    cambiar(o.ir, c, o);
+    cambiar2(o.ir, c, o);
   }
-  function cambiar(destino, jugada, o = {}, lobby = true) {
+  function cambiar2(destino, jugada, o = {}, lobby = true) {
     const b = porId("barrido");
     b.classList.remove("pasa");
     void b.offsetWidth;
@@ -4653,7 +4737,7 @@
     const t0 = hacerCarta({ nombre: titulo });
     zona.append(t0);
     pon(t0, pilaX(), pilaY(), 0, 0.8);
-    setTimeout(() => cambiar(destino, t0, o, lobby), 30);
+    setTimeout(() => cambiar2(destino, t0, o, lobby), 30);
   }
   var historial = [];
   function volver() {
@@ -5231,7 +5315,7 @@
   }
   var PZ = ["p1", "p2", "p3"].map((id) => porId(id));
   var DIFS = { F\u00E1cil: "easy", Normal: "normal", Dif\u00EDcil: "hard" };
-  function caja(el2, x, y, w, h, html, clave) {
+  function caja2(el2, x, y, w, h, html, clave) {
     el2.classList.remove("oculta");
     Object.assign(el2.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
     if (el2.dataset.k !== clave) {
@@ -5286,7 +5370,7 @@
     const usadas = /* @__PURE__ */ new Set();
     const pon3 = (i, x, y, w2, h, html, clave) => {
       usadas.add(i);
-      return caja(PZ[i], x, y, w2, h, html, clave);
+      return caja2(PZ[i], x, y, w2, h, html, clave);
     };
     if (p === "inicio") {
       pon3(0, M + R.cabw + SEP, FILA2, 44, 40, `<button class="grande" data-act="perfil" aria-label="${T("Perfil")}">${ico("persona")}</button>`, "perfil");
@@ -5407,15 +5491,21 @@
   var dialesMesa = [...document.querySelectorAll(".dialMesa")];
   var claveDial = ["", "", "", ""];
   var OCUPA = "#escenario .pieza:not(.oculta), #cartas > .carta, #estado, #titulo, #nombre, #campo.abierto";
-  function chocaDial(b, ocupado) {
+  function chocaDial(b, ocupado2) {
     if (b.left < SEP || b.top < SEP || b.right > W() - SEP || b.bottom > H() - SEP) return true;
-    return ocupado.some((o) => b.left < o.right + SEP && b.right > o.left - SEP && b.top < o.bottom + SEP && b.bottom > o.top - SEP);
+    return ocupado2.some((o) => b.left < o.right + SEP && b.right > o.left - SEP && b.top < o.bottom + SEP && b.bottom > o.top - SEP);
   }
-  function moverDiales() {
+  var ocupado = [];
+  var tam = [];
+  var medidoEn = 0;
+  function moverDiales(ahora) {
     requestAnimationFrame(moverDiales);
     if (document.body.classList.contains("en-partida") || typeof agDial !== "function") return;
-    const ocupado = [...document.querySelectorAll(OCUPA)].filter((e) => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3).map((e) => e.getBoundingClientRect());
-    const tam = dialesMesa.map((el2) => [el2.offsetWidth, el2.offsetHeight]);
+    if (ahora - medidoEn > 250) {
+      medidoEn = ahora;
+      ocupado = [...document.querySelectorAll(OCUPA)].filter((e) => e.offsetParent !== null && +getComputedStyle(e).opacity > 0.3).map((e) => e.getBoundingClientRect());
+      tam = dialesMesa.map((el2) => [el2.offsetWidth, el2.offsetHeight]);
+    }
     X.anclas.forEach((a, p) => {
       const el2 = dialesMesa[p], e = X.elo?.[p];
       if (!a.ok || !e) {
@@ -5751,10 +5841,10 @@
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
     return e;
   };
-  function guante(capa, color, fila, tam) {
+  function guante(capa, color, fila, tam2) {
     const brazo = el("g");
-    const borde = el("path", { fill: "none", stroke: color, "stroke-width": tam * 0.3, "stroke-linecap": "round" });
-    const tubo = el("path", { fill: "none", stroke: TINTA, "stroke-width": tam * 0.22, "stroke-linecap": "round" });
+    const borde = el("path", { fill: "none", stroke: color, "stroke-width": tam2 * 0.3, "stroke-linecap": "round" });
+    const tubo = el("path", { fill: "none", stroke: TINTA, "stroke-width": tam2 * 0.22, "stroke-linecap": "round" });
     brazo.append(borde, tubo);
     const mano2 = el("g");
     const ventana = el("svg", { width: CELDA, height: CELDA, viewBox: `0 0 ${CELDA} ${CELDA}`, x: -MUNECA[0], y: -MUNECA[1] });
@@ -5763,7 +5853,7 @@
     giro.append(ventana);
     mano2.append(giro);
     capa.append(brazo, mano2);
-    const k = tam * 1.14 / MUNECA_PUNTA;
+    const k = tam2 * 1.14 / MUNECA_PUNTA;
     let actual = "";
     return {
       mano: mano2,
@@ -5803,13 +5893,13 @@
   }
   var tramo = (ms, f) => new Promise((fin) => {
     const t0 = performance.now();
-    const cuadro = (ahora) => {
+    const cuadro2 = (ahora) => {
       const u = Math.min(1, (ahora - t0) / ms);
       f(u);
-      if (u < 1) requestAnimationFrame(cuadro);
+      if (u < 1) requestAnimationFrame(cuadro2);
       else fin();
     };
-    requestAnimationFrame(cuadro);
+    requestAnimationFrame(cuadro2);
   });
   function arrebato(fx, carta, desde, obj, rival, dura = 650, robo = false, final) {
     const W2 = innerWidth, H2 = innerHeight;
@@ -5817,13 +5907,13 @@
     Object.assign(capa.style, { position: "fixed", inset: "0", zIndex: "123", pointerEvents: "none", overflow: "visible" });
     capa.innerHTML = '<defs><filter id="guanteRojo" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  .1 .1 .08 0 0  .06 .06 .05 0 0  0 0 0 1 0"/></filter></defs>';
     fx.append(capa);
-    const tam = Math.min(obj.width * 0.95, 150);
-    const R = guante(capa, "#a9b689", 0, tam), Y = robo ? null : guante(capa, "#e8402a", 1, tam);
+    const tam2 = Math.min(obj.width * 0.95, 150);
+    const R = guante(capa, "#a9b689", 0, tam2), Y = robo ? null : guante(capa, "#e8402a", 1, tam2);
     const cx = obj.left + obj.width / 2, top = obj.top, bot = obj.top + obj.height;
     const hx = desde.left + desde.width / 2, hy = desde.top;
     const ax = rival ? rival.left + rival.width / 2 : cx + W2 * 0.25, ay = rival ? rival.top + rival.height : -40;
     const bx = cx - W2 * 0.1, by = H2 + 60;
-    const g = tam * 0.75;
+    const g = tam2 * 0.75;
     const rv = [
       { t: 0, x: ax, y: ay, rot: 180, sx: 0.8, sy: 0.8, pose: "puntilla1", onda: 0 },
       { t: 0.1, x: ax + (hx - ax) * 0.35, y: ay + (hy - g - ay) * 0.35, rot: 170, sy: 1.1, pose: "puntilla2", onda: 40 },
@@ -5844,9 +5934,9 @@
     const yo = [
       { t: 0, x: bx, y: by + 200, pose: "pistola" },
       { t: 0.42, x: bx, y: by + 200, pose: "pistola" },
-      { t: 0.5, x: cx - tam * 0.2, y: bot + g * 1.3, rot: 18, sx: 0.85, sy: 1.25, pose: "pistola", onda: 30 },
+      { t: 0.5, x: cx - tam2 * 0.2, y: bot + g * 1.3, rot: 18, sx: 0.85, sy: 1.25, pose: "pistola", onda: 30 },
       // ¡quieto!
-      { t: 0.56, x: cx - tam * 0.2, y: bot + g * 1.4, rot: 6, sx: 1.1, sy: 0.9, pose: "pistola", onda: 10 },
+      { t: 0.56, x: cx - tam2 * 0.2, y: bot + g * 1.4, rot: 6, sx: 1.1, sy: 0.9, pose: "pistola", onda: 10 },
       // retroceso
       { t: 0.64, x: cx, y: bot + g * 0.5, rot: 0, sx: 1.25, sy: 0.8, pose: "agarra", onda: -20 },
       // agarra
@@ -5869,7 +5959,7 @@
     carta.style.transition = "none";
     carta.style.transform = `translate(${sx0}px, ${sy0}px) scale(${k0})`;
     return new Promise((fin) => {
-      const cuadro = (ahora) => {
+      const cuadro2 = (ahora) => {
         const t2 = Math.min(1, (ahora - t0) / dura);
         if (robo) {
           const r2 = muestra(robado, t2);
@@ -5877,7 +5967,7 @@
           const u2 = t2 < 0.46 ? 0 : 1;
           const tx2 = u2 ? r2.x - cx : sx0, ty2 = u2 ? r2.y + g * 0.85 + desde.height * 0.4 - (top + obj.height / 2) : sy0;
           carta.style.transform = `translate(${tx2}px, ${ty2}px) rotate(${u2 ? (r2.rot - 180) * 1.5 : 0}deg) scale(${k0})`;
-          if (t2 < 1) requestAnimationFrame(cuadro);
+          if (t2 < 1) requestAnimationFrame(cuadro2);
           else fin();
           return;
         }
@@ -5888,10 +5978,10 @@
         const tir = t2 > 0.44 ? (r.y - (top - g * 0.55)) * 0.6 + (y.y - (bot + g * 0.6)) * 0.4 : 0;
         const tx = sx0 * (1 - u), ty = sy0 * (1 - u) + tir, s = k0 + (1 - k0) * u, gir = t2 > 0.44 ? (r.rot - 180) * 0.8 : 0;
         carta.style.transform = `translate(${tx}px, ${ty}px) rotate(${gir}deg) scale(${s})`;
-        if (t2 < 1) requestAnimationFrame(cuadro);
+        if (t2 < 1) requestAnimationFrame(cuadro2);
         else fin();
       };
-      requestAnimationFrame(cuadro);
+      requestAnimationFrame(cuadro2);
     }).then(async () => {
       if (final && Y) await desenlace(final);
       for (const e of [capa, carta]) e.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).finished.finally(() => e.remove());
@@ -5912,7 +6002,7 @@
     }
     function estrella(x, y) {
       const n = 9, pts = Array.from({ length: n * 2 }, (_, i) => {
-        const a = i * Math.PI / n, rr = (i % 2 ? 0.45 : 1) * tam * 0.55 * (0.85 + 0.3 * (i * 7 % 3) / 2);
+        const a = i * Math.PI / n, rr = (i % 2 ? 0.45 : 1) * tam2 * 0.55 * (0.85 + 0.3 * (i * 7 % 3) / 2);
         return `${(Math.cos(a) * rr).toFixed(1)},${(Math.sin(a) * rr).toFixed(1)}`;
       }).join(" ");
       const e = el("polygon", { points: pts, fill: "#f4f1e6", stroke: TINTA, "stroke-width": 4, "stroke-linejoin": "round" });
@@ -5929,7 +6019,7 @@
       let r = r0, y = y0;
       const t1 = performance.now();
       await new Promise((listo) => {
-        const cuadro = (ahora) => {
+        const cuadro2 = (ahora) => {
           const s = (ahora - t1) / 1e3, w = Math.sin(s * Math.PI * 4.4), w2 = Math.sin(s * Math.PI * 6.2 + 1);
           r = { ...r0, y: r0.y - w * g * 0.16, rot: 180 + w2 * 6, sx: 1 + w * 0.08, sy: 1 - w * 0.08, onda: w * 40 };
           y = { ...y0, y: y0.y - w * g * 0.12, rot: -w2 * 5, sx: 1 - w * 0.08, sy: 1 + w * 0.1, onda: -w * 30 };
@@ -5937,21 +6027,21 @@
           ponY(y);
           ponCarta(r, y);
           if (llego) listo();
-          else requestAnimationFrame(cuadro);
+          else requestAnimationFrame(cuadro2);
         };
-        requestAnimationFrame(cuadro);
+        requestAnimationFrame(cuadro2);
       });
       if (!res) return;
       const { gano, aturdido } = res;
       const cy0 = top + obj.height / 2;
       const golpea = gano ? y : r, recibe = gano ? r : y, ponG = gano ? ponY : ponR, ponV = gano ? ponR : ponY;
       const lado = gano ? 1 : -1;
-      const carga = { x: golpea.x + lado * tam * 0.9, y: golpea.y + (gano ? g * 0.5 : -g * 0.4), rot: (gano ? 0 : 180) - lado * 45, sx: 0.85, sy: 1.3, pose: "abierta", onda: lado * 50 };
+      const carga = { x: golpea.x + lado * tam2 * 0.9, y: golpea.y + (gano ? g * 0.5 : -g * 0.4), rot: (gano ? 0 : 180) - lado * 45, sx: 0.85, sy: 1.3, pose: "abierta", onda: lado * 50 };
       await tramo(200, (u) => {
         ponG(entre(golpea, carga, suave(u)));
         ponV(entre(recibe, { sy: 1.1 }, u));
       });
-      const pega = { x: recibe.x - lado * tam * 0.15, y: recibe.y + (gano ? g * 0.1 : -g * 0.1), rot: (gano ? 0 : 180) + lado * 60, sx: 1.35, sy: 0.75, pose: "abierta", onda: -lado * 30 };
+      const pega = { x: recibe.x - lado * tam2 * 0.15, y: recibe.y + (gano ? g * 0.1 : -g * 0.1), rot: (gano ? 0 : 180) + lado * 60, sx: 1.35, sy: 0.75, pose: "abierta", onda: -lado * 30 };
       const desdeG = entre(golpea, carga, 1);
       await tramo(80, (u) => ponG(entre(desdeG, pega, u)));
       estrella(recibe.x, recibe.y + (gano ? g * 0.35 : -g * 0.35));
@@ -5962,7 +6052,7 @@
       const tocada = { ...recibe, pose: "tensa" };
       if (gano) {
         const vuela = { x: ax, y: ay - g, rot: 180 + 220, sx: 0.7, sy: 1.4, pose: "tensa", onda: 80 };
-        const vuelve2 = { x: cx - tam * 0.75, y: bot + g * 0.75, rot: 90, sx: 1, sy: 1, pose: "like", onda: 0 };
+        const vuelve2 = { x: cx - tam2 * 0.75, y: bot + g * 0.75, rot: 90, sx: 1, sy: 1, pose: "like", onda: 0 };
         await tramo(380, (u) => {
           const q = suave(u);
           ponV(entre(tocada, vuela, q));
@@ -5973,7 +6063,7 @@
         return;
       }
       Y.rojo(true);
-      const ret = { x: cx - tam * 0.2, y: H2 - g * 0.35, rot: 12, sx: 1, sy: 1, pose: "tensa", onda: 0 };
+      const ret = { x: cx - tam2 * 0.2, y: H2 - g * 0.35, rot: 12, sx: 1, sy: 1, pose: "tensa", onda: 0 };
       const llevaR = { x: ax, y: ay - g, rot: 180, sx: 0.9, sy: 1.2, pose: "agarra", onda: -40 };
       await tramo(300, (u) => {
         const q = suave(u);
@@ -5989,7 +6079,7 @@
         const s = u * Math.max(400, aturdido - 580) / 1e3, lat = Math.abs(Math.sin(s * P / 0.32));
         const k = 1 + 0.16 * lat;
         ponV({ ...ret, sx: k, sy: k * (1 - 0.05 * lat), rot: 12 + Math.sin(s * 40) * 2 });
-        const R0 = tam * 0.75 * k, R1 = R0 + tam * 0.22 * lat, mx = ret.x, my = ret.y - tam * 0.5;
+        const R0 = tam2 * 0.75 * k, R1 = R0 + tam2 * 0.22 * lat, mx = ret.x, my = ret.y - tam2 * 0.5;
         rayas.setAttribute("d", [-0.9, -0.3, 0.3, 0.9].map((a) => `M${mx + Math.sin(a) * R0} ${my - Math.cos(a) * R0} L${mx + Math.sin(a) * R1} ${my - Math.cos(a) * R1}`).join(" "));
         rayas.setAttribute("opacity", String(0.3 + 0.7 * lat));
       });
@@ -6288,7 +6378,7 @@
     al("onFrenzyFired", barrer);
     al("updateFrenzyBtn", (ready) => tablero.classList.toggle("frenesi", !!ready));
     const PROP = 10361 / 16e3, HUECO = 12, MAX = 190;
-    let casillas = 0, medida = "";
+    let casillas = 0, medida2 = "";
     function encajarCentro(forzar = false) {
       const fila = document.getElementById("centerCards");
       if (!fila || !tablero.classList.contains("active")) return;
@@ -6297,8 +6387,8 @@
       const alto = fila.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
       if (ancho2 <= 0 || alto <= 0) return;
       const ahora = `${ancho2}x${alto}`;
-      if (!forzar && ahora === medida && n <= casillas) return;
-      medida = ahora;
+      if (!forzar && ahora === medida2 && n <= casillas) return;
+      medida2 = ahora;
       const objetivo = n + 2;
       let mejor = 0, cols = 1;
       for (let c = 1; c <= objetivo; c++) {
@@ -6611,12 +6701,13 @@
       porId("gameScreen").append(capa2);
       mano2.classList.add("en-tabla");
       const queda = innerHeight - s.y - 12, entra = lim(queda * 0.3, 20, 60);
+      const k0 = r.width / w, pc = matchMedia("(pointer: fine)").matches;
       tablas = {
         capa: capa2,
         els,
         rev: est.myFlippedSets.slice(),
         w,
-        k0: r.width / w,
+        k0: pc ? 1 + (k0 - 1) * 0.2 : k0,
         cur: est.currentSetIndex,
         sel: est.currentSetIndex,
         e: 0,
@@ -6681,15 +6772,15 @@
         T2.cur = T2.sel;
       }
       const desde = { e: T2.e, f: T2.f, ox: T2.ox }, hasta = { e: 0, f: T2.hecho ? 1 : 0, ox: 0 }, t0 = performance.now();
-      const cuadro = (now) => {
+      const cuadro2 = (now) => {
         const p = Math.min(1, (now - t0) / 280), q = 1 - (1 - p) ** 3;
         for (const k of ["e", "f", "ox"]) T2[k] = desde[k] + (hasta[k] - desde[k]) * q;
         pintarTablas(T2);
-        if (p < 1) return requestAnimationFrame(cuadro);
+        if (p < 1) return requestAnimationFrame(cuadro2);
         T2.capa.remove();
         document.getElementById("yourCards")?.classList.remove("en-tabla");
       };
-      requestAnimationFrame(cuadro);
+      requestAnimationFrame(cuadro2);
     }
     al("antesDeMensaje", (msg) => {
       const m = msg?.type === "game_update" ? msg.moved : null;
@@ -6741,10 +6832,10 @@
     }
     const verifs = /* @__PURE__ */ new Map();
     const capa = document.getElementById("verifyOverlay");
-    const caja2 = capa?.querySelector(".verify-box");
+    const caja3 = capa?.querySelector(".verify-box");
     const columnas = document.createElement("div");
     columnas.className = "vcols";
-    caja2?.insertBefore(columnas, document.getElementById("verifyFooter"));
+    caja3?.insertBefore(columnas, document.getElementById("verifyFooter"));
     const abierta = () => capa?.classList.contains("active");
     const colDe = (nick) => [...columnas.children].find((c) => c.dataset.nick === nick);
     const quieto = () => REDUCED_MOTION?.matches;
@@ -6851,7 +6942,7 @@
         const r1 = x.getBoundingClientRect();
         x.animate([{ translate: `${r0.left - r1.left}px ${r0.top - r1.top}px` }, { translate: "0 0" }], { duration: 380, delay: 140, easing: "cubic-bezier(.2, 1.3, .4, 1)", fill: "backwards" });
       }
-      const r = c.getBoundingClientRect(), b = caja2.getBoundingClientRect();
+      const r = c.getBoundingClientRect(), b = caja3.getBoundingClientRect();
       const vertical = r.top > b.top + 20 && Math.abs(r.left - b.left) < 20;
       const rayo2 = document.createElement("div");
       rayo2.className = "vfx vrayo" + (vertical ? " tumbado" : "");
@@ -6863,7 +6954,7 @@
         { duration: 620, easing: "linear" }
       ).finished.finally(() => rayo2.remove());
       capa.animate([{ backgroundColor: "rgb(233 230 218 / 55%)" }, { backgroundColor: "rgb(6 6 6 / 92%)" }], { duration: 300, delay: 120, fill: "backwards" });
-      caja2.animate([{ translate: "0 0" }, { translate: "-8px 5px" }, { translate: "7px -4px" }, { translate: "-3px 2px" }, { translate: "0 0" }], { duration: 300, delay: 140 });
+      caja3.animate([{ translate: "0 0" }, { translate: "-8px 5px" }, { translate: "7px -4px" }, { translate: "-3px 2px" }, { translate: "0 0" }], { duration: 300, delay: 140 });
       c.animate(
         [{ clipPath: vertical ? "inset(0 0 100% 0)" : "inset(0 0 0 100%)", opacity: 0.4 }, { clipPath: "inset(0 0 0 0)", opacity: 1 }],
         { duration: 360, delay: 160, easing: "cubic-bezier(.7, 0, .2, 1)", fill: "backwards" }
@@ -6945,7 +7036,7 @@
   for (const b of document.querySelectorAll("[data-accion]")) {
     b.addEventListener("click", () => acciones[b.dataset.accion]());
   }
-  var modulos = [bus_exports, estado_exports, red_exports, sala_exports, espectador_exports, tablero_exports, sonido_exports, burlas_exports, musica_exports, toques_exports, pelea_exports, verificacion_exports, cuenta_exports];
+  var modulos = [bus_exports, estado_exports, red_exports, sala_exports, espectador_exports, tablero_exports, sonido_exports, burlas_exports, musica_exports, toques_exports, pelea_exports, verificacion_exports, cuenta_exports, medidor_exports];
   window.juego = new Proxy({}, {
     get: (_, k) => modulos.find((m) => k in m)?.[k],
     has: (_, k) => modulos.some((m) => k in m)

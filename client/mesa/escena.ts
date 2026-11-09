@@ -34,6 +34,8 @@ export interface MenuEnEscena {
 
 export const escena = (() => {
     const cv = porId<HTMLCanvasElement>('juego'), g = cv.getContext('2d')!;
+    /** Píxeles del lienzo por px CSS: devicePixelRatio con tope (ver medir). */
+    let DPR = devicePixelRatio;
     // La carta que dos se disputan en «¡A JUGAR!» (entre los asientos 0 y 1)
     const DIS = { x: -0.86, z: 0.66 };   // cerca del borde, entre los dos: se alcanza sin estirar de más
     const CAMS0: Record<string, Omit<Cam, 'my'> & { my?: number }> = {   // yaw/pitch/roll en rad, distancia, centro en pantalla (0..1), punto al que mira (mx, mz)
@@ -123,7 +125,7 @@ export const escena = (() => {
         if (p.some(q => q[2] < 0.08)) return;   // detrás de la cámara
         g.beginPath(); p.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
         g.fillStyle = relleno; g.fill();
-        if (borde) { g.strokeStyle = borde; g.lineWidth = 1.2 * devicePixelRatio; g.stroke(); }
+        if (borde) { g.strokeStyle = borde; g.lineWidth = 1.2 * DPR; g.stroke(); }
     }
 
     function dibujar(dt: number) {
@@ -137,7 +139,7 @@ export const escena = (() => {
         const e = gana >= 0 ? reloj - gana : -1;   // segundos desde que alguien ganó la carta
         g.save();
         if (e > 0.15 && e < 0.7) {   // temblor al arrancarla
-            const a = 18 * devicePixelRatio * (1 - suave(0.15, 0.7, e));
+            const a = 18 * DPR * (1 - suave(0.15, 0.7, e));
             g.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
         }
         // Las mesas, de la más lejana a la más cercana. Las otras (salas de «Unirse») viven en
@@ -208,7 +210,7 @@ export const escena = (() => {
         if (p.some(q => q[2] < 0.08)) return;
         g.beginPath(); p.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath();
         if (relleno) { g.fillStyle = relleno; g.fill(); }
-        if (borde) { g.strokeStyle = borde; g.lineWidth = ancho * devicePixelRatio; g.stroke(); }
+        if (borde) { g.strokeStyle = borde; g.lineWidth = ancho * DPR; g.stroke(); }
     }
     // Dibuja en un plano del mundo: origen o, ejes ex y ey (vectores 3D de largo ancho y alto);
     // fn pinta en coordenadas locales de ancho×alto px.
@@ -268,7 +270,7 @@ export const escena = (() => {
         gl.addColorStop(0, 'rgba(255,250,220,0.95)'); gl.addColorStop(1, 'rgba(255,250,220,0)');
         g.fillStyle = gl; g.beginPath(); g.arc(L[0], L[1], rl, 0, 7); g.fill();
         g.restore();
-        g.strokeStyle = 'rgba(169,182,137,0.5)'; g.lineWidth = 1.2 * devicePixelRatio;
+        g.strokeStyle = 'rgba(169,182,137,0.5)'; g.lineWidth = 1.2 * DPR;
         g.beginPath(); g.moveTo(cuerda[0], cuerda[1]); g.lineTo(L[0], L[1]); g.stroke();
         const sh = 0.09 * foco / L[2];
         g.fillStyle = '#0e0e0e'; g.strokeStyle = '#a9b689';
@@ -305,7 +307,7 @@ export const escena = (() => {
             quad(sx * h, 0.03, sz * (h - 0.1), 0.03, 0.05, 0, '#a9b689', '#0e0e0e');
         }
         const zz = -h + ((reloj - V.t0) * 0.5 % 1) * 2 * h, a = proy(-h, 0.03, zz), b = proy(h, 0.03, zz);
-        g.strokeStyle = 'rgba(169,182,137,0.9)'; g.lineWidth = 3 * devicePixelRatio; g.shadowColor = '#a9b689'; g.shadowBlur = 14;
+        g.strokeStyle = 'rgba(169,182,137,0.9)'; g.lineWidth = 3 * DPR; g.shadowColor = '#a9b689'; g.shadowBlur = 14;
         g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke(); g.shadowBlur = 0;
     }
     // Votos para echar: cada uno lanza una carta hacia el señalado
@@ -336,14 +338,14 @@ export const escena = (() => {
             g.fillStyle = '#070806'; g.fill();
             g.beginPath();
             for (let i = 0; i <= 64; i++) { const [x, y] = aro(-GR, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
-            g.strokeStyle = 'rgba(0, 0, 0, 0.9)'; g.lineWidth = 3 * devicePixelRatio; g.stroke();
+            g.strokeStyle = 'rgba(0, 0, 0, 0.9)'; g.lineWidth = 3 * DPR; g.stroke();
         }
         const grad = g.createRadialGradient(c0[0], c0[1], 0, c0[0], c0[1], cv.height * 0.5);
         grad.addColorStop(0, '#2b3121'); grad.addColorStop(0.6, '#181c13'); grad.addColorStop(1, '#10120d');
         g.beginPath();
         for (let i = 0; i <= 64; i++) { const [x, y] = aro(0, i); i ? g.lineTo(x, y) : g.moveTo(x, y); }
         g.fillStyle = grad; g.fill();
-        g.strokeStyle = 'rgba(169, 182, 137, 0.55)'; g.lineWidth = 2 * devicePixelRatio; g.stroke();
+        g.strokeStyle = 'rgba(169, 182, 137, 0.55)'; g.lineWidth = 2 * DPR; g.stroke();
 
         // Centro: 4 a 6 cartas boca arriba, esparcidas (cuántas, según la altura de la partida)
         let n = 5;
@@ -369,7 +371,7 @@ export const escena = (() => {
             // Dónde va el dial de Elo de cada uno: delante de su pecho, casi pegado a la mesa
             ASIENTOS.forEach((a, p) => {
                 const cu = base(a, p), { fw } = ejes(a), q = proy(cu.x + fw[0] * 0.55, 0.12, cu.z + fw[1] * 0.55);
-                X.anclas[p] = { x: q[0] / devicePixelRatio, y: q[1] / devicePixelRatio, s: Math.min(1.0, Math.max(0.35, 2.0 / q[2])),
+                X.anclas[p] = { x: q[0] / DPR, y: q[1] / DPR, s: Math.min(1.0, Math.max(0.35, 2.0 / q[2])),
                     ok: q[2] > 0.4 && cam.pitch < 1.2 && X.ocupados[p] && X.apagon < 0.5 };
             });
             mosaico(); visor(); votos();
@@ -426,7 +428,7 @@ export const escena = (() => {
         g.lineCap = 'round';
         chispas = chispas.filter(c => (c.vida -= dt) > 0);
         for (const c of chispas) {
-            c.vy += 900 * devicePixelRatio * dt * c.peso;
+            c.vy += 900 * DPR * dt * c.peso;
             c.x += c.vx * dt; c.y += c.vy * dt;
             c.vx *= 1 - 1.8 * dt; c.vy *= 1 - 1.8 * dt;
             const k = c.vida / c.total;
@@ -438,16 +440,16 @@ export const escena = (() => {
         for (const r of anillos) {
             const k = 1 - r.vida / r.total;
             g.strokeStyle = `rgba(169, 182, 137, ${(1 - k) * 0.9})`;
-            g.lineWidth = (10 - 8 * k) * devicePixelRatio;
+            g.lineWidth = (10 - 8 * k) * DPR;
             g.beginPath(); g.ellipse(r.x, r.y, r.radio * k, r.radio * k * 0.55, 0, 0, Math.PI * 2); g.stroke();
         }
         g.restore();
     }
     function chispa(x: number, y: number, fuerza: number, peso = 1) {
-        const an = Math.random() * Math.PI * 2, v = fuerza * (0.3 + Math.random()) * devicePixelRatio;
+        const an = Math.random() * Math.PI * 2, v = fuerza * (0.3 + Math.random()) * DPR;
         const vida = 0.4 + Math.random() * 0.7;
-        chispas.push({ x, y, vx: Math.cos(an) * v, vy: Math.sin(an) * v - fuerza * 0.4 * devicePixelRatio, vida, total: vida, peso,
-            ancho: (1.5 + Math.random() * 3) * devicePixelRatio,
+        chispas.push({ x, y, vx: Math.cos(an) * v, vy: Math.sin(an) * v - fuerza * 0.4 * DPR, vida, total: vida, peso,
+            ancho: (1.5 + Math.random() * 3) * DPR,
             color: Math.random() < 0.45 ? 'rgba(232, 64, 42, A)' : Math.random() < 0.6 ? 'rgba(169, 182, 137, A)' : 'rgba(233, 230, 218, A)' });
     }
 
@@ -541,7 +543,7 @@ export const escena = (() => {
             g.globalCompositeOperation = 'source-over';
         }
         g.rotate((1 - u) ** 2 * Math.PI * 5 - cam.roll);
-        g.shadowColor = ROJO; g.shadowBlur = (10 + 40 * u) * devicePixelRatio;
+        g.shadowColor = ROJO; g.shadowBlur = (10 + 40 * u) * DPR;
         g.fillStyle = '#e9e6da';
         g.beginPath(); g.moveTo(-w / 2 + w * 0.04, -h / 2); g.lineTo(w / 2, -h / 2 - h * 0.01); g.lineTo(w / 2 - w * 0.04, h / 2); g.lineTo(-w / 2, h / 2 + h * 0.01); g.closePath();
         g.fill();
@@ -605,7 +607,7 @@ export const escena = (() => {
         // Contorno: tú (o a quien se señala), en bermellón y más grueso; los demás, luz salvia
         // (pegada a la cámara se desvanece: ahí sin contorno, o el rojo se vería a través)
         const rojo = principal && (p === X.tu || p === X.marca) && c[2] > 1;
-        const r = (rojo ? 3.5 : 1.5) * devicePixelRatio, alfa = g.globalAlpha;
+        const r = (rojo ? 3.5 : 1.5) * DPR, alfa = g.globalAlpha;
         g.globalAlpha = (rojo ? 1 : 0.6) * alfa;
         g.drawImage(rojo ? bordeRojo ?? borde : borde, col * CW, fila * CH, CW, CH, -wpx / 2 - r, -hpx - r, wpx + 2 * r, hpx + 2 * r);
         g.globalAlpha = alfa;
@@ -631,7 +633,7 @@ export const escena = (() => {
         // Nombre encima de la cabeza (solo en nuestra mesa)
         if (!principal) return;
         const tx = proy(cu.x, 1.1, cu.z);
-        g.font = `800 ${Math.max(11 * devicePixelRatio, Math.min(16 * devicePixelRatio, hpx * 0.06))}px Geist, sans-serif`;
+        g.font = `800 ${Math.max(11 * DPR, Math.min(16 * DPR, hpx * 0.06))}px Geist, sans-serif`;
         g.textAlign = 'center';
         g.fillStyle = p === X.tu ? ROJO : 'rgba(169, 182, 137, 0.9)';
         g.fillText(X.nombres ? X.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
@@ -659,7 +661,13 @@ export const escena = (() => {
         if (!cl.contains('en-partida') || cl.contains('entrando')) dibujar(dt);
         requestAnimationFrame(cuadro);
     }
-    function medir() { cv.width = innerWidth * devicePixelRatio; cv.height = innerHeight * devicePixelRatio; }
+    // El lienzo, como mucho de ~5 Mpx: a escala 2 en 1080p eran 8,3 Mpx borrados y dibujados en
+    // cada cuadro (el menú iba a 104 FPS frente a 139 a escala 1). Con figuras en movimiento y
+    // estela no se nota; en pantallas normales no cambia nada.
+    function medir() {
+        DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight)));
+        cv.width = Math.round(innerWidth * DPR); cv.height = Math.round(innerHeight * DPR);
+    }
     addEventListener('resize', medir);
     medir();
     requestAnimationFrame(cuadro);
@@ -669,9 +677,9 @@ export const escena = (() => {
     function aPantalla(x: number, z: number) {
         const ahora = cam; cam = meta; preparar();
         const [sx, sy, d] = proy(x, 0.012, z);
-        const s = Math.min(1.3, Math.max(0.05, 2 * CW_M * foco / d / devicePixelRatio / 128));
+        const s = Math.min(1.3, Math.max(0.05, 2 * CW_M * foco / d / DPR / 128));
         cam = ahora; preparar();
-        return { x: sx / devicePixelRatio, y: sy / devicePixelRatio, s };
+        return { x: sx / DPR, y: sy / DPR, s };
     }
     return {
         /** Dónde está el centro de la mesa en pantalla, y a qué escala se ve allí una carta. */

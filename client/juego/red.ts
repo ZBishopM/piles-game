@@ -295,7 +295,8 @@ function connectWs() {
                 writeSeat({ lobby: est.currentLobbyId, token: est.seatToken, seen: Date.now() });
             }
             const enPartida = document.getElementById('gameScreen')?.classList.contains('active');
-            if (!enPartida && Date.now() - est.lastPingAt < 25000) return;
+            // Con el medidor secreto abierto (juego/medidor.ts) se mide cada 3 s también fuera
+            if (!enPartida && !document.getElementById('medidor') && Date.now() - est.lastPingAt < 25000) return;
             est.lastPingAt = Date.now();
             est.pingSentAt = performance.now();
             if (!est.pendingPongSince) est.pendingPongSince = Date.now();
