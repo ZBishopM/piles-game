@@ -237,6 +237,8 @@ body.mesa.en-partida #escenario { display: none; }
 #escenario > .velo { position: absolute; inset: 0; pointer-events: none;
     background: radial-gradient(ellipse 55% 45% at 50% 82%, rgb(0 0 0 / 5%), transparent 70%),
                 radial-gradient(ellipse 70% 60% at 50% 70%, rgb(0 0 0 / 15%) 0%, rgb(0 0 0 / 72%) 100%); }
+/* Con la escena en WebGL la viñeta la pinta el lienzo, debajo de los diales (escena.ts, viñeta) */
+body.lienzo-gl #escenario > .velo { display: none; }
 /* Las cartas de la mano que no son la elegida, en penumbra (la elegida es la luz) */
 #cartas > .carta:not(.elegida):not(.cabecera):not(.jugador) { --sombra: drop-shadow(5px 6px 0 rgb(0 0 0 / 62%)) brightness(.55) saturate(.6); }
 /* Una acción deslizada ↑ más allá del punto: soltar ya la hace */
@@ -249,6 +251,8 @@ body.mesa.en-partida #escenario { display: none; }
 .dialMesa { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; transform-origin: 50% 100%; --ag-dial-size: 15px; transition: opacity 300ms;
     will-change: transform, opacity; }   /* se mueve cada cuadro: su propia capa, sin repintar lo de alrededor */
 .dialMesa .ag-dial-delta, .dialMesa .ag-dial-rank { display: none !important; }
+/* Mientras se fotografía para la escena (mesa/dialesLienzo.ts): sin sus capas animadas, que pinta la escena */
+.ag-foto .ag-dial-frame::before, .ag-foto .ag-dial-frame::after, .ag-foto .ag-dial-glow, .ag-foto .ag-rank-fx { display: none !important; }
 /* Tu dial: una punta bermellón debajo, apuntando a tu figura */
 .dialMesa.tuyo::after { content: ""; position: absolute; left: 50%; bottom: -12px; width: 14px; height: 9px; translate: -50% 0;
     background: var(--acento); clip-path: polygon(0 0, 100% 0, 50% 100%); filter: drop-shadow(2px 2px 0 #000); }

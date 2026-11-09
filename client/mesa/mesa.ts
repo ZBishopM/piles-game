@@ -13,6 +13,7 @@ import { TAUNTS, getTaunt, playTaunt } from '../juego/burlas.js';
 import { fetchElo, smCodeGuardado, setSmCode, clearSmCode, vistaActual, showScreen } from '../juego/cuenta.js';
 
 import { escena } from './escena.js';
+import { fotografiar, type Foto } from './dialesLienzo.js';
 import { T, IDIOMAS } from './dic.js';
 
 /** Una carta del menú. `ir`: la pantalla a la que lleva; `accion`: lo que hace. */
@@ -836,6 +837,7 @@ function pintarChat() {
 // Los diales de Elo de cada jugador, flotando delante de su pecho, casi pegados a la mesa.
 // Si su Elo cambia (la misma persona), el tambor gira hasta él.
 const dialesMesa = [...document.querySelectorAll<HTMLElement>('.dialMesa')], claveDial = ['', '', '', ''];
+const fotos: (Foto | null)[] = [null, null, null, null];   // la foto de cada dial asentado (con WebGL)
 // Un dial que tocaría algo del menú, o se saldría de la pantalla, se esconde: la interfaz manda.
 const OCUPA = '#escenario .pieza:not(.oculta), #cartas > .carta, #estado, #titulo, #nombre, #campo.abierto';
 function chocaDial(b: { left: number; right: number; top: number; bottom: number }, ocupado: DOMRect[]) {
@@ -856,18 +858,35 @@ function moverDiales(ahora: number) {
             .map(e => e.getBoundingClientRect());
         tam = dialesMesa.map(el => [el.offsetWidth, el.offsetHeight]);   // todas las lecturas antes de escribir
     }
+    const enLienzo = escena.pincel() === 'pixi';
     X.anclas.forEach((a, p) => {
         const el = dialesMesa[p], e = X.elo?.[p];
-        if (!a.ok || !e) { el.style.opacity = '0'; return; }
+        if (!a.ok || !e) { el.style.opacity = '0'; X.diales[p] = null; return; }
         const ax = a.x ?? 0, ay = a.y ?? 0;
         const quien = X.nombres?.[p] ?? `top${p}`, k = `${quien}|${e.v}|${e.pool}|${!!e.top3}`;
         if (claveDial[p] !== k) {
             const [antesQuien, antesV] = claveDial[p].split('|');
             const antes = antesQuien === quien ? Number(antesV) : e.v;
             claveDial[p] = k;
-            agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
+            fotos[p] = null; el.style.display = '';
+            const listo = agDial(el, { from: antes, to: e.v, skin: e.pool, top3Before: !!e.top3 });
+            // Con WebGL, el dial asentado pasa a la escena (mesa/dialesLienzo.ts): se fotografía una
+            // vez y el HTML se esconde. Mientras gira, se ve el HTML.
+            if (enLienzo) Promise.resolve(listo).then(() => document.fonts.ready).then(() => {
+                if (claveDial[p] !== k) return;
+                const r = typeof agRank === 'function' ? agRank(e.v, { pool: e.pool, top3: !!e.top3 }) : null;
+                return fotografiar(el, k, r?.index ?? null, Math.min(3, devicePixelRatio * 1.5));
+            }).then(f => { if (f && claveDial[p] === k) { fotos[p] = f; el.style.display = 'none'; } })
+                .catch(err => console.warn('[diales] sin foto, sigue en HTML', err));
         }
         const s = (a.s ?? 1) * (W() < 760 ? 0.75 : 1);
+        const f = enLienzo ? fotos[p] : null;
+        if (f) {   // en la escena: misma posición, mismo esconderse si choca con el menú
+            X.diales[p] = { foto: f, x: ax, y: ay, s, visible: !chocaDial({ left: ax - f.w * s / 2, right: ax + f.w * s / 2, top: ay - f.h * s, bottom: ay }, ocupado), tuyo: p === X.tu };
+            return;
+        }
+        X.diales[p] = null;
+        if (el.style.display === 'none') el.style.display = '';
         el.style.transform = `translate(${ax}px, ${ay}px) translate(-50%, -100%) scale(${s})`;
         // Su caja, calculada (origen abajo al centro): leer getBoundingClientRect justo después de
         // escribir el transform forzaba a recalcular estilos 4 veces por cuadro.

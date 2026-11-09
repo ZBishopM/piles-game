@@ -9,7 +9,7 @@
 // las traduce: los caminos a Graphics (en lotes), drawImage a Sprite, fillText a Text, los
 // modos de mezcla a blendMode y la estela a un búfer que no se borra entre cuadros.
 import {
-    autoDetectRenderer, BlurFilter, Color, Container, Graphics, Matrix, Rectangle, Sprite, Text, Texture,
+    autoDetectRenderer, BlurFilter, Color, Container, Graphics, Matrix, Rectangle, RenderTexture, Sprite, Text, Texture,
     type BLEND_MODES, type Renderer,
 } from 'pixi.js';
 
@@ -35,13 +35,15 @@ export type Pincel = Lienzo & {
     nombre: '2d' | 'pixi';
     canvas: HTMLCanvasElement;
     empezar(): void; terminar(): void; tam(w: number, h: number): void;
+    /** Pintar encima de la escena, sin estela (diales, viñeta). En Canvas2D no hay capas: no hace nada. */
+    encima(si: boolean): void;
 };
 
 /** Canvas2D tal cual (el respaldo, y lo que había). */
 export function pincel2d(canvas: HTMLCanvasElement): Pincel {
     const ctx = canvas.getContext('2d')!;
     const p = ctx as unknown as Pincel;
-    Object.assign(p, { nombre: '2d', empezar() { /* */ }, terminar() { /* */ }, tam() { /* el lienzo ya lo dice */ } });
+    Object.assign(p, { nombre: '2d', empezar() { /* */ }, terminar() { /* */ }, tam() { /* el lienzo ya lo dice */ }, encima() { /* */ } });
     return p;
 }
 
@@ -55,7 +57,7 @@ type Estado = {
     trazo: string | CanvasGradient | CanvasPattern; ancho: number; cap: CanvasLineCap; sombra: number; colorSombra: string;
     fuente: string; alinear: CanvasTextAlign; capa: Container | null;
 };
-const MEZCLA: Partial<Record<GlobalCompositeOperation, BLEND_MODES>> = { 'source-over': 'normal', lighter: 'add', 'destination-out': 'erase' };
+const MEZCLA: Partial<Record<GlobalCompositeOperation, BLEND_MODES>> = { 'source-over': 'normal', lighter: 'add', screen: 'screen', 'destination-out': 'erase' };
 
 /** Degradado radial concéntrico (los de la escena lo son): una textura por paradas, cacheada. */
 class Degradado implements CanvasGradient {
@@ -96,12 +98,18 @@ function estiloFuente(f: string) {
 export async function pincelPixi(canvas: HTMLCanvasElement, w: number, h: number, alPerder: () => void): Promise<Pincel> {
     const renderer: Renderer = await autoDetectRenderer({
         preference: 'webgl', canvas, width: w, height: h, backgroundAlpha: 0, antialias: true,
-        preserveDrawingBuffer: true,   // la estela: lo pintado se queda y destination-out lo va borrando
-        resolution: 1, autoDensity: false, clearBeforeRender: false,
+        resolution: 1, autoDensity: false,
     });
     canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); alPerder(); }, { once: true });
 
-    const escenario = new Container();
+    // Dos capas: la escena se pinta en una textura que no se borra entre cuadros (la estela: lo
+    // pintado se queda y destination-out lo va apagando); encima, sin estela, lo que no debe
+    // dejar rastro (los diales, la viñeta). En pantalla, las dos juntas.
+    const nuevaRT = (w2: number, h2: number) => RenderTexture.create({ width: w2, height: h2, antialias: true });
+    let rt = nuevaRT(w, h);
+    const escenario = new Container(), arriba = new Container(), fondo = new Sprite(rt), pantalla = new Container();
+    pantalla.addChild(fondo, arriba);
+    let enArriba = false;
     const gs: Graphics[] = [], sombras: Graphics[] = [], sprites: Sprite[] = [], capas: Container[] = [], mascaras: Graphics[] = [];
     let iG = 0, iS = 0, iSp = 0, iC = 0, iM = 0;
     const textos = new Map<string, Text[]>(), usoTexto = new Map<string, number>();
@@ -116,7 +124,7 @@ export async function pincelPixi(canvas: HTMLCanvasElement, w: number, h: number
     let camino: Forma[] = [], actual: Forma & { tipo: 'poli' } | null = null;
     let lote: { g: Graphics; clave: string } | null = null;
 
-    const padre = () => est.capa ?? escenario;
+    const padre = () => est.capa ?? (enArriba ? arriba : escenario);
     const nuevo = <T>(pool: T[], i: number, crear: () => T) => (pool[i] ??= crear());
     /** El Graphics donde van las formas: el mismo mientras no cambie la mezcla ni el recorte. */
     function grafico() {
@@ -238,11 +246,18 @@ export async function pincelPixi(canvas: HTMLCanvasElement, w: number, h: number
         },
         createRadialGradient(_x0, _y0, _r0, x1, y1, r1) { return new Degradado(x1, y1, r1); },
         empezar() {
-            escenario.removeChildren(); iG = iS = iSp = iC = iM = 0; usoTexto.clear(); lote = null;
-            pila.length = 0; est.capa = null;
+            escenario.removeChildren(); arriba.removeChildren(); iG = iS = iSp = iC = iM = 0; usoTexto.clear(); lote = null;
+            pila.length = 0; est.capa = null; enArriba = false;
         },
-        terminar() { renderer.render({ container: escenario, clear: false }); },
-        tam(w2, h2) { renderer.resize(w2, h2); },
+        terminar() {
+            renderer.render({ container: escenario, target: rt, clear: false });
+            renderer.render({ container: pantalla });
+        },
+        tam(w2, h2) {
+            renderer.resize(w2, h2);
+            const vieja = rt; rt = nuevaRT(w2, h2); fondo.texture = rt; vieja.destroy(true);
+        },
+        encima(si) { if (si !== enArriba) { enArriba = si; lote = null; } },
     };
     return p;
 }

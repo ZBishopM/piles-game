@@ -11,7 +11,7 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     // Las dependencias del cliente se instalan en tools/ (allí está el empaquetado)
-    "paths": { "pixi.js": ["../tools/node_modules/pixi.js"] }
+    "paths": { "pixi.js": ["../tools/node_modules/pixi.js"], "html-to-image": ["../tools/node_modules/html-to-image"] }
   },
   "include": ["globales.d.ts", "gestos.ts", "juego", "mesa", "partida", "tipos"]
 }

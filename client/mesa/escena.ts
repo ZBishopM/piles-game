@@ -7,6 +7,7 @@
 import { T } from './dic.js';
 import { porId } from '../juego/estado.js';
 import { pincel2d, pincelPixi, type Pincel } from './pincel.js';
+import { pintarDial, type Foto } from './dialesLienzo.js';
 
 type Pt = { x: number; z: number };
 type P3 = { x: number; y: number; z: number };
@@ -31,6 +32,8 @@ export interface MenuEnEscena {
     voto: { a: number; t0: number } | null;
     mesas: Mesa[] | null;
     cortado: boolean; apagon: number; tu: number; marca: number;
+    /** Diales de Elo pintados en la escena (con WebGL; mesa.ts): foto, posición en px CSS, escala. */
+    diales: ({ foto: Foto; x: number; y: number; s: number; visible: boolean; tuyo: boolean } | null)[];
 }
 
 export const escena = (() => {
@@ -170,7 +173,38 @@ export const escena = (() => {
             g.fillRect(0, 0, cv.width, cv.height);
         }
         cv.style.filter = X.apagon > 0.01 ? `grayscale(${X.apagon})` : '';
+        if (g.nombre === 'pixi') {
+            // Encima y sin estela: la viñeta (el .velo de mesa.css, que con WebGL va aquí) y los diales
+            // de Elo, que van por encima de ella como iban en HTML
+            g.encima(true);
+            g.drawImage(viñeta(), 0, 0, VIÑ, VIÑ, 0, 0, cv.width, cv.height);
+            X.diales.forEach((d, p) => {
+                alfaDial[p] += ((d?.visible ? 1 : 0) - alfaDial[p]) * Math.min(1, dt / 0.1);
+                if (d && alfaDial[p] > 0.01) pintarDial(g, d.foto, d.x * DPR, d.y * DPR, d.s * DPR, alfaDial[p], d.tuyo, reloj * 1000, Math.min(0.05, dt));
+            });
+            g.encima(false);
+        }
         g.terminar();
+    }
+    // La viñeta de #escenario > .velo (mesa.css), en un lienzo pequeño que se estira a la pantalla
+    const VIÑ = 512;
+    let lienzoViñeta: HTMLCanvasElement | null = null;
+    function viñeta() {
+        if (lienzoViñeta) return lienzoViñeta;
+        const c = document.createElement('canvas'); c.width = c.height = VIÑ;
+        const x = c.getContext('2d')!;
+        const elipse = (rx: number, ry: number, cy: number, paradas: [number, string][]) => {
+            x.save(); x.translate(VIÑ / 2, cy * VIÑ); x.scale(rx, ry);
+            const gr = x.createRadialGradient(0, 0, 0, 0, 0, VIÑ);   // radial-gradient(ellipse rx ry at 50% cy): radio = tamaño
+            for (const [o, col] of paradas) gr.addColorStop(o, col);
+            x.fillStyle = gr; x.fillRect(-VIÑ * 4, -VIÑ * 4, VIÑ * 8, VIÑ * 8);
+            x.restore();
+        };
+        // CSS: el de abajo primero (el segundo fondo va debajo del primero)
+        elipse(0.70, 0.60, 0.70, [[0, 'rgba(0,0,0,0.15)'], [1, 'rgba(0,0,0,0.72)']]);
+        elipse(0.55, 0.45, 0.82, [[0, 'rgba(0,0,0,0.05)'], [0.7, 'rgba(0,0,0,0)']]);
+        lienzoViñeta = c;
+        return c;
     }
 
     // ── Lo de cada menú, dentro de la escena ──────────────────────────────────────
@@ -190,7 +224,9 @@ export const escena = (() => {
         cortado: false, apagon: 1,            // sin conexión (empieza apagado: «Conectando…»)
         tu: -1,                               // tu asiento (contorno bermellón); -1 = no estás en la mesa
         marca: -1,                            // asiento señalado (a quién votas echar): también en bermellón
+        diales: [null, null, null, null],
     };
+    const alfaDial = [0, 0, 0, 0];   // aparecer y esconderse en 300 ms, como el HTML (transition: opacity 300ms)
     let principal = true, quietos = false;   // quietos: sala en espera, nadie lanza
     const RANGOS: Record<Pool, [string, string][]> = {
         fun: [['Cartón', '#b89a6e'], ['Juguete', '#ffd23f'], ['Latón', '#d9c35a'], ['Caucho', '#8a8a8a'], ['Plástico', '#4fe3d3'],
@@ -681,10 +717,13 @@ export const escena = (() => {
         nuevo.id = cv.id; nuevo.className = cv.className; nuevo.style.cssText = cv.style.cssText;
         if (nuevo !== cv) cv.replaceWith(nuevo);
         cv = nuevo; g = p; cv.dataset.pincel = p.nombre;
+        document.body.classList.toggle('lienzo-gl', p.nombre === 'pixi');   // la viñeta, dentro del lienzo
         medir();
     }
     // ?lienzo=pixi (o localStorage['piles.lienzo'] = 'pixi'): la escena con PixiJS sobre WebGL. Si no
     // arranca, o el navegador pierde el contexto WebGL, vuelve a Canvas2D sin cortes.
+    // Para las pruebas (tools/browser/pincel-prueba.mjs): los dos pinceles sobre el mismo dibujo
+    (window as unknown as { __pinceles: unknown }).__pinceles = { pincel2d, pincelPixi };
     let pide: string | null = null;
     try { pide = new URLSearchParams(location.search).get('lienzo') ?? localStorage.getItem('piles.lienzo'); } catch { /* */ }
     cv.dataset.pincel = '2d';
@@ -772,6 +811,8 @@ export const escena = (() => {
         /** Al confirmar: lo asomado ya cuenta como hecho (ir() pone la cámara y el tiempo). */
         confirmarAsomo() { asomo = { cam: null, p: 0, dt: 0 }; tAsomo = 0; },   // t ya va adelantado: sigue a tMeta sin salto
         ahora: () => reloj,
+        /** Con qué se pinta la escena: 'pixi' (WebGL) o '2d'. */
+        pincel: () => g.nombre,
         /** Otro menú: su cámara, y la partida avanza (o se rebobina) según la profundidad. */
         ir(pantalla: string, profundidad: number) {
             actual = CAMS[pantalla] ? pantalla : 'sala'; meta = { ...CAMS[actual] };
