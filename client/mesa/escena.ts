@@ -6,6 +6,7 @@
 // que la partida se rebobina de verdad. Cada menú tiene su cámara.
 import { T } from './dic.js';
 import { porId } from '../juego/estado.js';
+import { pincel2d, pincelPixi, type Pincel } from './pincel.js';
 
 type Pt = { x: number; z: number };
 type P3 = { x: number; y: number; z: number };
@@ -33,7 +34,8 @@ export interface MenuEnEscena {
 }
 
 export const escena = (() => {
-    const cv = porId<HTMLCanvasElement>('juego'), g = cv.getContext('2d')!;
+    // El pincel (mesa/pincel.ts): Canvas2D de entrada; con WebGL disponible, PixiJS (cambiarPincel).
+    let cv = porId<HTMLCanvasElement>('juego'), g: Pincel = pincel2d(cv);
     /** Píxeles del lienzo por px CSS: devicePixelRatio con tope (ver medir). */
     let DPR = devicePixelRatio;
     // La carta que dos se disputan en «¡A JUGAR!» (entre los asientos 0 y 1)
@@ -129,6 +131,7 @@ export const escena = (() => {
     }
 
     function dibujar(dt: number) {
+        g.empezar();
         // Estela: el cuadro anterior se borra a medias (cámara lenta). Se borra a transparente,
         // no se pinta de negro: los fragmentos del fondo quedan DETRÁS de la mesa, no encima.
         g.globalCompositeOperation = 'destination-out';
@@ -167,6 +170,7 @@ export const escena = (() => {
             g.fillRect(0, 0, cv.width, cv.height);
         }
         cv.style.filter = X.apagon > 0.01 ? `grayscale(${X.apagon})` : '';
+        g.terminar();
     }
 
     // ── Lo de cada menú, dentro de la escena ──────────────────────────────────────
@@ -658,7 +662,7 @@ export const escena = (() => {
         // En Piles, durante la partida la escena está oculta: no se dibuja (era ~20 % del hilo
         // principal sin que nadie lo viera). En la entrada a la partida sí, que se ve.
         const cl = document.body.classList;
-        if (!cl.contains('en-partida') || cl.contains('entrando')) { dibujar(dt); adaptar(ms - antesAdapt); }
+        if (!cl.contains('en-partida') || cl.contains('entrando')) { dibujar(dt); if (g.nombre === '2d') adaptar(ms - antesAdapt); }
         antesAdapt = ms;
         requestAnimationFrame(cuadro);
     }
@@ -666,8 +670,31 @@ export const escena = (() => {
     // cada cuadro (el menú iba a 104 FPS frente a 139 a escala 1). Con figuras en movimiento y
     // estela no se nota; en pantallas normales no cambia nada.
     function medir() {
-        DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight))) * calidad;
-        cv.width = Math.round(innerWidth * DPR); cv.height = Math.round(innerHeight * DPR);
+        // Con WebGL la resolución completa no penaliza: el tope y la adaptativa son para Canvas2D
+        DPR = g.nombre === 'pixi' ? devicePixelRatio : Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight))) * calidad;
+        const w = Math.round(innerWidth * DPR), h = Math.round(innerHeight * DPR);
+        if (g.nombre === 'pixi') g.tam(w, h); else { cv.width = w; cv.height = h; }
+    }
+    /** Cambia de pincel con un <canvas> nuevo en el sitio del de ahora (un lienzo con contexto
+     *  2D ya no puede dar WebGL, y al revés). */
+    function ponerLienzo(nuevo: HTMLCanvasElement, p: Pincel) {
+        nuevo.id = cv.id; nuevo.className = cv.className; nuevo.style.cssText = cv.style.cssText;
+        if (nuevo !== cv) cv.replaceWith(nuevo);
+        cv = nuevo; g = p; cv.dataset.pincel = p.nombre;
+        medir();
+    }
+    // ?lienzo=pixi (o localStorage['piles.lienzo'] = 'pixi'): la escena con PixiJS sobre WebGL. Si no
+    // arranca, o el navegador pierde el contexto WebGL, vuelve a Canvas2D sin cortes.
+    let pide: string | null = null;
+    try { pide = new URLSearchParams(location.search).get('lienzo') ?? localStorage.getItem('piles.lienzo'); } catch { /* */ }
+    cv.dataset.pincel = '2d';
+    if (pide === 'pixi') {
+        const nuevo = document.createElement('canvas');
+        pincelPixi(nuevo, cv.width || innerWidth, cv.height || innerHeight, () => {
+            console.warn('[escena] WebGL perdido: vuelvo a Canvas2D');
+            const c2 = document.createElement('canvas');
+            ponerLienzo(c2, pincel2d(c2));
+        }).then(p => ponerLienzo(nuevo, p)).catch(e => console.warn('[escena] sin WebGL, sigo con Canvas2D', e));
     }
     // Resolución adaptativa: si el navegador no llega (Firefox pinta este lienzo mucho más lento
     // que Chrome: 31 FPS a 1920×1000, 50 al 75 %, 74 a la mitad), el lienzo baja de resolución
