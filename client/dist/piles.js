@@ -4315,7 +4315,7 @@ ping ${medida.ping ?? "\u2014"} ms \xB7 ${innerWidth}\xD7${innerHeight} @${devic
       g.fillStyle = p === X2.tu ? ROJO : "rgba(169, 182, 137, 0.9)";
       g.fillText(X2.nombres ? X2.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
     }
-    let antes = 0, asomo = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
+    let antes = 0, antesAdapt = 0, asomo = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
     function cuadro2(ms) {
       const dt = Math.min(0.05, (ms - antes) / 1e3 || 0);
       antes = ms;
@@ -4333,13 +4333,38 @@ ping ${medida.ping ?? "\u2014"} ms \xB7 ${innerWidth}\xD7${innerHeight} @${devic
       disputa += (disputaMeta - disputa) * Math.min(1, dt * 1.2);
       reloj = ms / 1e3;
       const cl = document.body.classList;
-      if (!cl.contains("en-partida") || cl.contains("entrando")) dibujar(dt);
+      if (!cl.contains("en-partida") || cl.contains("entrando")) {
+        dibujar(dt);
+        adaptar(ms - antesAdapt);
+      }
+      antesAdapt = ms;
       requestAnimationFrame(cuadro2);
     }
     function medir() {
-      DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight)));
+      DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight))) * calidad;
       cv.width = Math.round(innerWidth * DPR);
       cv.height = Math.round(innerHeight * DPR);
+    }
+    let calidad = 1, sumaDt = 0, cuadros = 0, holgura = 0, malos = 0;
+    function adaptar(dtMs) {
+      if (dtMs > 250 || performance.now() < 3e3) return;
+      sumaDt += dtMs;
+      cuadros++;
+      if (sumaDt < 1e3) return;
+      const media = sumaDt / cuadros;
+      sumaDt = 0;
+      cuadros = 0;
+      malos = media > 19 ? malos + 1 : 0;
+      if (malos >= 2 && calidad > 0.5) {
+        calidad = Math.max(0.5, calidad * 0.8);
+        holgura = 0;
+        malos = 0;
+        medir();
+      } else if (media < 13 && calidad < 1 && ++holgura >= 3) {
+        calidad = Math.min(1, calidad * 1.15);
+        holgura = 0;
+        medir();
+      }
     }
     addEventListener("resize", medir);
     medir();

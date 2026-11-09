@@ -18,8 +18,8 @@ async function medir(p, cdp, ms = 6000) {
   await wait(ms);
   const m1 = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(m => [m.name, m.value]));
   const d = k => ((m1[k] - m0[k]) * 1000 / (ms / 1000)).toFixed(0);   // ms de CPU por segundo
-  const med = await p.evaluate(() => ({ ...juego.medida }));
-  return `${med.fps} FPS · p95 ${med.p95.toFixed(1)} · peor ${Math.round(med.peor)} · lentos ${med.lentos} | CPU ms/s: script ${d('ScriptDuration')} estilo ${d('RecalcStyleDuration')} layout ${d('LayoutDuration')} tareas ${d('TaskDuration')}`;
+  const med = await p.evaluate(() => ({ ...juego.medida, lienzo: document.getElementById('juego')?.width }));
+  return `lienzo ${med.lienzo} · ${med.fps} FPS · p95 ${med.p95.toFixed(1)} · peor ${Math.round(med.peor)} · lentos ${med.lentos} | CPU ms/s: script ${d('ScriptDuration')} estilo ${d('RecalcStyleDuration')} layout ${d('LayoutDuration')} tareas ${d('TaskDuration')}`;
 }
 for (const [nombre, opc] of PANTALLAS) {
   const ctx = await b.newContext(opc);

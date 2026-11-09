@@ -639,7 +639,7 @@ export const escena = (() => {
         g.fillText(X.nombres ? X.nombres[p].toUpperCase() : `#${p + 1} ${TOP[p].toUpperCase()}`, tx[0], tx[1]);
     }
 
-    let antes = 0, asomo: { cam: Cam | null; p: number; dt: number } = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
+    let antes = 0, antesAdapt = 0, asomo: { cam: Cam | null; p: number; dt: number } = { cam: null, p: 0, dt: 0 }, tAsomo = 0;
     function cuadro(ms: number) {
         const dt = Math.min(0.05, (ms - antes) / 1000 || 0); antes = ms;
         vel += (velMeta - vel) * Math.min(1, dt * 2.5);
@@ -658,15 +658,30 @@ export const escena = (() => {
         // En Piles, durante la partida la escena está oculta: no se dibuja (era ~20 % del hilo
         // principal sin que nadie lo viera). En la entrada a la partida sí, que se ve.
         const cl = document.body.classList;
-        if (!cl.contains('en-partida') || cl.contains('entrando')) dibujar(dt);
+        if (!cl.contains('en-partida') || cl.contains('entrando')) { dibujar(dt); adaptar(ms - antesAdapt); }
+        antesAdapt = ms;
         requestAnimationFrame(cuadro);
     }
     // El lienzo, como mucho de ~5 Mpx: a escala 2 en 1080p eran 8,3 Mpx borrados y dibujados en
     // cada cuadro (el menú iba a 104 FPS frente a 139 a escala 1). Con figuras en movimiento y
     // estela no se nota; en pantallas normales no cambia nada.
     function medir() {
-        DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight)));
+        DPR = Math.min(devicePixelRatio, Math.sqrt(5e6 / (innerWidth * innerHeight))) * calidad;
         cv.width = Math.round(innerWidth * DPR); cv.height = Math.round(innerHeight * DPR);
+    }
+    // Resolución adaptativa: si el navegador no llega (Firefox pinta este lienzo mucho más lento
+    // que Chrome: 31 FPS a 1920×1000, 50 al 75 %, 74 a la mitad), el lienzo baja de resolución
+    // por pasos hasta la mitad; si sobra, vuelve a subir. Donde va bien no cambia nada.
+    let calidad = 1, sumaDt = 0, cuadros = 0, holgura = 0, malos = 0;
+    function adaptar(dtMs: number) {
+        if (dtMs > 250 || performance.now() < 3000) return;   // segundo plano, saltos y la carga: no cuentan
+        sumaDt += dtMs; cuadros++;
+        if (sumaDt < 1000) return;
+        const media = sumaDt / cuadros;
+        sumaDt = 0; cuadros = 0;
+        malos = media > 19 ? malos + 1 : 0;
+        if (malos >= 2 && calidad > 0.5) { calidad = Math.max(0.5, calidad * 0.8); holgura = 0; malos = 0; medir(); }   // < 52 FPS, 2 s seguidos
+        else if (media < 13 && calidad < 1 && ++holgura >= 3) { calidad = Math.min(1, calidad * 1.15); holgura = 0; medir(); }   // > 75 FPS, 3 s seguidos
     }
     addEventListener('resize', medir);
     medir();
