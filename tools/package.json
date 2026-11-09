@@ -6,7 +6,7 @@
   "packageManager": "pnpm@11.3.0",
   "scripts": {
     "check": "tsc -p ../client",
-    "build": "esbuild ../client/juego/index.ts --bundle --format=iife --target=es2022 --outfile=../client/dist/piles.js --log-level=warning --alias:pixi.js=./node_modules/pixi.js --minify --sourcemap"
+    "build": "esbuild ../client/juego/index.ts --bundle --format=iife --target=es2022 --outfile=../client/dist/piles.js --log-level=warning --alias:pixi.js=./node_modules/pixi.js --minify --sourcemap --sources-content=false"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
