@@ -1,5 +1,5 @@
 // La escena arranca con WebGL (Pixi) y, si el navegador pierde el contexto, vuelve sola a Canvas2D
-// con los diales otra vez en HTML. También ?lienzo=2d.
+// con los diales otra vez en HTML. También si WebGL va lento, y ?lienzo=2d.
 //   node browser/lienzo-respaldo.mjs [--base=local|beta]
 import { chromium, firefox } from '@playwright/test';
 import { base, wait } from '../repro/comun.mjs';
@@ -37,6 +37,14 @@ for (const tipo of [chromium, firefox]) {
   await wait(3000);
   e = await estado(p);
   ok(e.pincel === '2d', `${tipo.name()}: ?lienzo=2d fuerza Canvas2D (${e.pincel})`);
+  // WebGL lento (como una GPU por software): cada cuadro tarda 60 ms → a los ~2 s, Canvas2D
+  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await wait(5000);
+  await p.evaluate(() => { const f = () => { const t = performance.now(); while (performance.now() - t < 60); if (!window.__basta) requestAnimationFrame(f); }; requestAnimationFrame(f); });
+  await wait(5000);
+  await p.evaluate(() => { window.__basta = true; });
+  e = await estado(p);
+  ok(e.pincel === '2d', `${tipo.name()}: WebGL lento → Canvas2D (${e.pincel})`);
   ok(errores.length === 0, `${tipo.name()}: sin errores (${errores.join(' | ')})`);
   await b.close();
 }

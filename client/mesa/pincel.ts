@@ -96,8 +96,17 @@ function estiloFuente(f: string) {
 }
 
 export async function pincelPixi(canvas: HTMLCanvasElement, w: number, h: number, alPerder: () => void): Promise<Pincel> {
+    // Chrome no marca SwiftShader como «major performance caveat»: se mira el nombre de la GPU.
+    const prueba = document.createElement('canvas').getContext('webgl2') ?? document.createElement('canvas').getContext('webgl');
+    const info = prueba?.getExtension('WEBGL_debug_renderer_info');
+    const gpu = info ? String(prueba!.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    prueba?.getExtension('WEBGL_lose_context')?.loseContext();
+    if (/swiftshader|llvmpipe|softpipe|software|basic render/i.test(gpu)) throw new Error(`WebGL por software (${gpu})`);
     const renderer: Renderer = await autoDetectRenderer({
-        preference: 'webgl', canvas, width: w, height: h, backgroundAlpha: 0, antialias: true,
+        // Solo WebGL, y solo con GPU: con WebGL por software (SwiftShader: sin aceleración, máquinas
+        // virtuales, escritorio remoto, drivers vetados) iba a ~2 FPS. Entonces falla y sigue el 2D.
+        preference: ['webgl'], failIfMajorPerformanceCaveat: true,
+        canvas, width: w, height: h, backgroundAlpha: 0, antialias: true,
         resolution: 1, autoDensity: false,
     });
     canvas.addEventListener('webglcontextlost', e => { e.preventDefault(); alPerder(); }, { once: true });

@@ -698,7 +698,7 @@ export const escena = (() => {
         // En Piles, durante la partida la escena está oculta: no se dibuja (era ~20 % del hilo
         // principal sin que nadie lo viera). En la entrada a la partida sí, que se ve.
         const cl = document.body.classList;
-        if (!cl.contains('en-partida') || cl.contains('entrando')) { dibujar(dt); if (g.nombre === '2d') adaptar(ms - antesAdapt); }
+        if (!cl.contains('en-partida') || cl.contains('entrando')) { dibujar(dt); if (g.nombre === '2d') adaptar(ms - antesAdapt); else vigilarGL(ms - antesAdapt); }
         antesAdapt = ms;
         requestAnimationFrame(cuadro);
     }
@@ -748,6 +748,26 @@ export const escena = (() => {
         malos = media > 19 ? malos + 1 : 0;
         if (malos >= 2 && calidad > 0.5) { calidad = Math.max(0.5, calidad * 0.8); holgura = 0; malos = 0; medir(); }   // < 52 FPS, 2 s seguidos
         else if (media < 13 && calidad < 1 && ++holgura >= 3) { calidad = Math.min(1, calidad * 1.15); holgura = 0; medir(); }   // > 75 FPS, 3 s seguidos
+    }
+    // WebGL que no llega a 25 FPS dos segundos seguidos (una GPU por software que no se reconoció
+    // por el nombre): se suelta el contexto y el aviso de contexto perdido devuelve la escena al 2D.
+    // La mediana, no la media: los tirones sueltos (la foto de un dial, las fuentes) no cuentan;
+    // con una GPU por software todos los cuadros van lentos.
+    let sumaGL = 0, lentosGL = 0;
+    const dtsGL: number[] = [];
+    function vigilarGL(dtMs: number) {
+        if (document.hidden || dtMs > 3000) return;
+        sumaGL += dtMs; dtsGL.push(dtMs);
+        if (sumaGL < 1000) return;
+        const media = dtsGL.sort((a, b) => a - b)[dtsGL.length >> 1];
+        sumaGL = 0; dtsGL.length = 0;
+        lentosGL = media > 40 ? lentosGL + 1 : 0;
+        if (lentosGL >= 2) {
+            lentosGL = 0;
+            const gl = cv.getContext('webgl2') ?? cv.getContext('webgl');
+            console.warn(`[escena] WebGL lento (${Math.round(media)} ms por cuadro): vuelvo a Canvas2D`);
+            gl?.getExtension('WEBGL_lose_context')?.loseContext();
+        }
     }
     addEventListener('resize', medir);
     medir();
