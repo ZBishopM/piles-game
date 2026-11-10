@@ -1,92 +1,150 @@
 // ─── Música de fondo ──────────────────────────────────────────────────────
 //
-// Sintetizada, como todo lo demás: ni un fichero que descargar antes de la
-// primera partida. Es pentatónica a propósito — en esa escala no hay dos notas
-// que choquen, así que puede correr mucho sin sonar mal. "Frenética pero
-// amable" es exactamente eso: ritmo rápido, notas que no pueden desafinar.
+// Dos arreglos de la misma pieza (client/musica/): el del MENÚ (calmado) y el de la
+// PARTIDA (apurado, con huecos para los efectos). Tienen el mismo tempo, los mismos 28
+// compases en 7/4 y la misma armonía, y duran lo mismo al fotograma. Por eso suenan A LA
+// VEZ, en bucle y arrancados juntos, y lo único que cambia es cuál se oye: pasar de una
+// a otra es un fundido de potencia constante (seno/coseno) y, como van sincronizadas, no
+// hay salto de ritmo ni de acorde.
 //
-// Responde a la racha, que es lo que la hace valer la pena: la partida se oye
-// distinta cuando vas encadenando, sin tener que mirar el multiplicador.
+//   menú, sala, resultados   →  suena el menú
+//   partida (de game_start a game_over)  →  suena la partida
+//
+// Se piden y decodifican una vez (≈ 30 MB en memoria cada una). Si el navegador no
+// decodifica Ogg Vorbis (Safari anterior a 18.4) o falla la descarga, no suena música y
+// el juego sigue como si nada. Sin música sintetizada: la racha ya suena en los efectos
+// (`comboStep`).
 import { emitir } from './bus.js';
 import { est } from './estado.js';
-import { audioCtx, unlockAudio, tone, playSfx } from './sonido.js';
+import { audioCtx, unlockAudio, playSfx } from './sonido.js';
 
-const MUSIC_SCALE = [0, 3, 5, 7, 10];     // pentatónica menor, sobre La
-const MUSIC_BASS = [0, 0, 7, 5];          // 4 tiempos
-let musicTimer: ReturnType<typeof setTimeout> | null = null;
-let musicStep = 0;
-let musicLevel = 0;      // 0 sin racha · 1 arpegio · 2 contramelodía · 3 a tope
-let musicFrenzy = false;
+export type Pista = 'menu' | 'partida';
+const PISTAS: Pista[] = ['menu', 'partida'];
+const ARCHIVOS: Record<Pista, string> = { menu: '/musica/menu.ogg', partida: '/musica/partida.ogg' };
+/** Volumen general: la música va por debajo de los efectos (que salen a 0,1–0,22). */
+const NIVEL = 0.28;
+const FUNDIDO_MS = 1400;
 
-const midi = (semis: number, oct = 0) => 220 * Math.pow(2, (semis + oct * 12) / 12);
+let maestra: GainNode | null = null;
+const voces: Partial<Record<Pista, { gain: GainNode; src: AudioBufferSourceNode; dur: number }>> = {};
+let arrancada = false;
+let mezcla = 0;                  // 0 = solo el menú · 1 = solo la partida
+let fundido: { desde: number; hacia: number; t0: number; ms: number } | null = null;
+let reloj: ReturnType<typeof setInterval> | null = null;
+let inicio = 0;                  // reloj del audio en que arrancaron las dos
+let largoBucle = 0;
 
-function musicBeatMs() {
-    // Cuanto más alta la racha, más rápido. Nunca tanto como para volverse
-    // ruido: 260 ms es rápido, no frenético de verdad.
-    return [420, 380, 320, 260][musicLevel] ?? 420;
+/** Pesos de cada pista para la mezcla actual: potencia constante (cos² + sen² = 1). */
+function pesos(): Record<Pista, number> {
+    if (voces.menu && !voces.partida) return { menu: 1, partida: 0 };
+    if (voces.partida && !voces.menu) return { menu: 0, partida: 1 };
+    return { menu: Math.cos(mezcla * Math.PI / 2), partida: Math.sin(mezcla * Math.PI / 2) };
 }
 
-function musicTick() {
-    if (est.sfxMuted || !audioCtx) return;
-    const paso = musicStep++;
-    const compas = paso % 4;
-
-    // El bajo siempre: es lo que sostiene el fondo cuando no pasa nada.
-    tone({
-        freq: midi(MUSIC_BASS[compas], -1),
-        dur: 0.18,
-        type: 'triangle',
-        gain: 0.05 + musicLevel * 0.012,
-    });
-
-    // Arpegio: entra con la racha viva.
-    if (musicLevel >= 1) {
-        const n = MUSIC_SCALE[(paso * 2) % MUSIC_SCALE.length];
-        tone({ freq: midi(n, 1), dur: 0.12, type: 'square', gain: 0.03 });
-    }
-    // Contramelodía a contratiempo: es lo que da la sensación de que corre.
-    if (musicLevel >= 2 && compas % 2 === 1) {
-        const n = MUSIC_SCALE[(paso * 3 + 2) % MUSIC_SCALE.length];
-        setTimeout(() => tone({ freq: midi(n, 2), dur: 0.08, type: 'square', gain: 0.022 }), musicBeatMs() / 2);
-    }
-    // Brillo arriba del todo cuando vas lanzado.
-    if (musicLevel >= 3 && compas === 0) {
-        tone({ freq: midi(MUSIC_SCALE[0], 2), dur: 0.3, type: 'sine', gain: 0.03 });
-    }
-    // Frenesí cargado: una nota tenida que no está en ningún otro momento, para
-    // que se oiga que lo tienes sin mirar la pantalla.
-    if (musicFrenzy && compas === 2) {
-        tone({ freq: midi(MUSIC_SCALE[4], 2), dur: 0.5, type: 'sine', gain: 0.035 });
-    }
-
-    // El tempo cambia con la racha, así que el temporizador se reprograma en
-    // cada golpe en vez de usar un intervalo fijo.
-    musicTimer = setTimeout(musicTick, musicBeatMs());
+function aplicar() {
+    const ctx = audioCtx;
+    if (!ctx) return;
+    const w = pesos();
+    // setTargetAtTime con una constante corta alisa los escalones del temporizador: sin chasquidos.
+    for (const p of PISTAS) voces[p]?.gain.gain.setTargetAtTime(w[p], ctx.currentTime, 0.02);
 }
 
-export function startMusic() {
-    if (musicTimer || est.sfxMuted) return;
+function paso() {
+    if (!fundido) { if (reloj) clearInterval(reloj); reloj = null; return; }
+    const k = Math.min(1, (performance.now() - fundido.t0) / Math.max(fundido.ms, 1));
+    const e = k * k * (3 - 2 * k);                       // sale y llega suave
+    mezcla = fundido.desde + (fundido.hacia - fundido.desde) * e;
+    if (k >= 1) {
+        mezcla = fundido.hacia;
+        fundido = null;
+        if (reloj) clearInterval(reloj);
+        reloj = null;
+    }
+    aplicar();
+}
+
+/** Qué pista tiene que oírse. Si aún no ha cargado nada, solo se recuerda; si ya suena, se funde. */
+function ir(pista: Pista) {
+    const hacia = pista === 'partida' ? 1 : 0;
+    if (!voces.menu && !voces.partida) { mezcla = hacia; fundido = null; return; }
+    if ((fundido ? fundido.hacia : mezcla) === hacia) return;
+    fundido = { desde: mezcla, hacia, t0: performance.now(), ms: FUNDIDO_MS * Math.abs(hacia - mezcla) };
+    reloj ??= setInterval(paso, 30);
+}
+
+/** El volumen general sigue al botón de silencio. Las pistas siguen sonando en silencio, para no perder la sincronía. */
+function nivelMaestro() {
+    if (!audioCtx || !maestra) return;
+    maestra.gain.setTargetAtTime(est.sfxMuted ? 0 : NIVEL, audioCtx.currentTime, est.sfxMuted ? 0.05 : 0.5);
+}
+
+async function cargar(ctx: AudioContext) {
+    const bufs: Partial<Record<Pista, AudioBuffer>> = {};
+    await Promise.all(PISTAS.map(async p => {
+        try {
+            const r = await fetch(ARCHIVOS[p]);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const datos = await r.arrayBuffer();
+            // Con callbacks: el Safari antiguo no devuelve promesa.
+            bufs[p] = await new Promise<AudioBuffer>((ok, mal) => ctx.decodeAudioData(datos, ok, mal));
+        } catch (e) { console.warn(`[música] ${p}: no se pudo cargar`, e); }
+    }));
+    const hay = PISTAS.filter(p => bufs[p]);
+    if (!hay.length || !maestra) return;
+    largoBucle = Math.min(...hay.map(p => bufs[p]!.duration));
+    inicio = ctx.currentTime + 0.1;
+    for (const p of hay) {
+        const src = ctx.createBufferSource();
+        src.buffer = bufs[p]!;
+        src.loop = true;
+        src.loopStart = 0;
+        src.loopEnd = largoBucle;               // iguales: así no se desfasan nunca
+        const gain = ctx.createGain();
+        gain.gain.value = 0;
+        src.connect(gain).connect(maestra);
+        src.start(inicio);                      // las dos, en el mismo instante
+        voces[p] = { gain, src, dur: bufs[p]!.duration };
+    }
+    aplicar();
+    nivelMaestro();
+}
+
+/** Pide y arranca las dos pistas. Hay que llamarla desde un gesto del usuario (el navegador no deja sonar antes). */
+export function arrancarMusica() {
+    if (arrancada || est.sfxMuted) return;       // en silencio no se descarga nada: se arranca al activar el sonido
     unlockAudio();
-    if (!audioCtx) return;
-    musicStep = 0;
-    musicTick();
+    const ctx = audioCtx;
+    if (!ctx) return;
+    arrancada = true;
+    if (ctx.state === 'suspended') void ctx.resume();
+    maestra = ctx.createGain();
+    maestra.gain.value = 0;
+    maestra.connect(ctx.destination);
+    void cargar(ctx);
+}
+// El primer gesto (un toque o una tecla: el menú se maneja con el teclado) abre el audio y arranca la música.
+for (const ev of ['pointerdown', 'keydown'] as const) document.addEventListener(ev, arrancarMusica, { once: true });
+
+/** Empieza la partida: se funde a la pista de la partida. */
+export function startMusic() {
+    arrancarMusica();
+    ir('partida');
 }
 
+/** Acaba la partida (o no llegó a empezar): se funde a la del menú. */
 export function stopMusic() {
-    if (musicTimer) clearTimeout(musicTimer);
-    musicTimer = null;
-    musicLevel = 0;
-    musicFrenzy = false;
+    ir('menu');
 }
 
-/** La racha manda sobre la música. Lo llama `renderCombo`, que ya recibe todo
- *  lo que hace falta: ni estado nuevo ni sondeos. */
-export function musicFromCombo(multX100: number, frenzyReady: boolean) {
-    musicFrenzy = !!frenzyReady;
-    musicLevel = multX100 >= 400 ? 3
-        : multX100 >= 250 ? 2
-        : multX100 >= 150 ? 1
-        : 0;
+/** Para las pruebas (tools/browser/musica.mjs): qué suena y cómo. */
+export function estadoMusica() {
+    const ctx = audioCtx;
+    return {
+        arrancada, cargadas: PISTAS.filter(p => voces[p]), mezcla, fundiendo: !!fundido,
+        menu: voces.menu?.gain.gain.value ?? null, partida: voces.partida?.gain.gain.value ?? null, maestra: maestra?.gain.value ?? null,
+        duraciones: { menu: voces.menu?.dur ?? null, partida: voces.partida?.dur ?? null }, largoBucle,
+        fase: ctx && largoBucle ? (((ctx.currentTime - inicio) % largoBucle) + largoBucle) % largoBucle : null,
+    };
 }
 
 export function toggleMute() {
@@ -97,8 +155,7 @@ export function toggleMute() {
         btn.textContent = est.sfxMuted ? '🔇' : '🔊';
         btn.title = t(est.sfxMuted ? 'game.unmute' : 'game.mute');
     }
-    if (est.sfxMuted) { stopMusic(); }
-    else { unlockAudio(); playSfx('take'); if (document.getElementById('gameScreen')?.classList.contains('active')) startMusic(); }
+    if (!est.sfxMuted) { unlockAudio(); playSfx('take'); arrancarMusica(); }
+    nivelMaestro();
     emitir('toggleMute');
 }
-

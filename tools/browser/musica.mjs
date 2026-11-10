@@ -1,0 +1,119 @@
+// La música (client/juego/musica.ts): las dos pistas (menú y partida) suenan a la vez y sincronizadas, y se funden según dónde
+// estés. Sin oído: se miran el estado del audio (ganancias, reloj, duraciones) y se muestrea el fundido.
+//   node browser/musica.mjs [--base=local|beta]
+import { lanzar, base } from './comun.mjs';
+
+const espera = ms => new Promise(r => setTimeout(r, ms));
+let fallos = 0;
+const ok = (c, m) => { console.log((c ? 'OK    ' : 'FALLO ') + m); if (!c) fallos++; };
+
+const b = await lanzar();
+const errores = [];
+async function pagina(contexto = {}) {
+  const ctx = await b.newContext(contexto);
+  const p = await ctx.newPage();
+  p.on('pageerror', e => errores.push(e.message));
+  p.on('console', m => { if (m.type() === 'error') errores.push(m.text()); });
+  await p.goto(base + '/lobby.html');
+  await espera(1200);
+  return p;
+}
+const estado = p => p.evaluate(() => juego.estadoMusica());
+
+/** Muestrea el estado cada `cada` ms durante `ms`: [{t, menu, partida}]. */
+async function muestrea(p, ms, cada = 50) {
+  return p.evaluate(async ([ms, cada]) => {
+    const t0 = performance.now(), out = [];
+    while (performance.now() - t0 < ms) {
+      const e = juego.estadoMusica();
+      out.push({ t: performance.now() - t0, menu: e.menu, partida: e.partida });
+      await new Promise(r => setTimeout(r, cada));
+    }
+    return out;
+  }, [ms, cada]);
+}
+/** Que el fundido sea limpio: de a a b, sin saltos, de potencia constante. */
+function revisa(nombre, m, desde, hasta) {
+  const salto = Math.max(...m.slice(1).map((x, i) => Math.max(Math.abs(x.menu - m[i].menu), Math.abs(x.partida - m[i].partida))));
+  const pot = m.map(x => x.menu ** 2 + x.partida ** 2);
+  const fin = m.at(-1);
+  ok(Math.abs(m[0].partida - (desde === 'menu' ? 0 : 1)) < 0.05, `${nombre}: empieza en ${desde}`);
+  ok(Math.abs(fin.partida - (hasta === 'partida' ? 1 : 0)) < 0.05 && Math.abs(fin.menu - (hasta === 'menu' ? 1 : 0)) < 0.05, `${nombre}: acaba en ${hasta}`);
+  ok(salto < 0.2, `${nombre}: sin saltos (el mayor escalón entre muestras de 50 ms: ${salto.toFixed(3)})`);
+  ok(Math.min(...pot) > 0.8 && Math.max(...pot) < 1.2, `${nombre}: potencia constante (cos²+sen² entre ${Math.min(...pot).toFixed(2)} y ${Math.max(...pot).toFixed(2)})`);
+  const ini = m.find(x => Math.abs(x.partida - (desde === 'menu' ? 0 : 1)) > 0.05)?.t, fin2 = m.find(x => Math.abs(x.partida - (hasta === 'partida' ? 1 : 0)) < 0.05 && x.t > (ini ?? 0))?.t;
+  ok(ini !== undefined && fin2 !== undefined && fin2 - ini > 800 && fin2 - ini < 2200, `${nombre}: dura ~1,4 s (${Math.round(fin2 - ini)} ms)`);
+}
+
+// 1 · Los ficheros se sirven bien
+{
+  const p = await pagina();
+  for (const f of ['menu', 'partida']) {
+    const r = await p.evaluate(async f => { const x = await fetch(`/musica/${f}.ogg`); return { s: x.status, t: x.headers.get('content-type'), n: (await x.arrayBuffer()).byteLength }; }, f);
+    ok(r.s === 200 && /audio\/ogg|application\/ogg/.test(r.t ?? '') && r.n > 500_000, `/musica/${f}.ogg: ${r.s} ${r.t} ${(r.n / 1e6).toFixed(2)} MB`);
+  }
+  // 2 · Sin gesto no suena nada; con el primer gesto arrancan las dos
+  let e = await estado(p);
+  ok(!e.arrancada, 'antes del primer gesto no arranca (el navegador no lo permitiría)');
+  await p.mouse.click(200, 200);
+  await p.waitForFunction(() => juego.estadoMusica().cargadas.length === 2, null, { timeout: 30000 }).catch(() => {});
+  await espera(2500);
+  e = await estado(p);
+  ok(e.arrancada && e.cargadas.length === 2, `arrancan las dos pistas (${e.cargadas.join(' + ')})`);
+  ok(Math.abs(e.duraciones.menu - e.duraciones.partida) < 1e-6 && Math.abs(e.largoBucle - 81.665) < 0.05, `duran lo mismo: ${e.duraciones.menu.toFixed(4)} s y ${e.duraciones.partida.toFixed(4)} s (bucle ${e.largoBucle.toFixed(3)} s)`);
+  ok(e.fase > 1.5 && e.fase < 5, `suenan desde el mismo instante (fase del bucle ${e.fase.toFixed(2)} s tras ~3 s)`);
+  ok(e.menu > 0.95 && e.partida < 0.05, `en el menú suena el menú (menú ${e.menu.toFixed(2)}, partida ${e.partida.toFixed(2)}) y la otra sigue corriendo, silenciada`);
+  ok(e.maestra > 0.2 && e.maestra < 0.3, `volumen general ${e.maestra.toFixed(3)} (entra poco a poco hacia 0,28)`);
+
+  // 3 · Empieza la partida: fundido limpio al de la partida; acaba: de vuelta
+  await p.evaluate(() => juego.startMusic());
+  revisa('menú → partida', await muestrea(p, 2600), 'menu', 'partida');
+  e = await estado(p);
+  ok(e.arrancada && !e.fundiendo, 'el fundido termina y se queda quieto');
+  await p.evaluate(() => juego.stopMusic());
+  revisa('partida → menú', await muestrea(p, 2600), 'partida', 'menu');
+
+  // 4 · Un fundido interrumpido a medias vuelve sin salto
+  await p.evaluate(() => juego.startMusic());
+  await espera(500);
+  await p.evaluate(() => juego.stopMusic());
+  const m = await muestrea(p, 2600);
+  const salto = Math.max(...m.slice(1).map((x, i) => Math.max(Math.abs(x.menu - m[i].menu), Math.abs(x.partida - m[i].partida))));
+  ok(salto < 0.2 && m.at(-1).menu > 0.95, `fundido interrumpido: vuelve sin saltos (escalón máximo ${salto.toFixed(3)})`);
+
+  // 5 · Silencio: el volumen general baja a 0, las pistas siguen corriendo (sin perder la sincronía), y vuelve
+  const antes = (await estado(p)).fase;
+  await p.evaluate(() => juego.toggleMute());
+  await espera(1200);
+  e = await estado(p);
+  ok(e.maestra < 0.01 && e.fase > antes, `en silencio: volumen ${e.maestra.toFixed(3)} y el reloj sigue (fase ${antes.toFixed(1)} → ${e.fase.toFixed(1)} s)`);
+  await p.evaluate(() => juego.toggleMute());
+  await espera(3500);
+  e = await estado(p);
+  ok(e.maestra > 0.25, `al activar el sonido vuelve a ${e.maestra.toFixed(3)}`);
+  await p.context().close();
+}
+
+// 6 · Quien entra con el sonido ya silenciado no descarga nada hasta activarlo
+{
+  const ctx = await b.newContext();
+  await ctx.addInitScript(() => localStorage.setItem('piles.mute', '1'));
+  const p = await ctx.newPage();
+  p.on('pageerror', e => errores.push(e.message));
+  await p.goto(base + '/lobby.html');
+  await espera(1200);
+  await p.mouse.click(200, 200);
+  await espera(800);
+  let e = await estado(p);
+  ok(!e.arrancada, 'con el sonido silenciado no se descarga ni arranca nada');
+  await p.evaluate(() => juego.toggleMute());
+  await p.waitForFunction(() => juego.estadoMusica().cargadas.length === 2, null, { timeout: 30000 }).catch(() => {});
+  e = await estado(p);
+  ok(e.arrancada && e.cargadas.length === 2, 'al activar el sonido arrancan las dos');
+  await ctx.close();
+}
+
+ok(errores.length === 0, `sin errores en la página (${errores.slice(0, 3).join(' | ')})`);
+await b.close();
+console.log(fallos ? `\n${fallos} fallos` : '\ntodo bien');
+process.exit(fallos ? 1 : 0);

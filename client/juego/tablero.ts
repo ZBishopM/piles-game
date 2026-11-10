@@ -5,7 +5,6 @@ import type { CardInfo } from '../tipos/CardInfo';
 import type { PlayerProgress } from '../tipos/PlayerProgress';
 import { send } from './red.js';
 import { comboStep, playSfx } from './sonido.js';
-import { musicFromCombo } from './musica.js';
 import { owesCard, updateOwingUi, resetSwapHintLater, updateSwapHint, switchSet, updateFlipBtn } from './toques.js';
 import { checkAutoVerify } from './verificacion.js';
 
@@ -642,9 +641,6 @@ export function renderCombo(msg: Msg<'combo_update'>) {
     // El frenesí sobrevive a la racha, así que se pinta antes de cualquier
     // vuelta atrás: se gana llegando al precio y se guarda hasta gastarlo.
     updateFrenzyBtn(msg.frenzy_ready, msg.frenzy_cost_x100);
-    // La música sigue a la racha. Aquí y en ningún otro sitio: este mensaje ya
-    // llega en cada cambio, así que no hace falta vigilar nada aparte.
-    musicFromCombo(msg.window_ms ? (msg.multiplier_x100 ?? 100) : 100, msg.frenzy_ready);
     // El escalón suena en cada jugada encadenada, y sube con la racha. Cerrar
     // un set salta +1,00 de golpe, así que se le da su propio remate.
     if (msg.window_ms && msg.points) {
@@ -689,7 +685,6 @@ export function renderCombo(msg: Msg<'combo_update'>) {
 /** Al empezar o terminar una partida no debe quedar racha de la anterior. */
 export function resetCombo() {
     clearTimeout(comboHideTimer);
-    musicFromCombo(100, false);
     document.getElementById('comboBox')?.classList.remove('active');
     const board = document.getElementById('gameScreen');
     if (board) delete board.dataset.comboTier;

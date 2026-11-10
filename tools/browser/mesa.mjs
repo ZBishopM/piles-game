@@ -79,6 +79,11 @@ await espera(1800); await foto(A, '08-tres');
 await espera(3500);
 const enPartida = await A.evaluate(() => document.body.classList.contains('en-partida') && document.getElementById('gameScreen').classList.contains('active'));
 ok(enPartida, 'A en la partida (tablero de siempre)');
+// La música: las dos pistas suenan desde el primer gesto (aquí, una tecla del menú); al empezar la partida se funde a la de la partida.
+await espera(1800);
+const mus = await A.evaluate(() => juego.estadoMusica());
+ok(mus.arrancada && mus.cargadas.length === 2 && mus.mezcla > 0.95 && mus.partida > 0.9 && mus.menu < 0.1,
+   `suena la pista de la partida (menú ${mus.menu?.toFixed(2)}, partida ${mus.partida?.toFixed(2)}, ${mus.cargadas.join('+')})`);
 await foto(A, '09-partida');
 await b.close();
 console.log('errores:', errores.length ? errores : 'ninguno');
