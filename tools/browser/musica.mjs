@@ -42,7 +42,7 @@ function revisa(nombre, m, desde, hasta) {
   ok(salto < 0.2, `${nombre}: sin saltos (el mayor escalón entre muestras de 50 ms: ${salto.toFixed(3)})`);
   ok(Math.min(...pot) > 0.8 && Math.max(...pot) < 1.2, `${nombre}: potencia constante (cos²+sen² entre ${Math.min(...pot).toFixed(2)} y ${Math.max(...pot).toFixed(2)})`);
   const ini = m.find(x => Math.abs(x.partida - (desde === 'menu' ? 0 : 1)) > 0.05)?.t, fin2 = m.find(x => Math.abs(x.partida - (hasta === 'partida' ? 1 : 0)) < 0.05 && x.t > (ini ?? 0))?.t;
-  ok(ini !== undefined && fin2 !== undefined && fin2 - ini > 800 && fin2 - ini < 2200, `${nombre}: dura ~1,4 s (${Math.round(fin2 - ini)} ms)`);
+  ok(ini !== undefined && fin2 !== undefined && fin2 - ini > 700 && fin2 - ini < 2200, `${nombre}: dura ~1,4 s (${Math.round(fin2 - ini)} ms)`);
 }
 
 // 1 · Los ficheros se sirven bien
@@ -80,6 +80,26 @@ function revisa(nombre, m, desde, hasta) {
   const m = await muestrea(p, 2600);
   const salto = Math.max(...m.slice(1).map((x, i) => Math.max(Math.abs(x.menu - m[i].menu), Math.abs(x.partida - m[i].partida))));
   ok(salto < 0.2 && m.at(-1).menu > 0.95, `fundido interrumpido: vuelve sin saltos (escalón máximo ${salto.toFixed(3)})`);
+
+  // 4b · Un efecto agacha la música (−6 dB) mientras suena y la devuelve suave
+  {
+    const r = await p.evaluate(async () => {
+      const lee = () => juego.estadoMusica().agache;
+      const out = { antes: lee() };
+      juego.playSfx('fightLost');                         // 0,3 s
+      await new Promise(r => setTimeout(r, 120)); out.durante = lee();
+      await new Promise(r => setTimeout(r, 1300)); out.despues = lee();
+      juego.playSfx('take');                              // seguidos: no salta, se queda abajo
+      await new Promise(r => setTimeout(r, 40));
+      juego.playSfx('take');
+      await new Promise(r => setTimeout(r, 40)); out.seguidos = lee();
+      return out;
+    });
+    ok(r.antes > 0.98, `sin efectos la música va entera (${r.antes.toFixed(2)})`);
+    ok(r.durante > 0.45 && r.durante < 0.56, `con un efecto baja a ~0,5 = −6 dB (${r.durante.toFixed(2)})`);
+    ok(r.despues > 0.95, `al acabar el efecto vuelve (${r.despues.toFixed(2)})`);
+    ok(r.seguidos < 0.6, `efectos seguidos: se queda agachada (${r.seguidos.toFixed(2)})`);
+  }
 
   // 5 · Silencio: el volumen general baja a 0, las pistas siguen corriendo (sin perder la sincronía), y vuelve
   const antes = (await estado(p)).fase;

@@ -24,6 +24,10 @@ export function unlockAudio() {
 }
 document.addEventListener('pointerdown', unlockAudio, { once: true });
 
+/** Aviso a la música de que suena un efecto (`musica.ts` se apunta): se agacha mientras dura. */
+let alEfecto: ((dur: number) => void) | null = null;
+export function escucharEfectos(f: (dur: number) => void) { alEfecto = f; }
+
 /** Una nota. `type` da el color, la envolvente da el golpe. */
 export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo = null }:
     { freq: number; dur?: number; type?: OscillatorType; gain?: number; slideTo?: number | null }) {
@@ -42,6 +46,7 @@ export function tone({ freq, dur = 0.12, type = 'triangle', gain = 0.18, slideTo
     osc.connect(amp).connect(audioCtx.destination);
     osc.start(t);
     osc.stop(t + dur + 0.02);
+    alEfecto?.(dur);
 }
 
 /** Ruido corto, para lo que no es musical (soltar una carta, un choque). */
@@ -61,6 +66,7 @@ function noise({ dur = 0.08, gain = 0.12, hp = 800 }: { dur?: number; gain?: num
     amp.gain.value = gain;
     src.connect(filt).connect(amp).connect(audioCtx.destination);
     src.start(t);
+    alEfecto?.(dur);
 }
 
 /** Escalón de la cadena: cada jugada encadenada suena más arriba.

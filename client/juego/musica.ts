@@ -1,7 +1,7 @@
 // ─── Música de fondo ──────────────────────────────────────────────────────
 //
-// Dos arreglos de la misma pieza (client/musica/): el del MENÚ (calmado) y el de la
-// PARTIDA (apurado, con huecos para los efectos). Tienen el mismo tempo, los mismos 28
+// Dos arreglos de la misma pieza, «Marcha de la marioneta de cartón» (client/musica/): el
+// del MENÚ (llamada y respuesta, tranquilo) y el de la PARTIDA (tres voces entrelazadas). Tienen el mismo tempo, los mismos 28
 // compases en 7/4 y la misma armonía, y duran lo mismo al fotograma. Por eso suenan A LA
 // VEZ, en bucle y arrancados juntos, y lo único que cambia es cuál se oye: pasar de una
 // a otra es un fundido de potencia constante (seno/coseno) y, como van sincronizadas, no
@@ -10,13 +10,17 @@
 //   menú, sala, resultados   →  suena el menú
 //   partida (de game_start a game_over)  →  suena la partida
 //
+// Cuando suena un efecto, la música se AGACHA (ducking, como hace la mezcla de casi cualquier
+// juego): baja 6 dB en ~15 ms mientras dura el efecto y vuelve en ~0,5 s. Así un efecto nunca
+// se pisa con la melodía (que en la partida suena casi siempre: tres voces entrelazadas).
+//
 // Se piden y decodifican una vez (≈ 30 MB en memoria cada una). Si el navegador no
 // decodifica Ogg Vorbis (Safari anterior a 18.4) o falla la descarga, no suena música y
 // el juego sigue como si nada. Sin música sintetizada: la racha ya suena en los efectos
 // (`comboStep`).
 import { emitir } from './bus.js';
 import { est } from './estado.js';
-import { audioCtx, unlockAudio, playSfx } from './sonido.js';
+import { audioCtx, unlockAudio, playSfx, escucharEfectos } from './sonido.js';
 
 export type Pista = 'menu' | 'partida';
 const PISTAS: Pista[] = ['menu', 'partida'];
@@ -24,8 +28,12 @@ const ARCHIVOS: Record<Pista, string> = { menu: '/musica/menu.ogg', partida: '/m
 /** Volumen general: la música va por debajo de los efectos (que salen a 0,1–0,22). */
 const NIVEL = 0.28;
 const FUNDIDO_MS = 1400;
+/** Cuánto se agacha la música bajo un efecto: −6 dB. */
+const AGACHE = 0.5;
 
 let maestra: GainNode | null = null;
+let agache: GainNode | null = null;
+let agachadaHasta = 0;           // reloj del audio en que acaba el último efecto que suena
 const voces: Partial<Record<Pista, { gain: GainNode; src: AudioBufferSourceNode; dur: number }>> = {};
 let arrancada = false;
 let mezcla = 0;                  // 0 = solo el menú · 1 = solo la partida
@@ -78,6 +86,20 @@ function nivelMaestro() {
     maestra.gain.setTargetAtTime(est.sfxMuted ? 0 : NIVEL, audioCtx.currentTime, est.sfxMuted ? 0.05 : 0.5);
 }
 
+/** Un efecto empieza ahora y dura `dur` s: baja rápido y vuelve cuando acaba el último de los que se solapan. */
+function agachar(dur: number) {
+    const ctx = audioCtx;
+    if (!ctx || !agache) return;
+    const t = ctx.currentTime;
+    const g = agache.gain;
+    agachadaHasta = Math.max(agachadaHasta, t + dur);
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    g.setTargetAtTime(AGACHE, t, 0.005);                    // ~15 ms hasta abajo
+    g.setTargetAtTime(1, agachadaHasta + 0.04, 0.15);      // ~0,5 s de vuelta
+}
+escucharEfectos(agachar);
+
 async function cargar(ctx: AudioContext) {
     const bufs: Partial<Record<Pista, AudioBuffer>> = {};
     await Promise.all(PISTAS.map(async p => {
@@ -119,7 +141,8 @@ export function arrancarMusica() {
     if (ctx.state === 'suspended') void ctx.resume();
     maestra = ctx.createGain();
     maestra.gain.value = 0;
-    maestra.connect(ctx.destination);
+    agache = ctx.createGain();
+    maestra.connect(agache).connect(ctx.destination);
     void cargar(ctx);
 }
 // El primer gesto (un toque o una tecla: el menú se maneja con el teclado) abre el audio y arranca la música.
@@ -141,7 +164,7 @@ export function estadoMusica() {
     const ctx = audioCtx;
     return {
         arrancada, cargadas: PISTAS.filter(p => voces[p]), mezcla, fundiendo: !!fundido,
-        menu: voces.menu?.gain.gain.value ?? null, partida: voces.partida?.gain.gain.value ?? null, maestra: maestra?.gain.value ?? null,
+        menu: voces.menu?.gain.gain.value ?? null, partida: voces.partida?.gain.gain.value ?? null, maestra: maestra?.gain.value ?? null, agache: agache?.gain.value ?? null,
         duraciones: { menu: voces.menu?.dur ?? null, partida: voces.partida?.dur ?? null }, largoBucle,
         fase: ctx && largoBucle ? (((ctx.currentTime - inicio) % largoBucle) + largoBucle) % largoBucle : null,
     };
