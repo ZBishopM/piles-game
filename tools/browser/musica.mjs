@@ -101,6 +101,18 @@ function revisa(nombre, m, desde, hasta) {
     ok(r.seguidos < 0.6, `efectos seguidos: se queda agachada (${r.seguidos.toFixed(2)})`);
   }
 
+  // 4c · Si el navegador suspende el audio (Safari: creado fuera de un gesto válido, o «interrupted» en iOS), el siguiente
+  //      toque lo reanuda. Antes solo se creaba una vez y nadie lo volvía a arrancar: ni efectos ni música para siempre.
+  {
+    await p.evaluate(() => juego.audioCtx.suspend());
+    await espera(200);
+    const parado = await p.evaluate(() => juego.audioCtx.state);
+    await p.mouse.click(300, 300);
+    await espera(400);
+    const tras = await p.evaluate(() => juego.audioCtx.state);
+    ok(parado === 'suspended' && tras === 'running', `audio suspendido → un clic lo reanuda (${parado} → ${tras})`);
+  }
+
   // 5 · Silencio: el volumen general baja a 0, las pistas siguen corriendo (sin perder la sincronía), y vuelve
   const antes = (await estado(p)).fase;
   await p.evaluate(() => juego.toggleMute());

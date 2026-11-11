@@ -15,14 +15,20 @@ import { est } from './estado.js';
 export let audioCtx: AudioContext | null = null;
 try { est.sfxMuted = localStorage.getItem('piles.mute') === '1'; } catch { /* modo privado */ }
 
-/** El navegador no deja sonar nada hasta que el usuario toca algo. */
+/** El navegador no deja sonar nada hasta que el usuario toca algo. Crea el contexto y, si está
+ *  parado, lo reanuda: Safari lo deja «suspended» si se creó fuera de un gesto que él acepte, y en
+ *  iOS pasa a «interrupted» tras una llamada o al volver de segundo plano. Solo se reanuda dentro
+ *  de un gesto, así que se intenta en cada uno (si ya suena, no hace nada). */
 export function unlockAudio() {
-    if (audioCtx) return;
-    try {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext!)();
-    } catch { audioCtx = null; }
+    if (!audioCtx) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext!)();
+        } catch { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => { /* fuera de un gesto: el siguiente lo logra */ });
 }
-document.addEventListener('pointerdown', unlockAudio, { once: true });
+// En iOS el inicio del toque (pointerdown/touchstart) NO cuenta como gesto para el audio: touchend y click sí.
+for (const ev of ['pointerdown', 'touchend', 'click', 'keydown'] as const) document.addEventListener(ev, unlockAudio, { passive: true });
 
 /** Aviso a la música de que suena un efecto (`musica.ts` se apunta): se agacha mientras dura. */
 let alEfecto: ((dur: number) => void) | null = null;
