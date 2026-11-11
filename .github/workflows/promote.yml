@@ -61,7 +61,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment:
       name: production
-      url: https://piles.danassistantassistant.website
+      url: https://piles.agapornis.app
     steps:
       - uses: actions/download-artifact@v8
         with:

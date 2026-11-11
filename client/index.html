@@ -9,6 +9,30 @@
     <meta name="theme-color" content="#060606">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon-192.png">
+    <script>
+    // Mudanza a agapornis.app. localStorage es por dominio: sin esto, al cambiar
+    // de dominio cada jugador perdería su nombre, su Elo vinculado y sus ajustes.
+    // El dominio viejo pasa sus claves piles* en el # (no llega al servidor) la
+    // primera vez y luego solo redirige; el nuevo las guarda y limpia la barra.
+    // Quitar cuando danassistantassistant.website deje de existir (23-11-2026).
+    (function () {
+        var VIEJO = /\.danassistantassistant\.website$/, h = location.hostname, d = {}, k, i, m;
+        if (VIEJO.test(h)) {
+            try {
+                if (!localStorage.getItem('piles.mudado')) {
+                    for (i = 0; i < localStorage.length; i++) { k = localStorage.key(i); if (/^piles[._]/.test(k)) d[k] = localStorage.getItem(k); }
+                    localStorage.setItem('piles.mudado', '1');
+                }
+            } catch (e) {}
+            location.replace('https://' + h.replace(VIEJO, '.agapornis.app') + location.pathname + location.search + '#mudanza=' + encodeURIComponent(JSON.stringify(d)));
+            return;
+        }
+        m = location.hash.match(/^#mudanza=(.*)$/);
+        if (!m) return;
+        try { d = JSON.parse(decodeURIComponent(m[1])); for (k in d) if (/^piles[._]/.test(k)) localStorage.setItem(k, d[k]); } catch (e) {}
+        history.replaceState(null, '', location.pathname + location.search);
+    })();
+    </script>
     <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
     <!-- con conexión lenta el medio salía en blanco un tiempo. Con esto, se descarga
     mientras el jugador está en el menú o esperando en la sala. -->

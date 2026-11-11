@@ -9,7 +9,7 @@ import { stopMusic } from './musica.js';
 import { clearStun, closeQteOverlay } from './pelea.js';
 import { closeVerifyOverlay, clearMatchNotifications } from './verificacion.js';
 
-const SM_BASE = 'https://gamesessions.danassistantassistant.website';
+const SM_BASE = 'https://gamesessions.agapornis.app';
 
 /** Lo que da /api/elo/:key: rating y partidas por clasificación. */
 type EloRec = Partial<Record<'fun' | 'glory', { r: number; n: number }>> & { top3?: { fun?: boolean; glory?: boolean } };
@@ -142,7 +142,7 @@ export function claimSessionManagerResult(rankings: RankingEntry[]) {
     const mine = rankings.find(r => r.nickname === myNickname);
     if (!mine) return;
 
-    fetch('https://gamesessions.danassistantassistant.website/api/piles/claim', {
+    fetch('https://gamesessions.agapornis.app/api/piles/claim', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ code, placement: mine.position, points: mine.points }),

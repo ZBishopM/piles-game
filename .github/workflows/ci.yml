@@ -3,7 +3,7 @@ name: CI
 # Tests y build en cada push a beta/master y en cada PR. El binario se sube
 # como artifact: es el MISMO que después promueve promote.yml a producción
 # (build once, deploy many). En beta se despliega solo en
-# https://beta.piles.danassistantassistant.website. Ver DEPLOY.md, "CI y deploy".
+# https://beta.piles.agapornis.app. Ver DEPLOY.md, "CI y deploy".
 #
 # El deploy no hace nada hasta que el repo tenga la variable DEPLOY_HOST y el
 # secret SSH_KEY, así que un fork sin VPS nunca falla por esto.

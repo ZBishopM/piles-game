@@ -8,8 +8,8 @@
 
 const BASES = {
   local: "http://127.0.0.1:3077"
-  beta: "https://beta.piles.danassistantassistant.website"
-  prod: "https://piles.danassistantassistant.website"
+  beta: "https://beta.piles.agapornis.app"
+  prod: "https://piles.agapornis.app"
 }
 
 def main [--base (-b): string = "beta"] {

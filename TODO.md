@@ -1,8 +1,8 @@
 # Piles! — Tareas Pendientes
 
 Estado y despliegue: ver `README.md` y `DEPLOY.md`. El juego está en
-producción (`piles.danassistantassistant.website`) con un entorno de pruebas
-aparte (`beta.piles.danassistantassistant.website`).
+producción (`piles.agapornis.app`) con un entorno de pruebas
+aparte (`beta.piles.agapornis.app`).
 
 ---
 

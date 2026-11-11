@@ -113,8 +113,8 @@ Hay **dos entornos aislados**, con procesos, puertos y checkouts distintos:
 
 | | dominio | rama | puerto |
 |---|---|---|---|
-| producción | `piles.danassistantassistant.website` | `master` | 3000 |
-| beta | `beta.piles.danassistantassistant.website` | `beta` | 3010 |
+| producción | `piles.agapornis.app` | `master` | 3000 |
+| beta | `beta.piles.agapornis.app` | `beta` | 3010 |
 
 Los cambios van **siempre a beta primero**; solo se promueven a `master` una
 vez probados ahí. La beta no se conecta con Session Manager: no hace falta

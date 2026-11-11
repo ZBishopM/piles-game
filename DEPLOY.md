@@ -17,7 +17,7 @@ proxy.
 
 | | producción | beta |
 |---|---|---|
-| dominio | `piles.danassistantassistant.website` | `beta.piles.danassistantassistant.website` |
+| dominio | `piles.agapornis.app` | `beta.piles.agapornis.app` |
 | rama | `master` | `beta` |
 | checkout | `/var/www/piles-game` | `/home/bicho/piles-beta` |
 | proceso pm2 | `piles-game`, puerto 3000 | `piles-beta`, puerto 3010 |
@@ -66,7 +66,7 @@ pm2 restart piles-beta
 # si solo cambió client/, no hace falta ni compilar ni reiniciar
 ```
 
-**3. Probar** en https://beta.piles.danassistantassistant.website
+**3. Probar** en https://beta.piles.agapornis.app
 
 **4. Promover a producción** — con `.github/workflows/promote.yml`, que pide
 aprobación:
@@ -138,7 +138,7 @@ contraseña, esto lo hace una persona):
 sudo cp ~/piles-beta-nginx.conf /etc/nginx/sites-available/piles-beta
 sudo ln -s /etc/nginx/sites-available/piles-beta /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d beta.piles.danassistantassistant.website
+sudo certbot --nginx -d beta.piles.agapornis.app
 ```
 
 ---
@@ -282,7 +282,7 @@ pm2 restart piles-game
 
 # Comprobar que responde
 curl -s -o /dev/null -w '%{http_code}
-' https://piles.danassistantassistant.website/health
+' https://piles.agapornis.app/health
 
 # Ver si hay alguien jugando antes de reiniciar
 ss -tn state established '( sport = :3000 )'
