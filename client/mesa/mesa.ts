@@ -10,6 +10,8 @@ import { lobbyIsPublic, setVisibility, createLobby, quickMatch, refreshLobbies, 
 import { sinEmoji } from '../juego/espectador.js';
 import { ratingKey } from '../juego/tablero.js';
 import { TAUNTS, getTaunt, playTaunt } from '../juego/burlas.js';
+import { playSfx } from '../juego/sonido.js';
+import { toggleMute } from '../juego/musica.js';
 import { fetchElo, smCodeGuardado, setSmCode, clearSmCode, vistaActual, showScreen } from '../juego/cuenta.js';
 
 import { escena } from './escena.js';
@@ -125,7 +127,7 @@ const ICONOS = {
     check: 'M4 12l5 5L20 6', cambio: 'M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4', llenar: 'M4 6h12M4 12h16M4 18h12M16 8l4 4-4 4',
     fuera: 'M14 4H4v16h10M10 12h11M17 8l4 4-4 4', persona: 'M8 4h8v8H8zM4 21v-5h16v5', camara: 'M3 7h4l2-3h6l2 3h4v13H3zM10 11h4v4h-4z',
     qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2M18 14h2v2M14 18h2v2M18 18v2h2',
-    abajo: 'M12 3v16M6 13l6 6 6-6',
+    abajo: 'M12 3v16M6 13l6 6 6-6', mudo: 'M3 9v6h4l6 5V4L7 9zM16 9l6 6M22 9l-6 6',
 } as const;
 type Icono = keyof typeof ICONOS;
 const ico = (n: Icono) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONOS[n]}"/></svg>`;
@@ -220,17 +222,32 @@ function elegir(d: number) {
         mano[sel]?.animate([{ translate: '0 0' }, { translate: `${-d * 14}px 0` }, { translate: '0 0' }], { duration: 320, easing: 'cubic-bezier(.34,1.56,.64,1)' });
         return;
     }
-    sel = n; vibrar(6); colocarMano();
+    sel = n; vibrar(6); playSfx('menuMove'); colocarMano();
+}
+
+// La primera vez, cómo se maneja el menú: una línea sobre la mano, que se va al jugar una carta
+// (y no vuelve: piles.visto). Sin ella, nada decía que la mano se desliza y la carta se lanza.
+let pista = false;
+try { pista = !localStorage.getItem('piles.visto'); } catch { /* modo privado: sin pista */ }
+function ponPista() {
+    if (pista && pantalla === 'inicio') estado.textContent = T(matchMedia('(pointer: coarse)').matches ? 'Desliza ← → y lanza la carta ↑' : '← → eligen · ↑ juega · ↓ vuelve');
 }
 
 // Jugar la carta elegida: si lleva a otro menú, vuela arriba en bermellón y queda como cabecera.
 function jugar() {
     const c = mano[sel]; if (!c) return;
-    if (c.disabled) { c.animate([{ translate: '0 0' }, { translate: '8px 0' }, { translate: '-6px 0' }, { translate: '0 0' }], { duration: 260 }); return; }   // apagada o esperando al servidor
+    if (pista) { pista = false; try { localStorage.setItem('piles.visto', '1'); } catch { /* */ } if (pantalla === 'inicio') estado.textContent = ''; }
+    if (c.disabled) { playSfx('refused'); c.animate([{ translate: '0 0' }, { translate: '8px 0' }, { translate: '-6px 0' }, { translate: '0 0' }], { duration: 260 }); return; }   // apagada o esperando al servidor
     const o = MENUS[pantalla][sel];
     if (!o) return;
-    if (o.accion !== undefined) { accion(o.accion, c, o); return; }
-    vibrar(18);
+    if (o.accion !== undefined) {
+        // «Listo» tiene su sonido (marcarse / desmarcarse); el resto suena a carta jugada
+        if (o.accion === 'listo') playSfx(est.isReady ? 'unready' : 'ready');
+        else if (o.accion === 'volver') { /* suena al deshacer */ }
+        else playSfx('menuOk');
+        accion(o.accion, c, o); return;
+    }
+    vibrar(18); playSfx('menuOk');
     c.classList.remove('respira');
     c.style.transition = '';
     mano.splice(sel, 1);
@@ -276,6 +293,7 @@ function volver() {
 /** El paso atrás en pantalla (sin efectos en lobby.html). */
 function deshacer() {
     if (!historial.length) return;
+    playSfx('menuBack');
     const antes = pantalla;
     const h = cabeceras.pop();
     h?.classList.remove('previa');
@@ -305,7 +323,7 @@ function saltarA(destino: string) {
         retirarMano(); setTimeout(() => repartir(MENUS.inicio, -1), 120);
         return;
     }
-    const titulo = destino === 'sala' ? (est.currentLobbyId || 'Sala') : ({ perfil: 'Perfil', tutorial: 'Cómo jugar', crear: 'Crear sala', unirse: 'Unirse' } as Record<string, string>)[destino] ?? destino;
+    const titulo = destino === 'sala' ? 'Sala' : ({ perfil: 'Perfil', tutorial: 'Cómo jugar', crear: 'Crear sala', unirse: 'Unirse' } as Record<string, string>)[destino] ?? destino;
     irA(destino, titulo, {}, false);
 }
 
@@ -340,7 +358,7 @@ al('showScreen', (id: string) => {
     if (ya) { if (destino === 'sala') sincronizarSala(); return; }
     // Entraste en una sala desde donde la pediste (inicio, crear, unirse): un paso más, sin perder
     // el camino. Desde cualquier otro sitio (F5, enlace, te echaron…), el camino se rehace.
-    if (destino === 'sala' && ['inicio', 'crear', 'unirse', 'visor'].includes(pantalla)) { estado.textContent = ''; irA('sala', est.currentLobbyId, {}, false); }
+    if (destino === 'sala' && ['inicio', 'crear', 'unirse', 'visor'].includes(pantalla)) { estado.textContent = ''; irA('sala', 'Sala', {}, false); }   // «Sala» y no el código: el código ya está al lado, en el chip
     else saltarA(destino);
 });
 // Sin nombre no se entra en ninguna sala: el campo del nombre tiembla en rojo y se enfoca
@@ -403,7 +421,7 @@ function sincronizarSala(llega = false) {
             const nueva = c;
             requestAnimationFrame(() => requestAnimationFrame(() => { nueva.style.transition = ''; pon(nueva, x, y, (i % 2 ? 1 : -1) * 3, .56); }));
             if (llega && !tuyo) {
-                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8);
+                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8); playSfx('join');
                 // Al caer en su asiento, un golpe: se ve que ya está, no solo que llega algo
                 c.animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], { duration: 420, delay: 480, easing: 'cubic-bezier(.34,1.56,.64,1)' });
             }
@@ -416,7 +434,7 @@ function sincronizarSala(llega = false) {
         c.dataset.id = p.id;
     });
     for (const [id, c] of cartasJug) if (!vistos.has(id)) {
-        decir('', T('{n} salió', { n: c.dataset.nombre ?? '' }), true);
+        decir('', T('{n} salió', { n: c.dataset.nombre ?? '' }), true); playSfx('leave');
         pon(c, W() + 200, -200, 40, 1); setTimeout(() => c.remove(), 600);
         cartasJug.delete(id);
     }
@@ -506,6 +524,9 @@ function estadoBots() {
         if (c.classList.contains('ida')) return;
         const a = MENUS.bots[i]?.accion;
         c.disabled = a === 'bot' || a === 'llenar' ? llena : a === 'quitarBot' ? sinBots : false;
+        // Apagada, dice por qué (antes se veía gris sin más)
+        const nota = c.disabled ? (a === 'quitarBot' ? 'No hay bots' : 'Mesa llena') : MENUS.bots[i]?.nota ?? '';
+        if (c.dataset.nota !== nota) ponTexto(c, 'nota', nota);
     });
 }
 const salta = (c: Element | null | undefined) => c?.animate([{ translate: '0 0' }, { translate: '0 -40px' }, { translate: '0 0' }], { duration: 420, easing: 'cubic-bezier(.34,1.56,.64,1)' });
@@ -585,6 +606,7 @@ function preparaMenu(destino: string, o: Partial<Opcion> = {}) {
     if (destino === 'perfil') MENUS.perfil[1].nota = TAUNTS.find(b => b.id === getTaunt())?.name ?? tl('taunt.none');
 }
 function alCambiar(antes: string, ahora: string, lobby: boolean) {
+    if (ahora === 'inicio') ponPista();
     if (PERFIL.has(ahora) && !est.currentLobbyId) {
         X.nombres = [nombre.value.trim() || T('Tú'), 'Beto', 'Coca', 'Dani']; X.tu = 0;
     } else if (!EN_SALA.has(ahora) || ahora === 'sala') sincronizarSala();
@@ -674,12 +696,12 @@ function alMensaje(msg: ServerMessage) {
             sincronizarSala(llega);
             break;
         }
-        case 'chat': decir(sinEmoji(msg.from), msg.text, false, msg.from === est.currentNickname); break;
+        case 'chat': decir(sinEmoji(msg.from), msg.text, false, msg.from === est.currentNickname); if (msg.from !== est.currentNickname) playSfx('chat'); break;
         case 'chat_history': chatLog.length = 0; (msg.messages ?? []).forEach(l => chatLog.push({ quien: sinEmoji(l.from), txt: l.text, sistema: false, tuyo: l.from === est.currentNickname })); pintarChat(); break;
         case 'kick_poll': alVoto(msg); break;
         case 'kick_poll_ended': alFinVoto(msg); break;
         case 'kicked': ultimaSala = null; break;
-        case 'game_start': cancelarCuentaVisual(); break;
+        case 'game_start': cancelarCuentaVisual(); playSfx('deal'); break;
     }
 }
 /** Votación para echar: quien vota tiene «Sí, fuera» / «No»; el votado y los demás, el estado. */
@@ -749,6 +771,8 @@ function formas(p = pantalla) {
     if (p === 'inicio') {
         pon3(0, M + R.cabw + SEP, FILA2, 44, 40, `<button class="grande" data-act="perfil" aria-label="${T('Perfil')}">${ico('persona')}</button>`, 'perfil');
         pon3(1, w - M - 110, FILA2, 110, 40, `<button class="grande" data-act="ayuda" style="font-size:.8rem">${T('? Reglas')}</button>`, 'ayuda');
+        // El sonido, arriba a la derecha (a la altura del título): en el menú no había dónde callarlo
+        pon3(2, w - M - 44, 12, 44, 40, `<button class="grande" data-act="mute" aria-label="${tl(est.sfxMuted ? 'game.unmute' : 'game.mute')}" aria-pressed="${est.sfxMuted}">${ico(est.sfxMuted ? 'mudo' : 'bocina')}</button>`, `mute:${est.sfxMuted}`);
     }
     if (p === 'crear') {
         pon3(0, M, ZONA, col, 126, `<span class="rotulo">${T('Jugadores')}</span><div class="fila"><button data-act="menos" aria-label="−">${ico('menos')}</button>${tambor('jug', 2, 8, crearJug)}<button data-act="mas" aria-label="+">${ico('mas')}</button></div>`, 'jug');
@@ -797,6 +821,8 @@ function actuar(act: string, b: HTMLElement) {
         fila.style.setProperty('--i', String(segs.indexOf(b)));
     };
     vibrar(8);
+    if (act === 'mute') { toggleMute(); formas(); return; }   // suena (o calla) él solo
+    playSfx('toggle');
     if (act === 'perfil') irA('perfil', 'Perfil');
     else if (act === 'ayuda') irA('tutorial', 'Cómo jugar');
     else if (act === 'menos' || act === 'mas') AL_GIRAR.jug(girarTambor(b.parentElement!.querySelector<HTMLElement>('.tambor')!, crearJug + (act === 'mas' ? 1 : -1)));
@@ -996,7 +1022,7 @@ esc.addEventListener('pointermove', e => {
     if (!I.eje && Math.hypot(dx, dy) > 8) I.eje = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
     if (I.eje === 'h' && mano.length) {
         const n = Math.max(0, Math.min(mano.length - 1, I.sel + Math.round(-dx / 90)));   // cada 90 px, una carta
-        if (n !== sel) { sel = n; vibrar(5); }
+        if (n !== sel) { sel = n; vibrar(5); playSfx('menuMove'); }
         const usado = -(sel - I.sel) * 90, resto = dx - usado, borde = (sel === 0 && resto > 0) || (sel === mano.length - 1 && resto < 0);
         colocarMano(false, resto * (borde ? 0.3 : 112 / 90));
     } else if (I.eje === 'v') arrastrarV(dy);
@@ -1034,7 +1060,7 @@ esc.addEventListener('pointerup', e => {
         }
         const c = bajo?.closest<Carta>('#cartas .carta:not([disabled])');
         const i = c ? mano.indexOf(c) : -1;
-        if (i >= 0 && i !== sel) { sel = i; vibrar(6); colocarMano(); }
+        if (i >= 0 && i !== sel) { sel = i; vibrar(6); playSfx('menuMove'); colocarMano(); }
         else if (i === sel) jugar();
     }
 });
@@ -1077,6 +1103,7 @@ MENUS.perfil[1].nota = TAUNTS.find(b => b.id === getTaunt())?.name ?? tl('taunt.
 window.agText = window.agText ?? { up: tl('rank.up'), down: tl('rank.down') };
 repartir(MENUS.inicio);
 formas('inicio');
+ponPista();
 if (vistaActual !== 'homeScreen' && DE_LOBBY[vistaActual]) saltarA(DE_LOBBY[vistaActual]);
 
 // Para depurar y para las pruebas con navegador

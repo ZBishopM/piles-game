@@ -86,6 +86,9 @@ export const DIC: Record<string, [string, string]> = {
     'En espera': ['Waiting', '等待中'], 'Empezando': ['Starting', '即将开始'], 'Jugando': ['Playing', '游戏中'], '{n} mirando': ['{n} watching', '{n} 人观战'],
     'Entrarás a mirar': ['You will watch', '你将观战'], 'Entrarás a jugar': ['You will play', '你将上场'], 'Sala': ['Room', '房间'],
     'Código': ['Code', '代码'], 'Enlace copiado': ['Link copied', '链接已复制'],
+    'Mesa llena': ['Table is full', '桌子已满'],
+    'Desliza ← → y lanza la carta ↑': ['Swipe ← → and throw the card ↑', '左右滑动 ← →，向上甩出卡牌 ↑'],
+    '← → eligen · ↑ juega · ↓ vuelve': ['← → choose · ↑ play · ↓ back', '← → 选择 · ↑ 出牌 · ↓ 返回'],
 };
 const LENGUA = ({ es: -1, en: 0, zh: 1 } as Record<string, number>)[window.PilesI18n?.lang] ?? -1;
 export function T(s: string, v: Record<string, unknown> = {}): string {

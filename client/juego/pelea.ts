@@ -7,6 +7,8 @@ type Aviso = HTMLElement & { _timer?: ReturnType<typeof setInterval>; _failsafe?
 import { send } from './red.js';
 import { renderCenterCards, renderYourCards, buildCard, cardRectAt } from './tablero.js';
 import { playSfx } from './sonido.js';
+import { tensarMusica } from './musica.js';
+let misGolpes = 0;   // los de esta pelea: cada golpe suena un poco más agudo
 import { clearPending, qteNotifs, FIGHT_RESULT_MS } from './toques.js';
 
 export let stunnedUntil = 0;
@@ -113,7 +115,9 @@ export function onSwapConflict(players: string[], cardId: number, durationMs: nu
     if (isParticipant) {
         // ── Overlay completo para participantes ──
         est.qteActive = true;
+        misGolpes = 0;
         playSfx('fight');
+        tensarMusica(true);
 
         const rival = players.find(p => p !== est.currentNickname) || '';
         porId('qteTitle').textContent = t('qte.title');
@@ -290,6 +294,7 @@ export function onQteTiebreak(cardId: number, round: number, duracion?: number) 
     const marcador = est.qtePlayers
         .map(n => document.getElementById(`qte-n-${n}`)?.textContent ?? '0').join(' – ');
     const titulo = porId('qteTitle');
+    misGolpes = 0;
     titulo.textContent = t('qte.tie_title');
     titulo.classList.add('tie');
     porId('qteBox').classList.add('tie');
@@ -370,6 +375,7 @@ export function onQteResolved(winnerName: string, info?: Partial<Msg<'qte_resolv
 export function closeQteOverlay() {
     if (finalManos && !esperaAturdido) resolverManos(null);   // se cerró sin resultado
     est.qteActive = false;
+    tensarMusica(false);
     cancelGiveUpHold();
     const rendirse = giveUpBtn();
     if (rendirse) rendirse.hidden = true;
@@ -462,6 +468,7 @@ porId('qteOverlay').addEventListener('pointerdown', (e) => {
     if (!est.qteActive) return;
     e.preventDefault();
     sendQteClick();
+    playSfx('tap', misGolpes++);
     const overlay = e.currentTarget as HTMLElement;
     overlay.classList.add('hit');
     setTimeout(() => overlay.classList.remove('hit'), 60);

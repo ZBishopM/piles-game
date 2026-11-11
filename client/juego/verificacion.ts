@@ -208,10 +208,18 @@ export function onGameOver(rankings: RankingEntry[], elo: EloChange[] = []) {
     const list = porId('rankingList');
     list.innerHTML = '';
     const titulo = document.querySelector('#gameOverOverlay h2');
-    if (titulo) titulo.textContent = sinEmoji(t('over.title'));
-    rankings.forEach(entry => {
+    // El título dice cómo te fue a ti (a quien mira, o jugando solo, «Fin del juego»)
+    const mio = rankings.find(e => e.nickname === est.currentNickname);
+    const gane = !!mio && mio.position === 1 && rankings.length > 1;
+    if (titulo) {
+        titulo.textContent = !mio || rankings.length < 2 ? sinEmoji(t('over.title')) : gane ? t('over.won') : t('over.place', { n: mio.position });
+        titulo.classList.toggle('gane', gane);
+    }
+    if (!yaMostrado && mio && rankings.length > 1) playSfx(gane ? 'win' : 'lose');
+    rankings.forEach((entry, i) => {
         const div = document.createElement('div');
-        div.className = 'ranking-entry';
+        div.className = 'ranking-entry' + (entry === mio ? ' mio' : '');
+        div.style.setProperty('--i', String(i));   // entran una a una (partida.css)
         // Puesto, nombre y lo que se mueve el Elo. Los puntos y el combo ya no
         // se enseñan (el servidor los sigue calculando y mandando: se siguen
         // sumando a Session Manager en `claimSessionManagerResult`).

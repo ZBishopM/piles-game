@@ -33,7 +33,9 @@ const AGACHE = 0.5;
 
 let maestra: GainNode | null = null;
 let agache: GainNode | null = null;
-let agachadaHasta = 0;           // reloj del audio en que acaba el último efecto que suena
+let sordina: BiquadFilterNode | null = null;
+const ABIERTA = 20000;           // Hz: el filtro abierto no quita nada
+let agachadaHasta = 0;          // reloj del audio en que acaba el último efecto que suena
 const voces: Partial<Record<Pista, { gain: GainNode; src: AudioBufferSourceNode; dur: number }>> = {};
 let arrancada = false;
 let mezcla = 0;                  // 0 = solo el menú · 1 = solo la partida
@@ -100,6 +102,17 @@ function agachar(dur: number) {
 }
 escucharEfectos(agachar);
 
+/** En una pelea la música se queda «detrás de una puerta» (paso bajo a 600 Hz): solo quedan el
+ *  bajo y el pulso, y se oyen tus golpes. Al acabar, se abre en ~0,6 s. */
+export function tensarMusica(si: boolean) {
+    const ctx = audioCtx;
+    if (!ctx || !sordina) return;
+    const f = sordina.frequency, t = ctx.currentTime;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(f.value, t);
+    f.setTargetAtTime(si ? 600 : ABIERTA, t, si ? 0.05 : 0.2);
+}
+
 async function cargar(ctx: AudioContext) {
     const bufs: Partial<Record<Pista, AudioBuffer>> = {};
     await Promise.all(PISTAS.map(async p => {
@@ -142,7 +155,10 @@ export function arrancarMusica() {
     maestra = ctx.createGain();
     maestra.gain.value = 0;
     agache = ctx.createGain();
-    maestra.connect(agache).connect(ctx.destination);
+    sordina = ctx.createBiquadFilter();
+    sordina.type = 'lowpass';
+    sordina.frequency.value = ABIERTA;
+    maestra.connect(agache).connect(sordina).connect(ctx.destination);
     void cargar(ctx);
 }
 // El primer gesto (un toque o una tecla: el menú se maneja con el teclado) abre el audio y arranca la música.

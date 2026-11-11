@@ -270,6 +270,7 @@ export function applyBetaMode() {
     // Lo que no se hace en beta es sumar resultados a Session Manager (ver
     // claimSessionManagerResult).
     const badge = document.createElement('div');
+    badge.id = 'betaBadge';   // en la partida se encoge (partida.css): tapaba el nombre del primer marcador
     badge.textContent = 'BETA';
     badge.title = t('beta.title');
     badge.style.cssText = 'position:fixed;top:0;left:0;z-index:400;background:var(--warning);'

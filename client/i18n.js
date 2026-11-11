@@ -224,6 +224,8 @@ html[lang="zh-CN"] { --font-sans: "Geist", "PingFang SC", "Hiragino Sans GB", "M
         'qte.btn': { es: '¡ C L I C K !', en: 'C L I C K !', zh: '点 击 ！' },
         'qte.giveup': { es: 'Mantén pulsado para ceder la carta', en: 'Hold to give up the card', zh: '长按以让出这张牌' },
         'over.title': { es: '🏆 Fin del Juego', en: '🏆 Game over', zh: '🏆 游戏结束' },
+        'over.won': { es: '¡Ganaste!', en: 'You win!', zh: '你赢了！' },
+        'over.place': { es: 'Puesto {n}', en: 'Place {n}', zh: '第 {n} 名' },
         'over.back': { es: 'Volver al Lobby', en: 'Back to lobby', zh: '返回大厅' },
         'recon.title': { es: 'Conexión perdida', en: 'Connection lost', zh: '连接已断开' },
         'recon.msg': { es: 'La conexión con el servidor se interrumpió.', en: 'The connection to the server was interrupted.', zh: '与服务器的连接中断了。' },

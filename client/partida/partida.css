@@ -365,6 +365,14 @@ body.mesa button.desliza.desliza-mini::after {
 #gameOverOverlay .ranking-entry { border-radius: 0; background: rgb(233 230 218 / 6%); transform: skewX(-8deg); margin: 6px 0; font: 800 .95rem var(--sans); }
 #gameOverOverlay .ranking-entry > * { transform: skewX(8deg); }
 #gameOverOverlay .ranking-entry:first-child { background: var(--acento); color: var(--tinta); }
+body.en-partida #betaBadge { font-size: .5rem !important; line-height: 1; padding: 1px 6px !important; opacity: .85; }
+/* Las filas entran una a una, de lado; la tuya lleva una marca a la izquierda */
+#gameOverOverlay.active .ranking-entry { animation: filaEntra .38s cubic-bezier(.2, .9, .3, 1.2) both; animation-delay: calc(.25s + var(--i, 0) * .09s); }
+@keyframes filaEntra { from { opacity: 0; translate: -36px 0; } to { opacity: 1; translate: 0 0; } }
+#gameOverOverlay .ranking-entry.mio { box-shadow: inset 5px 0 0 var(--hueso); }
+#gameOverOverlay h2.gane { font-size: 2rem; color: var(--acento); animation: ganeEntra .5s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes ganeEntra { from { scale: .5; rotate: -6deg; opacity: 0; } to { scale: 1; rotate: -2deg; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { #gameOverOverlay.active .ranking-entry, #gameOverOverlay h2.gane { animation: none; } }
 #gameOverOverlay .rank-pos { font: 900 1.5rem/1 var(--sans); }
 #gameOverOverlay .rank-elo { font-family: var(--sans); font-weight: 900; }
 #gameOverOverlay .rank-elo.up { color: var(--salvia); }
