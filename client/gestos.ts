@@ -7,7 +7,8 @@
 //     · arrastrar el pomo hasta el final (≥ 85 %),
 //     · mantener pulsado MANTENER ms sin moverse (alternativa de WCAG 2.5.7),
 //     · Enter / Espacio desde el teclado (el clic de teclado llega con detail 0).
-//   Excepciones, con data-toque: el botón de pelea (se machaca a toques, #19).
+//   Excepciones, con data-toque: el botón de pelea (se machaca a toques, #19) y el de silencio
+//   (con mantener pulsado, en el móvil parecía roto; silenciar no se hace por error).
 //   Los botones que crea el código después también se convierten (MutationObserver).
 //   La mesa (data-sin-gestos) tiene sus propios gestos; los de la partida (soltar, coger,
 //   revelar, cambiar de set) están en partida/partida.ts.

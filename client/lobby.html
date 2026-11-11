@@ -90,7 +90,8 @@
          cada uno). Estaban lejos el uno del otro y el de abajo empujaba el
          tablero fuera de la pantalla. -->
     <div class="hud" id="hud"></div>
-    <button id="muteBtn" type="button" data-accion="toggleMute" title="Silenciar" data-i18n-attr="title:game.mute">🔊</button>
+    <!-- data-toque: un toque basta (sin mantener pulsado); silenciar no se puede hacer por error -->
+    <button id="muteBtn" type="button" data-toque data-accion="toggleMute" title="Silenciar" data-i18n-attr="title:game.mute">🔊</button>
 
     <!-- Hint de intercambio -->
     <div id="swapHint" data-i18n-html="game.swaphint">Selecciona una carta de <strong>tu set</strong> o del <strong>centro</strong> para intercambiar</div>
