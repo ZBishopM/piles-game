@@ -13,7 +13,7 @@ for (const tipo of [chromium, firefox]) {
   const b = await tipo.launch({ headless: false });
   const p = await (await b.newContext({ viewport: { width: 1600, height: 900 } })).newPage();
   const errores = []; p.on('pageerror', e => errores.push(e.message));
-  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await p.goto(base + '/', { waitUntil: 'networkidle' });
   await wait(6000);
   let e = await estado(p);
   ok(e.pincel === 'pixi', `${tipo.name()}: por defecto WebGL (${e.pincel})`);
@@ -33,12 +33,12 @@ for (const tipo of [chromium, firefox]) {
     return n;
   });
   ok(pintado > 50, `${tipo.name()}: la escena 2D se sigue pintando (${pintado} muestras con luz)`);
-  await p.goto(base + '/lobby.html?lienzo=2d', { waitUntil: 'networkidle' });
+  await p.goto(base + '/?lienzo=2d', { waitUntil: 'networkidle' });
   await wait(3000);
   e = await estado(p);
   ok(e.pincel === '2d', `${tipo.name()}: ?lienzo=2d fuerza Canvas2D (${e.pincel})`);
   // WebGL lento (como una GPU por software): cada cuadro tarda 60 ms → a los ~2 s, Canvas2D
-  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await p.goto(base + '/', { waitUntil: 'networkidle' });
   await wait(5000);
   await p.evaluate(() => { const f = () => { const t = performance.now(); while (performance.now() - t < 60); if (!window.__basta) requestAnimationFrame(f); }; requestAnimationFrame(f); });
   await wait(5000);

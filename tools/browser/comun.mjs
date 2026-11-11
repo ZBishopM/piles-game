@@ -21,7 +21,7 @@ export async function pagina(ctx) {
   const p = await ctx.newPage();
   p.errores = [];
   p.on('pageerror', e => p.errores.push(e.message));
-  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await p.goto(base + '/', { waitUntil: 'networkidle' });
   return p;
 }
 

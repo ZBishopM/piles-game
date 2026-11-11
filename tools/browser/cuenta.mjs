@@ -32,7 +32,7 @@ async function sala(nickA, nickB, vA, vB, extra = {}) {
   const B = await ctxB.newPage();
   B.errores = []; A.errores ??= [];
   B.on('pageerror', e => B.errores.push(e.message));
-  await B.goto(`${base}/lobby.html?join=${codigo}`, { waitUntil: 'networkidle' });
+  await B.goto(`${base}/?join=${codigo}`, { waitUntil: 'networkidle' });
   await B.locator('#lobbyScreen.active').waitFor({ timeout: 8000 });
   await A.waitForFunction(() => document.getElementById('playerCount').textContent === '2', null, { timeout: 5000 });
   return { A, B, ctxA, ctxB };

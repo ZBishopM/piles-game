@@ -21,7 +21,7 @@ const capturas = process.env.CAPTURAS || path.join(os.tmpdir(), 'piles-roles');
 fs.mkdirSync(capturas, { recursive: true });
 const MOVIL = { width: 390, height: 700 }, ESCRITORIO = { width: 1280, height: 800 };
 
-async function pestana(nick, viewport, url = `${base}/lobby.html`) {
+async function pestana(nick, viewport, url = `${base}/`) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
   await ctx.addInitScript(n => localStorage.setItem('piles_nickname', n), nick);
   const p = await ctx.newPage();

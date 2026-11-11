@@ -14,7 +14,7 @@ async function pagina(contexto = {}) {
   const p = await ctx.newPage();
   p.on('pageerror', e => errores.push(e.message));
   p.on('console', m => { if (m.type() === 'error') errores.push(m.text()); });
-  await p.goto(base + '/lobby.html');
+  await p.goto(base + '/');
   await espera(1200);
   return p;
 }
@@ -132,7 +132,7 @@ function revisa(nombre, m, desde, hasta) {
   await ctx.addInitScript(() => localStorage.setItem('piles.mute', '1'));
   const p = await ctx.newPage();
   p.on('pageerror', e => errores.push(e.message));
-  await p.goto(base + '/lobby.html');
+  await p.goto(base + '/');
   await espera(1200);
   await p.mouse.click(200, 200);
   await espera(800);

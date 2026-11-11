@@ -2,7 +2,7 @@
 // unirse por la lista, chat, bots, listos, ganar + cuenta atrás y partida.
 //   node browser/mesa.mjs [--base=local|beta] [carpeta para las fotos]
 import { lanzar, base } from './comun.mjs';
-const BASE = base + '/lobby.html';
+const BASE = base + '/';
 const OUT = process.argv.slice(2).find(a => !a.startsWith('--')) ?? '.';
 const espera = ms => new Promise(r => setTimeout(r, ms));
 const ok = (c, m) => { console.log((c ? '✔ ' : '✘ ') + m); if (!c) fallos++; };

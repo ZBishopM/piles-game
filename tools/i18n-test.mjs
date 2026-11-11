@@ -52,7 +52,7 @@ for (const [k, e] of Object.entries(D)) {
 // 4. Claves que usa el código y existen. Se miran lobby.html (con su CSS y client/juego/),
 // replay.html y el propio i18n.js.
 const { todo: juego } = await import('./fuente-cliente.mjs');
-const fuentes = [['client/lobby.html + juego/', juego], ['client/replay.html', leer('client/replay.html')]];
+const fuentes = [['client/index.html + juego/', juego], ['client/replay.html', leer('client/replay.html')]];
 const usadas = new Map();   // clave → [{ f, vars|null }]
 const anota = (k, f, v) => { if (!usadas.has(k)) usadas.set(k, []); usadas.get(k).push({ f, vars: v }); };
 for (const [f, s] of fuentes) {

@@ -93,7 +93,7 @@ async fn main() {
 
     tracing::info!("🎮 Piles! Server iniciado en http://{}", addr);
     tracing::info!("🔌 WebSocket disponible en ws://{}:{}/ws", addr.ip(), port);
-    tracing::info!("🌐 Frontend disponible en http://{}/lobby.html", addr);
+    tracing::info!("🌐 Frontend disponible en http://{}/", addr);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -278,7 +278,7 @@ async fn qr_del_lobby(state: &AppState, lobby_code: &str, headers: &HeaderMap) -
                 "https"
             }
         });
-    let join_url = format!("{scheme}://{host}/lobby.html?join={lobby_code}");
+    let join_url = format!("{scheme}://{host}/?join={lobby_code}");
 
     fast_qr::QRBuilder::new(join_url).build().map_err(|err| {
         tracing::error!("no se pudo generar el QR de {lobby_code}: {err}");

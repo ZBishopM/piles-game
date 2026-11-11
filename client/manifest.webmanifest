@@ -2,7 +2,7 @@
   "name": "Piles!",
   "short_name": "Piles!",
   "description": "Juego de cartas multijugador con QTE.",
-  "start_url": "/lobby.html",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "any",

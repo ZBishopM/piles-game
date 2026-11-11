@@ -7,7 +7,7 @@
 // no necesita versión: cada carga con red la renueva.
 // El WebSocket (/ws) no pasa por aquí, y /api/ tampoco: son datos vivos.
 const CACHE = 'piles';
-const BASE = ['/lobby.html', '/cards.webp', '/icon-192.png'];
+const BASE = ['/', '/cards.webp', '/icon-192.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(BASE)));

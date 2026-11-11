@@ -18,11 +18,11 @@ for (const vp of [{ width: 1920, height: 1080 }, { width: 1280, height: 900 }, {
   const page = await (await browser.newContext({ viewport: vp })).newPage();
   await page.route('http://localhost:9/**', route => {
     const u = new URL(route.request().url());
-    const f = path.join(raiz, u.pathname === '/' ? 'lobby.html' : decodeURIComponent(u.pathname));
+    const f = path.join(raiz, u.pathname === '/' ? 'index.html' : decodeURIComponent(u.pathname));
     if (fs.existsSync(f) && fs.statSync(f).isFile()) return route.fulfill({ path: f });
     return route.abort();
   });
-  await page.goto('http://localhost:9/lobby.html', { waitUntil: 'load' });
+  await page.goto('http://localhost:9/', { waitUntil: 'load' });
   const res = await page.evaluate(() => {
     const carta = (id, t) => ({ id, clothing_type: t, name: 'x' + t });
     const sets = Array.from({ length: 6 }, (_, s) => Array.from({ length: 4 }, (_, i) => carta(s * 4 + i, 2 + s)));

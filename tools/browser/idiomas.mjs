@@ -117,7 +117,7 @@ async function pestana(idioma, viewport, nick = null, extra = {}) {
   p.on('console', m => { if (m.type() === 'warning' && m.text().includes('i18n:')) p.avisos.push(m.text()); });
   return p;
 }
-const abrir = async (p, url = '/lobby.html') => { await p.goto(base + url, { waitUntil: 'networkidle' }); };
+const abrir = async (p, url = '/') => { await p.goto(base + url, { waitUntil: 'networkidle' }); };
 const inyectar = (p, m) => p.evaluate(m => juego.handleMsg(m), m);
 const ENTRAR_SALA = async (p, nick) => {
   await p.locator('#nickname').fill(nick);
@@ -212,7 +212,7 @@ for (const L of IDIOMAS) {
 
   // Un espectador entra a mirar la partida en marcha.
   const E = await pestana(L, MOV, 'Eva');
-  await abrir(E, `/lobby.html?join=${codigo}`);
+  await abrir(E, `/?join=${codigo}`);
   await E.locator('#gameScreen.active').waitFor({ timeout: 8000 });
   await E.locator('#specSeats .spec-seat').first().waitFor({ timeout: 4000 });
   await wait(500);
@@ -328,8 +328,8 @@ for (const L of IDIOMAS) {
   {
     const a = await pestana(L, DESK); await abrir(a);
     const cod = await ENTRAR_SALA(a, 'Ana');
-    const b = await pestana(L, MOV, 'Beto'); await abrir(b, `/lobby.html?join=${cod}`);
-    const c = await pestana(L, MOV, 'Caro'); await abrir(c, `/lobby.html?join=${cod}`);
+    const b = await pestana(L, MOV, 'Beto'); await abrir(b, `/?join=${cod}`);
+    const c = await pestana(L, MOV, 'Caro'); await abrir(c, `/?join=${cod}`);
     await b.locator('#lobbyScreen.active').waitFor({ timeout: 6000 });
     await a.waitForFunction(() => document.querySelectorAll('#playerList li').length === 3);
     await a.locator('#playerList li', { has: a.locator('.player-name', { hasText: 'Caro' }) }).locator('.kick-human').click();
@@ -373,7 +373,7 @@ console.log('\n══ elegir idioma ══');
   for (const [locale, esperado] of [['en-US', 'en'], ['en-GB', 'en'], ['zh-CN', 'zh'], ['zh-TW', 'zh'], ['fr-FR', 'es'], ['es-PE', 'es'], ['pt-BR', 'es']]) {
     const ctx = await browser.newContext({ locale, viewport: MOV });
     const p = await ctx.newPage();
-    await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+    await p.goto(base + '/', { waitUntil: 'networkidle' });
     const r = await p.evaluate(() => [PilesI18n.lang, document.documentElement.lang, localStorage.getItem('piles.lang')]);
     ok(r[0] === esperado && r[1] === HTML_LANG[esperado] && r[2] === null, `navigator.language ${locale} → ${esperado} (<html lang="${r[1]}">, sin guardar nada)`);
     await ctx.close();
@@ -383,7 +383,7 @@ console.log('\n══ elegir idioma ══');
   const ctx = await browser.newContext({ locale: 'es-ES', viewport: MOV });
   const p = await ctx.newPage();
   p.errores = []; p.on('pageerror', e => p.errores.push(e.message));
-  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await p.goto(base + '/', { waitUntil: 'networkidle' });
   ok(await p.locator('.home-actions button').first().textContent() === '❓ Cómo jugar', 'arranca en español');
   await p.locator('#homeScreen .lang-btn[data-lang="zh"]').click();
   await p.waitForFunction(() => document.documentElement.lang === 'zh-CN');

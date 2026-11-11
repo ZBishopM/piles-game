@@ -38,10 +38,10 @@ await A.getByRole('button', { name: /Crear sala/ }).press("Enter");
 await A.getByRole('button', { name: /Empezar/ }).click();
 await A.locator('#lobbyScreen.active').waitFor({ timeout: 5000 });
 const codigo = (await A.locator('#lobbyCodeDisplay').textContent()).trim();
-const B = await pestana('Beto', `${base}/lobby.html?join=${codigo}`);
+const B = await pestana('Beto', `${base}/?join=${codigo}`);
 await B.locator('#lobbyScreen.active').waitFor({ timeout: 8000 });
 
-const S = await pestana('Caro', `${base}/lobby.html`);
+const S = await pestana('Caro', `${base}/`);
 await S.evaluate(() => openJoinScreen());
 await S.locator('.lobby-row', { hasText: codigo }).waitFor({ timeout: 5000 });
 // (Solo nuestra sala: en un servidor compartido puede haber otras partidas en curso.)
@@ -128,7 +128,7 @@ await S.setViewportSize({ width: 1100, height: 900 });
 
 // ── Salir mirando ───────────────────────────────────────────────────────────
 {
-  const D = await pestana('Dani', `${base}/lobby.html?join=${codigo}`);
+  const D = await pestana('Dani', `${base}/?join=${codigo}`);
   await D.locator('#gameScreen.espectador').waitFor({ timeout: 8000 });
   await D.locator('#espectadorBanda').getByRole('button', { name: 'Salir de la sala' }).click();
   await D.locator('#homeScreen.active').waitFor({ timeout: 4000 });

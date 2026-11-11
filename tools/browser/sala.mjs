@@ -25,7 +25,7 @@ async function entrarPorEnlace(nick, codigo, viewport = { width: 1100, height: 9
   const p = await ctx.newPage();
   p.errores = [];
   p.on('pageerror', e => p.errores.push(e.message));
-  await p.goto(`${base}/lobby.html?join=${codigo}`, { waitUntil: 'networkidle' });
+  await p.goto(`${base}/?join=${codigo}`, { waitUntil: 'networkidle' });
   await p.locator('#lobbyScreen.active').waitFor({ timeout: 8000 });
   return p;
 }

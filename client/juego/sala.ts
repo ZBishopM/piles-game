@@ -143,7 +143,7 @@ export function onEnteredLobby(lobbyId: string) {
 }
 
 export function joinLinkFor(lobbyId: string) {
-    return `${location.origin}/lobby.html?join=${lobbyId}`;
+    return `${location.origin}/?join=${lobbyId}`;
 }
 
 // ─── Unirse: escáner de QR ────────────────────────────────────────────────

@@ -24,7 +24,7 @@ async function medir(p, cdp, ms = 6000) {
 for (const [nombre, opc] of PANTALLAS) {
   const ctx = await b.newContext(opc);
   const p = await ctx.newPage();
-  await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+  await p.goto(base + '/', { waitUntil: 'networkidle' });
   const cdp = await ctx.newCDPSession(p);
   await cdp.send('Performance.enable');
   await p.evaluate(() => juego.mostrarMedidor(true));

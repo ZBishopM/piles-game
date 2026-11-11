@@ -11,7 +11,7 @@ for (const [nombre, tipo] of [['chromium', chromium], ['firefox', firefox]]) {
   for (const lienzo of ['2d', 'pixi']) {
     const p = await (await b.newContext({ viewport: { width: 1920, height: 1000 } })).newPage();
     const errores = []; p.on('pageerror', e => errores.push(e.message)); p.on('console', m => { if (m.type() === 'warning' || m.type() === 'error') errores.push(m.text()); });
-    await p.goto(`${base}/lobby.html?lienzo=${lienzo}`, { waitUntil: 'networkidle' });
+    await p.goto(`${base}/?lienzo=${lienzo}`, { waitUntil: 'networkidle' });
     await p.evaluate(() => juego.mostrarMedidor(true));
     await wait(6000);
     const m = await p.evaluate(() => ({ ...juego.medida, pincel: document.getElementById('juego')?.dataset.pincel, w: document.getElementById('juego')?.width }));

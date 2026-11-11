@@ -1,5 +1,5 @@
 // El código del cliente, para las pruebas que leen la fuente.
-//   html: lobby.html · css: lobby.css
+//   html: index.html (el juego; lobby.html solo redirige los enlaces viejos) · css: lobby.css
 //   js: los módulos que junta client/juego/index.ts (juego/, la mesa y la partida), en su orden
 import fs from 'fs';
 import path from 'path';
@@ -10,7 +10,7 @@ const leer = f => fs.readFileSync(path.join(CLIENTE, f), 'utf8');
 /** `import './x.js'` puede ser x.ts: TypeScript (y esbuild) lo resuelven así. */
 const fuente = f => fs.existsSync(path.join(CLIENTE, f)) ? f : f.replace(/\.js$/, '.ts');
 
-export const html = leer('lobby.html');
+export const html = leer('index.html');
 export const css = leer('lobby.css');
 export const js = [...leer('juego/index.ts').matchAll(/^import .*'(\.\.?\/[\w/.-]+\.js)';$/gm)]
     .map(m => leer(fuente(path.join('juego', m[1])))).join('\n');

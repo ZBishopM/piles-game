@@ -24,7 +24,7 @@ async function entrar(nick, codigo, viewport) {
   const p = await ctx.newPage();
   p.errores = [];
   p.on('pageerror', e => p.errores.push(e.message));
-  await p.goto(`${base}/lobby.html?join=${codigo}`, { waitUntil: 'networkidle' });
+  await p.goto(`${base}/?join=${codigo}`, { waitUntil: 'networkidle' });
   await p.locator('#lobbyScreen.active').waitFor({ timeout: 8000 });
   return p;
 }
@@ -108,7 +108,7 @@ ok(/fue expulsado/.test(await A.locator('body').innerText()), 'los demás ven «
 await B.screenshot({ path: path.join(capturas, 'votekick-expulsado-movil.png') });
 
 // ── Y no entra por el enlace ────────────────────────────────────────────────
-await B.goto(`${base}/lobby.html?join=${codigo}`, { waitUntil: 'networkidle' });
+await B.goto(`${base}/?join=${codigo}`, { waitUntil: 'networkidle' });
 await wait(1200);
 ok(!(await B.locator('#lobbyScreen.active').count()), 'por el enlace tampoco vuelve a entrar');
 
@@ -132,7 +132,7 @@ ok(!(await B.locator('#lobbyScreen.active').count()), 'por el enlace tampoco vue
   await B2.waitForFunction(() => /tu voto: Sí/.test(document.querySelector('.kick-meta')?.textContent ?? ''));
   ok((await B2.getByRole('button', { name: /Votar (sí|no)/ }).count()) === 0, 'Beto ya votó: sin botones');
   await wait(2200);
-  await B2.goto(base + '/lobby.html', { waitUntil: 'networkidle' });   // una recarga de verdad: sin ?join, vuelve con el secreto del asiento
+  await B2.goto(base + '/', { waitUntil: 'networkidle' });   // una recarga de verdad: sin ?join, vuelve con el secreto del asiento
   await B2.locator('.kick-poll').waitFor({ timeout: 6000 });
   const resto = parseInt(await B2.locator('.kick-time').textContent());
   ok(resto <= 13 && resto >= 6, `recargar a media votación: la encuesta reaparece con el contador real (${resto} s)`);

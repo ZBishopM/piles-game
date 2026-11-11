@@ -6,7 +6,7 @@ import { base, wait } from '../repro/comun.mjs';
 const OUT = process.argv.slice(2).find(a => !a.startsWith('--')) ?? 'pincel.png';
 const b = await chromium.launch({ headless: false });
 const p = await (await b.newContext({ viewport: { width: 900, height: 480 } })).newPage();
-await p.goto(base + '/lobby.html', { waitUntil: 'networkidle' });
+await p.goto(base + '/', { waitUntil: 'networkidle' });
 await p.evaluate(async () => {
   document.body.innerHTML = '<div style="display:flex;gap:20px;background:#556;padding:10px"><canvas id="a" width="420" height="420"></canvas><canvas id="b" width="420" height="420"></canvas></div>';
   const { pincel2d, pincelPixi } = window.__pinceles;
