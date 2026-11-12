@@ -60,26 +60,36 @@ function revisa(nombre, m, desde, hasta) {
   await espera(2500);
   e = await estado(p);
   ok(e.arrancada && e.cargadas.length === 2, `arrancan las dos pistas (${e.cargadas.join(' + ')})`);
-  ok(Math.abs(e.duraciones.menu - e.duraciones.partida) < 1e-6 && Math.abs(e.largoBucle - 62.607) < 0.05,   /* 48 compases de 4/4 a 184 */ `duran lo mismo: ${e.duraciones.menu.toFixed(4)} s y ${e.duraciones.partida.toFixed(4)} s (bucle ${e.largoBucle.toFixed(3)} s)`);
-  ok(e.fase > 1.5 && e.fase < 5, `suenan desde el mismo instante (fase del bucle ${e.fase.toFixed(2)} s tras ~3 s)`);
-  ok(e.menu > 0.95 && e.partida < 0.05, `en el menú suena el menú (menú ${e.menu.toFixed(2)}, partida ${e.partida.toFixed(2)}) y la otra sigue corriendo, silenciada`);
+  // El menú va a 92 (24 compases = 62,6 s); la partida a 184, con 4 compases de piano delante de su bucle de 48
+  ok(Math.abs(e.largoBucle - 62.607) < 0.05 && Math.abs(e.duraciones.partida - 67.825) < 0.05 && Math.abs(e.introPartida - 5.2174) < 0.001,
+     `menú ${e.duraciones.menu.toFixed(3)} s en bucle; partida ${e.duraciones.partida.toFixed(3)} s con ${e.introPartida.toFixed(3)} s de introducción`);
+  ok(e.fase > 1.5 && e.fase < 5, `el menú corre (fase del bucle ${e.fase.toFixed(2)} s tras ~3 s)`);
+  ok(e.menu > 0.95 && !e.partidaSonando, `en el menú suena el menú (${e.menu.toFixed(2)}) y la partida no está sonando`);
   ok(e.maestra > 0.2 && e.maestra < 0.3, `volumen general ${e.maestra.toFixed(3)} (entra poco a poco hacia 0,28)`);
 
-  // 3 · Empieza la partida: fundido limpio al de la partida; acaba: de vuelta
+  const escalon = (m, k) => Math.max(...m.slice(1).map((x, i) => Math.abs(x[k] - m[i][k])));
+  // 3 · Empieza la partida: el menú se apaga (~0,5 s, sin saltos) y la partida entra DE GOLPE por su piano; acaba: de vuelta
   await p.evaluate(() => juego.startMusic());
-  revisa('menú → partida', await muestrea(p, 2600), 'menu', 'partida');
+  let m = await muestrea(p, 1500);
   e = await estado(p);
-  ok(e.arrancada && !e.fundiendo, 'el fundido termina y se queda quieto');
+  ok(m[0].partida > 0.95 && e.partidaSonando, `la partida entra a todo volumen desde el principio (${m[0].partida.toFixed(2)})`);
+  ok(m.at(-1).menu < 0.05 && escalon(m, 'menu') < 0.2, `el menú se apaga sin saltos (escalón máximo ${escalon(m, 'menu').toFixed(3)})`);
+  const tMenu = m.find(x => x.menu < 0.05)?.t;
+  ok(tMenu > 250 && tMenu < 1100, `…en ~0,5 s (${Math.round(tMenu)} ms)`);
+  ok(e.mezcla === 1 && !e.fundiendo, 'el cambio termina y se queda quieto');
   await p.evaluate(() => juego.stopMusic());
-  revisa('partida → menú', await muestrea(p, 2600), 'partida', 'menu');
+  m = await muestrea(p, 3200);
+  e = await estado(p);
+  ok(m.at(-1).menu > 0.95 && m.at(-1).partida < 0.05 && !e.partidaSonando, `al acabar vuelve el menú (${m.at(-1).menu.toFixed(2)}) y la partida se para`);
+  ok(escalon(m, 'menu') < 0.2 && escalon(m, 'partida') < 0.2, `partida → menú sin saltos (escalones ${escalon(m, 'partida').toFixed(3)} y ${escalon(m, 'menu').toFixed(3)})`);
 
-  // 4 · Un fundido interrumpido a medias vuelve sin salto
+  // 4 · Otra partida: vuelve a empezar por el piano. Y un cambio cortado a medias no salta
   await p.evaluate(() => juego.startMusic());
   await espera(500);
+  ok((await estado(p)).partidaSonando, 'la siguiente partida arranca otra vez su pista');
   await p.evaluate(() => juego.stopMusic());
-  const m = await muestrea(p, 2600);
-  const salto = Math.max(...m.slice(1).map((x, i) => Math.max(Math.abs(x.menu - m[i].menu), Math.abs(x.partida - m[i].partida))));
-  ok(salto < 0.2 && m.at(-1).menu > 0.95, `fundido interrumpido: vuelve sin saltos (escalón máximo ${salto.toFixed(3)})`);
+  m = await muestrea(p, 3200);
+  ok(escalon(m, 'menu') < 0.2 && escalon(m, 'partida') < 0.2 && m.at(-1).menu > 0.95, `cambio cortado a medias: vuelve sin saltos (escalón máximo ${Math.max(escalon(m, 'menu'), escalon(m, 'partida')).toFixed(3)})`);
 
   // 4b · Un efecto agacha la música (−6 dB) mientras suena y la devuelve suave
   {

@@ -1,24 +1,25 @@
 // ─── Música de fondo ──────────────────────────────────────────────────────
 //
-// Dos arreglos de la misma pieza, «Carrera de calcetines» (client/musica/): el del MENÚ
-// (infantil: caja de música, glockenspiel, pizzicatos, bajo funk) y el de la PARTIDA (fuerte:
-// la guitarra eléctrica canta al galope, con batería de rock). Tienen el mismo tempo (184), los
-// mismos 48 compases de 4/4 y las mismas notas, y duran lo mismo al fotograma. Por eso suenan A LA
-// VEZ, en bucle y arrancados juntos, y lo único que cambia es cuál se oye: pasar de una
-// a otra es un fundido de potencia constante (seno/coseno) y, como van sincronizadas, no
-// hay salto de ritmo ni de acorde.
+// «Carrera de calcetines» (client/musica/), en dos versiones que NO son la misma con otros
+// instrumentos, sino dos tempos y dos caracteres:
 //
-//   menú, sala, resultados   →  suena el menú
-//   partida (de game_start a game_over)  →  suena la partida
+//   · MENÚ: a 92, de ascensor. Vibráfono y flauta, piano eléctrico, contrabajo y escobillas.
+//     Suena en el menú, la sala y los resultados, en bucle.
+//   · PARTIDA: a 184, el doble de rápida y dramática. Empieza SIEMPRE por el principio: un piano
+//     solo la anuncia (4 compases), entran las cuerdas y un redoble, y de ahí la guitarra, la
+//     batería de rock y la sección de cuerdas. Esa introducción no entra en el bucle
+//     (`loopStart`): solo suena al empezar cada partida.
+//
+// El paso está marcado: al empezar la partida el menú se apaga en medio segundo y el piano
+// entra a todo volumen; al acabar, la partida se funde (1,2 s) y vuelve el menú, que ha
+// seguido corriendo en silencio.
 //
 // Cuando suena un efecto, la música se AGACHA (ducking, como hace la mezcla de casi cualquier
-// juego): baja 6 dB en ~15 ms mientras dura el efecto y vuelve en ~0,5 s. Así un efecto nunca
-// se pisa con la melodía (que en la partida suena casi siempre: tres voces entrelazadas).
+// juego): baja 6 dB en ~15 ms mientras dura el efecto y vuelve en ~0,5 s.
 //
-// Se piden y decodifican una vez (≈ 30 MB en memoria cada una). Si el navegador no
+// Se piden y decodifican una vez (≈ 23 MB en memoria cada una). Si el navegador no
 // decodifica Ogg Vorbis (Safari anterior a 18.4) o falla la descarga, no suena música y
-// el juego sigue como si nada. Sin música sintetizada: la racha ya suena en los efectos
-// (`comboStep`).
+// el juego sigue como si nada.
 import { emitir } from './bus.js';
 import { est } from './estado.js';
 import { audioCtx, unlockAudio, playSfx, escucharEfectos } from './sonido.js';
@@ -26,9 +27,11 @@ import { audioCtx, unlockAudio, playSfx, escucharEfectos } from './sonido.js';
 export type Pista = 'menu' | 'partida';
 const PISTAS: Pista[] = ['menu', 'partida'];
 const ARCHIVOS: Record<Pista, string> = { menu: '/musica/menu.ogg', partida: '/musica/partida.ogg' };
-/** Volumen general: la música va por debajo de los efectos (que salen a 0,1–0,22). */
+/** Volumen general: la música va por debajo de los efectos. */
 const NIVEL = 0.28;
-const FUNDIDO_MS = 1400;
+/** La introducción de la partida: 4 compases de 4/4 a 184. El bucle empieza después. */
+const INTRO_PARTIDA = 4 * 240 / 184;
+const SALE_MENU = 0.5, SALE_PARTIDA = 1.2, VUELVE_MENU = 1.5;   // segundos de cada fundido
 /** Cuánto se agacha la música bajo un efecto: −6 dB. */
 const AGACHE = 0.5;
 
@@ -36,54 +39,64 @@ let maestra: GainNode | null = null;
 let agache: GainNode | null = null;
 let sordina: BiquadFilterNode | null = null;
 const ABIERTA = 20000;           // Hz: el filtro abierto no quita nada
-let agachadaHasta = 0;          // reloj del audio en que acaba el último efecto que suena
-const voces: Partial<Record<Pista, { gain: GainNode; src: AudioBufferSourceNode; dur: number }>> = {};
+let agachadaHasta = 0;           // reloj del audio en que acaba el último efecto que suena
+const bufs: Partial<Record<Pista, AudioBuffer>> = {};
+let menu: { gain: GainNode; src: AudioBufferSourceNode } | null = null;      // corre siempre, en bucle
+let partida: { gain: GainNode; src: AudioBufferSourceNode } | null = null;   // una por partida, desde el piano
 let arrancada = false;
-let mezcla = 0;                  // 0 = solo el menú · 1 = solo la partida
-let fundido: { desde: number; hacia: number; t0: number; ms: number } | null = null;
-let reloj: ReturnType<typeof setInterval> | null = null;
-let inicio = 0;                  // reloj del audio en que arrancaron las dos
-let largoBucle = 0;
+let quiere: Pista = 'menu';      // lo que tiene que oírse (aunque aún no haya cargado nada)
+let fundeHasta = 0;              // reloj del audio en que acaba el fundido en curso
+let inicio = 0;                  // reloj del audio en que arrancó el menú
 
-/** Pesos de cada pista para la mezcla actual: potencia constante (cos² + sen² = 1). */
-function pesos(): Record<Pista, number> {
-    if (voces.menu && !voces.partida) return { menu: 1, partida: 0 };
-    if (voces.partida && !voces.menu) return { menu: 0, partida: 1 };
-    return { menu: Math.cos(mezcla * Math.PI / 2), partida: Math.sin(mezcla * Math.PI / 2) };
+/** Lleva una ganancia a `v` en `s` segundos, desde donde esté (un fundido cortado a medias no salta). */
+function rampa(g: AudioParam, v: number, s: number, ctx: AudioContext, espera = 0) {
+    const t = ctx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(g.value, t);
+    if (espera) g.setValueAtTime(g.value, t + espera);
+    g.linearRampToValueAtTime(v, t + espera + s);
+    fundeHasta = Math.max(fundeHasta, t + espera + s);
 }
 
+function paraPartida() {
+    const p = partida;
+    if (!p) return;
+    partida = null;
+    try { p.src.stop(); } catch { /* ya parada */ }
+    p.src.disconnect(); p.gain.disconnect();
+}
+
+/** Pone lo que `quiere`. Idempotente: se llama al cargar y en cada cambio. */
 function aplicar() {
     const ctx = audioCtx;
-    if (!ctx) return;
-    const w = pesos();
-    // setTargetAtTime con una constante corta alisa los escalones del temporizador: sin chasquidos.
-    for (const p of PISTAS) voces[p]?.gain.gain.setTargetAtTime(w[p], ctx.currentTime, 0.02);
-}
-
-function paso() {
-    if (!fundido) { if (reloj) clearInterval(reloj); reloj = null; return; }
-    const k = Math.min(1, (performance.now() - fundido.t0) / Math.max(fundido.ms, 1));
-    const e = k * k * (3 - 2 * k);                       // sale y llega suave
-    mezcla = fundido.desde + (fundido.hacia - fundido.desde) * e;
-    if (k >= 1) {
-        mezcla = fundido.hacia;
-        fundido = null;
-        if (reloj) clearInterval(reloj);
-        reloj = null;
+    if (!ctx || !maestra) return;
+    if (quiere === 'partida' && bufs.partida) {
+        if (partida) { rampa(partida.gain.gain, 1, 0.15, ctx); }      // ya sonaba (o se estaba yendo): vuelve, sin reiniciar
+        else {
+            const src = ctx.createBufferSource();
+            src.buffer = bufs.partida;
+            src.loop = true;
+            src.loopStart = INTRO_PARTIDA;                             // el piano solo suena la primera vez
+            src.loopEnd = bufs.partida.duration;
+            const gain = ctx.createGain();
+            gain.gain.value = 1;                                       // entra de golpe: es el piano el que anuncia
+            src.connect(gain).connect(maestra);
+            src.start(ctx.currentTime + 0.05);
+            partida = { gain, src };
+        }
+        if (menu) rampa(menu.gain.gain, 0, SALE_MENU, ctx);
+    } else {
+        // (sin la pista de la partida —no cargó—, en la partida sigue sonando el menú)
+        if (partida) {
+            const p = partida;
+            rampa(p.gain.gain, 0, SALE_PARTIDA, ctx);
+            setTimeout(() => { if (partida === p && quiere === 'menu') paraPartida(); }, SALE_PARTIDA * 1000 + 150);
+        }
+        if (menu) rampa(menu.gain.gain, 1, VUELVE_MENU, ctx, partida ? 0.3 : 0);
     }
-    aplicar();
 }
 
-/** Qué pista tiene que oírse. Si aún no ha cargado nada, solo se recuerda; si ya suena, se funde. */
-function ir(pista: Pista) {
-    const hacia = pista === 'partida' ? 1 : 0;
-    if (!voces.menu && !voces.partida) { mezcla = hacia; fundido = null; return; }
-    if ((fundido ? fundido.hacia : mezcla) === hacia) return;
-    fundido = { desde: mezcla, hacia, t0: performance.now(), ms: FUNDIDO_MS * Math.abs(hacia - mezcla) };
-    reloj ??= setInterval(paso, 30);
-}
-
-/** El volumen general sigue al botón de silencio. Las pistas siguen sonando en silencio, para no perder la sincronía. */
+/** El volumen general sigue al botón de silencio. El menú sigue corriendo en silencio. */
 function nivelMaestro() {
     if (!audioCtx || !maestra) return;
     maestra.gain.setTargetAtTime(est.sfxMuted ? 0 : NIVEL, audioCtx.currentTime, est.sfxMuted ? 0.05 : 0.5);
@@ -115,7 +128,6 @@ export function tensarMusica(si: boolean) {
 }
 
 async function cargar(ctx: AudioContext) {
-    const bufs: Partial<Record<Pista, AudioBuffer>> = {};
     await Promise.all(PISTAS.map(async p => {
         try {
             const r = await fetch(ARCHIVOS[p]);
@@ -125,27 +137,23 @@ async function cargar(ctx: AudioContext) {
             bufs[p] = await new Promise<AudioBuffer>((ok, mal) => ctx.decodeAudioData(datos, ok, mal));
         } catch (e) { console.warn(`[música] ${p}: no se pudo cargar`, e); }
     }));
-    const hay = PISTAS.filter(p => bufs[p]);
-    if (!hay.length || !maestra) return;
-    largoBucle = Math.min(...hay.map(p => bufs[p]!.duration));
-    inicio = ctx.currentTime + 0.1;
-    for (const p of hay) {
+    if (!maestra) return;
+    if (bufs.menu) {
         const src = ctx.createBufferSource();
-        src.buffer = bufs[p]!;
+        src.buffer = bufs.menu;
         src.loop = true;
-        src.loopStart = 0;
-        src.loopEnd = largoBucle;               // iguales: así no se desfasan nunca
         const gain = ctx.createGain();
-        gain.gain.value = 0;
+        gain.gain.value = quiere === 'menu' ? 1 : 0;
         src.connect(gain).connect(maestra);
-        src.start(inicio);                      // las dos, en el mismo instante
-        voces[p] = { gain, src, dur: bufs[p]!.duration };
+        inicio = ctx.currentTime + 0.1;
+        src.start(inicio);
+        menu = { gain, src };
     }
     aplicar();
     nivelMaestro();
 }
 
-/** Pide y arranca las dos pistas. Hay que llamarla desde un gesto del usuario (el navegador no deja sonar antes). */
+/** Pide y arranca la música. Hay que llamarla desde un gesto del usuario (el navegador no deja sonar antes). */
 export function arrancarMusica() {
     if (arrancada || est.sfxMuted) return;       // en silencio no se descarga nada: se arranca al activar el sonido
     unlockAudio();
@@ -165,25 +173,29 @@ export function arrancarMusica() {
 // El primer gesto (un toque o una tecla: el menú se maneja con el teclado) abre el audio y arranca la música.
 for (const ev of ['pointerdown', 'keydown'] as const) document.addEventListener(ev, arrancarMusica, { once: true });
 
-/** Empieza la partida: se funde a la pista de la partida. */
+/** Empieza la partida: calla el menú y entra la partida por su piano. */
 export function startMusic() {
     arrancarMusica();
-    ir('partida');
+    quiere = 'partida';
+    aplicar();
 }
 
-/** Acaba la partida (o no llegó a empezar): se funde a la del menú. */
+/** Acaba la partida (o no llegó a empezar): se funde y vuelve el menú. */
 export function stopMusic() {
-    ir('menu');
+    quiere = 'menu';
+    aplicar();
 }
 
 /** Para las pruebas (tools/browser/musica.mjs): qué suena y cómo. */
 export function estadoMusica() {
-    const ctx = audioCtx;
+    const ctx = audioCtx, largo = bufs.menu?.duration ?? 0;
     return {
-        arrancada, cargadas: PISTAS.filter(p => voces[p]), mezcla, fundiendo: !!fundido,
-        menu: voces.menu?.gain.gain.value ?? null, partida: voces.partida?.gain.gain.value ?? null, maestra: maestra?.gain.value ?? null, agache: agache?.gain.value ?? null,
-        duraciones: { menu: voces.menu?.dur ?? null, partida: voces.partida?.dur ?? null }, largoBucle,
-        fase: ctx && largoBucle ? (((ctx.currentTime - inicio) % largoBucle) + largoBucle) % largoBucle : null,
+        arrancada, cargadas: PISTAS.filter(p => bufs[p]), mezcla: quiere === 'partida' ? 1 : 0, fundiendo: !!ctx && ctx.currentTime < fundeHasta,
+        menu: menu?.gain.gain.value ?? null, partida: partida ? partida.gain.gain.value : (bufs.partida ? 0 : null),
+        partidaSonando: !!partida, introPartida: INTRO_PARTIDA,
+        maestra: maestra?.gain.value ?? null, agache: agache?.gain.value ?? null,
+        duraciones: { menu: bufs.menu?.duration ?? null, partida: bufs.partida?.duration ?? null }, largoBucle: largo,
+        fase: ctx && largo ? (((ctx.currentTime - inicio) % largo) + largo) % largo : null,
     };
 }
 
