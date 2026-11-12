@@ -821,19 +821,33 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
      *  se la disputan: la mano del rival (desde su franja del marcador) y la tuya. */
     /** `robo`: no hay pelea, el rival se la llevó antes (llegaste tarde): su guante te la quita
      *  de la mano y se va, sin que aparezca el tuyo. */
-    function arrebato(desde: DOMRect, card: Partial<CardInfo>, rival?: string | null, dura = 650, robo = false, final?: Promise<Final | null>) {
+    /** Dónde se disputa la carta: entre tu mano y la mesa, más grande que en tu mano. */
+    function sitioPelea(desde: { width: number; height: number; top: number }) {
         const mesa = document.getElementById('centerCards')?.getBoundingClientRect();
         const cw = Math.min(desde.width * 1.7, innerWidth * 0.32), ch = cw * desde.height / desde.width;
-        const ccx = innerWidth / 2, ccy = mesa ? mesa.bottom - ch * 0.62 : desde.top - ch;
+        return { cw, ch, ccx: innerWidth / 2, ccy: mesa ? mesa.bottom - ch * 0.62 : desde.top - ch };
+    }
+    // La fila de la pelea (#qteBox: tú · carta · rival) va a esa misma altura y su carta mide lo mismo: con manos o sin
+    // ellas, los contadores quedan a los lados de la carta que se disputa.
+    al('onSwapConflict', () => {
+        const mia = document.querySelector('#yourCards .card')?.getBoundingClientRect();
+        if (!mia) return;
+        const s = sitioPelea(mia), caja = porId('qteOverlay');
+        caja.style.setProperty('--pelea-y', `${s.ccy}px`);
+        caja.style.setProperty('--pelea-w', `${s.cw}px`);
+    });
+    function arrebato(desde: DOMRect, card: Partial<CardInfo>, rival?: string | null, dura = 650, robo = false, final?: Promise<Final | null>) {
+        const { cw, ch, ccx, ccy } = sitioPelea(desde);
         const obj = { left: ccx - cw / 2, top: ccy - ch / 2, width: cw, height: ch };
         const c = copia(card, obj);
         if (!robo) c.classList.add('disputada');
         zumba(20);
         // Por encima de la pelea, que entra a la vez (sin esperar a las manos): se ve quién arrancó qué.
-        const fx = porId('fxLayer');
+        const fx = porId('fxLayer'), pelea = porId('qteOverlay');
         fx.classList.add('sobre-pelea');
+        if (!robo) pelea.classList.add('con-manos');   // la carta grande tapa la de la fila: esa solo guarda el sitio
         return manosArrebato(fx, c, desde, obj, franja(rival)?.getBoundingClientRect() ?? null, dura, robo, final)
-            .finally(() => setTimeout(() => { if (!fx.querySelector('svg')) fx.classList.remove('sobre-pelea'); }, 220));   // tras el fundido (160 ms)
+            .finally(() => { pelea.classList.remove('con-manos'); setTimeout(() => { if (!fx.querySelector('svg')) fx.classList.remove('sobre-pelea'); }, 220); });   // tras el fundido (160 ms)
     }
     al('arrebato', (desde: DOMRect, card: CardInfo, rival: string | null, final?: Promise<Final | null>) => { void arrebato(desde, card, rival, 650, false, final); });
     al('robo', (desde: DOMRect, card: CardInfo, rival: string) => { void arrebato(desde, card, rival, 480, true); });
