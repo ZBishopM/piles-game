@@ -312,8 +312,10 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
     });
     al('golpe', (fuerte = false) => {
         const a = aterriza;
-        if (REDUCED_MOTION?.matches || !a?.el) return;
+        if (!a?.el) return;
         const { rowId, retraso } = a, el = a.el; aterriza = null;
+        // Con movimiento reducido no hay animación, pero la carta cae igual: suena su golpe
+        if (REDUCED_MOTION?.matches) { setTimeout(() => playSfx(fuerte ? 'impactoFuerte' : 'impacto', 1), retraso); return; }
         setTimeout(() => golpe(rowId, el, fuerte), retraso);
     });
     const ADD = { composite: 'add' as const };
@@ -323,6 +325,7 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
         const t = performance.now();
         energia = Math.min(3.5, energia * Math.exp(-(t - ultimo) / 900) + (fuerte ? 1.8 : 1)); ultimo = t;
         const E = energia, r0 = el.getBoundingClientRect(), w = r0.width;
+        playSfx(fuerte ? 'impactoFuerte' : 'impacto', E);   // el sonido pesa lo mismo que el golpe que se ve
         const cx = r0.left + w / 2, cy = r0.top + r0.height / 2;
         // La mesa se hunde y rebota; marcador y la otra fila notan el temblor
         fila.animate([{ translate: '0 0' }, { translate: `0 ${4 * E}px`, offset: .15 }, { translate: `0 ${-.9 * E}px`, offset: .45 }, { translate: '0 0' }],
@@ -645,7 +648,7 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
     // Si venías del menú se mira ANTES de que showScreen cambie de pantalla.
     let venia = false;
     al('antesDePartida', () => { venia = document.body.classList.contains('mesa') && !document.body.classList.contains('en-partida'); });
-    al('onGameStart', () => { if (venia && !REDUCED_MOTION?.matches) entrar(); else barrer(); });
+    al('onGameStart', () => { if (venia && !REDUCED_MOTION?.matches) entrar(); else { barrer(); playSfx('deal'); } });
     function entrar() {
         const esc = document.getElementById('escenario');
         if (!esc) return barrer();
@@ -656,7 +659,8 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
             { transform: ojo(34, -12, 3.6), filter: 'brightness(1.5) blur(2px)', opacity: 1, offset: .8 },
             { transform: ojo(44, -18, 5.5), filter: 'brightness(2.4) blur(8px)', opacity: 0 },
         ], { duration: 640, easing: 'cubic-bezier(.6, 0, .9, .45)' }).finished.finally(() => document.body.classList.remove('entrando'));
-        setTimeout(barrer, 420);
+        // Con el barrido: la mesa cae (~820 ms), luego el marcador y tu mano, cada uno con su peso
+        setTimeout(() => { barrer(); playSfx('tablero'); }, 420);
         const cae = (id: string, kf: Keyframe[], delay: number, duration = 520) => document.getElementById(id)?.animate(kf, { duration, delay, easing: 'cubic-bezier(.2, 1.35, .4, 1)', fill: 'backwards' });
         cae('gameScreen', [{ opacity: 0, transform: ojo(-22, 5, .88) }, { opacity: 1, transform: ojo(0, 0, 1) }], 500, 480);
         cae('centerCards', [{ scale: 1.6, rotate: '-7deg' }, { scale: 1, rotate: '0deg' }], 500, 600);
@@ -716,6 +720,11 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
         for (const card of r.cards || []) { const m = document.createElement('i'); m.className = 'vmini'; applyCardSprite(m, card); cartas.append(m); }
         li.classList.add(r.ok ? 'ok' : 'mal');
         li.querySelector('.vmarca')!.innerHTML = ico(r.ok ? 'check' : 'cruz');
+        // Las cuatro miniaturas se posan (una cada 55 ms) y el sello cae a los ~390 ms
+        if (anima) {
+            [...cartas.children].forEach((_, k) => setTimeout(() => playSfx('posar'), 150 + k * 55));
+            setTimeout(() => playSfx(r.ok ? 'sello' : 'selloMal'), 390);
+        }
         if (!anima || quieto()) return;
         [...cartas.children].forEach((m, k) => m.animate([{ translate: '0 -26px', rotate: `${k % 2 ? 9 : -9}deg`, opacity: 0 }, { translate: '0 0', rotate: '0deg', opacity: 1 }],
             { duration: 260, delay: k * 55, easing: 'cubic-bezier(.2, 1.4, .4, 1)', fill: 'backwards' }));
@@ -731,6 +740,7 @@ import { arrebato as manosArrebato, type Final } from './manos.js';
         if (fin.pos) c.dataset.pos = String(fin.pos);
         s.textContent = fin.pos ? t('pos.ord', { n: fin.pos }) : '✕';
         mirando(c, { fin });
+        if (anima) setTimeout(() => playSfx('selloFin', fin.pos ? 1 : 0), 230);   // el sello grande toca a los ~230 ms
         if (!anima || quieto()) return;
         s.animate([{ scale: 4, rotate: '-30deg', opacity: 0 }, { scale: .9, rotate: '-8deg', opacity: 1, offset: .55 }, { scale: 1, rotate: '-10deg' }],
             { duration: 420, easing: 'ease-out' });

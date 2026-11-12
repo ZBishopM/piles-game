@@ -60,7 +60,7 @@ function revisa(nombre, m, desde, hasta) {
   await espera(2500);
   e = await estado(p);
   ok(e.arrancada && e.cargadas.length === 2, `arrancan las dos pistas (${e.cargadas.join(' + ')})`);
-  ok(Math.abs(e.duraciones.menu - e.duraciones.partida) < 1e-6 && Math.abs(e.largoBucle - 81.665) < 0.05, `duran lo mismo: ${e.duraciones.menu.toFixed(4)} s y ${e.duraciones.partida.toFixed(4)} s (bucle ${e.largoBucle.toFixed(3)} s)`);
+  ok(Math.abs(e.duraciones.menu - e.duraciones.partida) < 1e-6 && Math.abs(e.largoBucle - 62.607) < 0.05,   /* 48 compases de 4/4 a 184 */ `duran lo mismo: ${e.duraciones.menu.toFixed(4)} s y ${e.duraciones.partida.toFixed(4)} s (bucle ${e.largoBucle.toFixed(3)} s)`);
   ok(e.fase > 1.5 && e.fase < 5, `suenan desde el mismo instante (fase del bucle ${e.fase.toFixed(2)} s tras ~3 s)`);
   ok(e.menu > 0.95 && e.partida < 0.05, `en el menú suena el menú (menú ${e.menu.toFixed(2)}, partida ${e.partida.toFixed(2)}) y la otra sigue corriendo, silenciada`);
   ok(e.maestra > 0.2 && e.maestra < 0.3, `volumen general ${e.maestra.toFixed(3)} (entra poco a poco hacia 0,28)`);

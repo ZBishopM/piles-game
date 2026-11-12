@@ -147,11 +147,49 @@ const cartaCae = (h = 0, at = 0) => {
     noise({ dur: 0.07, gain: 0.16, hp: 120, lp: 900, at: at + 0.07, eco: 0.25 });
     tone({ freq: 150 + h, slideTo: 85, dur: 0.07, type: 'sine', gain: 0.14, at: at + 0.07, eco: 0.1 });
 };
+/** El golpe de algo que CAE, con su peso. `E` es la energía de la caída que pinta la partida
+ *  («Gravedad», partida/partida.ts): 1 = una carta, crece si caen seguidas (hasta 3,5). Más
+ *  energía = más grave, más largo, más fuerte y con esquirlas, igual que la animación hunde más
+ *  la mesa. Afinado en re (re3 → re2), la tónica de la música. */
+const impacto = (E = 1, at = 0) => {
+    const k = (Math.min(3.5, Math.max(0.6, E)) - 0.6) / 2.9;          // 0 = ligera · 1 = todo el peso
+    noise({ dur: 0.03, gain: 0.05 + 0.03 * k, hp: 2500, at, eco: 0.05, duck: false });                           // el papel contra la mesa
+    tone({ freq: 146.8 - 40 * k, slideTo: 73.4 - 30 * k, dur: 0.1 + 0.14 * k, type: 'sine', gain: 0.16 + 0.09 * k, at, eco: 0.1 + 0.15 * k });   // el cuerpo
+    noise({ dur: 0.07 + 0.09 * k, gain: 0.15 + 0.08 * k, hp: 60, lp: 500 + 500 * k, at, eco: 0.2 + 0.2 * k });   // la mesa que se hunde
+    if (k > 0.35) [0.06, 0.1, 0.15].forEach((d, i) => noise({ dur: 0.02, gain: 0.035 - i * 0.008, hp: 4200, at: at + d, eco: 0.3, duck: false }));   // esquirlas
+};
 const SFX = {
-    // Lanzar una carta: primero viaja, luego aterriza. El tono varía un poco con el id de la
-    // carta —igual que su inclinación en `thrownStyle`—, así que dos lanzamientos seguidos no
-    // suenan calcados.
-    drop: (cardId = 0) => cartaCae(((cardId * 2654435761) >>> 0) % 30),
+    // Lanzar una carta: SOLO el viaje (un roce de aire que baja). El golpe suena cuando aterriza
+    // de verdad, 360 ms después, desde la animación (`impacto`): antes sonaba a los 70 ms, con
+    // la carta aún en el aire. El tono varía un poco con el id de la carta, como su inclinación.
+    drop: (cardId = 0) => {
+        const h = ((cardId * 2654435761) >>> 0) % 60;
+        noise({ dur: 0.13, gain: 0.045, hp: 1800, eco: 0.1, duck: false });
+        tone({ freq: 420 + h, slideTo: 200, dur: 0.1, type: 'triangle', gain: 0.035, duck: false });
+    },
+    impacto: (E = 1) => impacto(E),
+    // La carta ganada en una pelea: cae con todo y suena a premio (re · la)
+    impactoFuerte: (E = 1) => {
+        impacto(Math.max(2.6, E));
+        tone({ freq: RE5, dur: 0.45, gain: 0.07, eco: 0.5, duck: false }); tone({ freq: LA5, dur: 0.5, gain: 0.07, at: 0.03, eco: 0.5, duck: false });
+        noise({ dur: 0.3, gain: 0.03, hp: 5500, at: 0.04, eco: 0.5, duck: false });
+    },
+    // Una carta que se posa sin fuerza (el menú recoge la mano, las miniaturas de la verificación)
+    posar: () => noise({ dur: 0.045, gain: 0.2, hp: 200, lp: 2400, eco: 0.1, duck: false }),
+    // El tablero entra: la mesa cae desde arriba (pesada), el marcador (ligero) y tu mano
+    tablero: () => {
+        noise({ dur: 0.3, gain: 0.05, hp: 900, eco: 0.2, duck: false });            // el barrido
+        impacto(3.2, 0.4); tone({ freq: 73.4, slideTo: 36.7, dur: 0.4, type: 'sine', gain: 0.15, at: 0.4, eco: 0.3 });
+        impacto(0.7, 0.53); impacto(1.5, 0.62);
+    },
+    // Verificación: el sello cae sobre cada pila (bien / mal) y el sello grande al final
+    sello: () => { impacto(1.3); tone({ freq: LA5, dur: 0.12, gain: 0.07, at: 0.01, eco: 0.4, duck: false }); },
+    selloMal: () => { impacto(1.8); tone({ freq: FA4 / 2, slideTo: RE4 / 2, dur: 0.16, type: 'square', gain: 0.08, lp: 800, at: 0.01 }); },
+    selloFin: (bien = 1) => {
+        impacto(3.2);
+        if (bien) [RE5, LA5, RE6].forEach((f, i) => tone({ freq: f, dur: 0.45, gain: 0.08, at: 0.02 + i * 0.05, eco: 0.5, duck: false }));
+        else tone({ freq: LA4 / 2, slideTo: RE4 / 2, dur: 0.4, type: 'sawtooth', gain: 0.1, lp: 900, at: 0.02 });
+    },
     take: () => { noise({ dur: 0.04, gain: 0.07, hp: 2800, duck: false }); tone({ freq: LA4, slideTo: RE5, dur: 0.07, type: 'triangle', gain: 0.11 }); },
     // Pila completa: la5 → re6 → fa6 y un brillo
     setDone: () => {
@@ -198,13 +236,14 @@ const SFX = {
     menuBack: () => { noise({ dur: 0.06, gain: 0.07, hp: 1800, duck: false }); tone({ freq: LA4, slideTo: RE4, dur: 0.09, type: 'triangle', gain: 0.07, eco: 0.3, duck: false }); },
     toggle: () => tone({ freq: DO5, dur: 0.04, type: 'sine', gain: 0.07, eco: 0.1, duck: false }),
     // ── La sala ──
-    join: () => { cartaCae(14); tone({ freq: FA5, dur: 0.1, type: 'sine', gain: 0.09, at: 0.1, eco: 0.5 }); tone({ freq: LA5, dur: 0.22, type: 'sine', gain: 0.09, at: 0.19, eco: 0.5 }); },
+    // (se llama cuando la carta del que llega golpea su asiento)
+    join: () => { impacto(1.2); tone({ freq: FA5, dur: 0.1, type: 'sine', gain: 0.09, at: 0.04, eco: 0.5 }); tone({ freq: LA5, dur: 0.22, type: 'sine', gain: 0.09, at: 0.13, eco: 0.5 }); },
     leave: () => { tone({ freq: LA4, dur: 0.1, type: 'sine', gain: 0.07, eco: 0.4, duck: false }); tone({ freq: FA4, dur: 0.2, type: 'sine', gain: 0.07, at: 0.09, eco: 0.4, duck: false }); },
     chat: () => tone({ freq: DO6, dur: 0.06, type: 'sine', gain: 0.05, eco: 0.3, duck: false }),
     ready: () => { tone({ freq: RE5, dur: 0.07, gain: 0.12 }); tone({ freq: LA5, dur: 0.2, gain: 0.12, at: 0.06, eco: 0.4 }); },
     unready: () => { tone({ freq: LA4, dur: 0.07, gain: 0.08, duck: false }); tone({ freq: FA4, dur: 0.14, gain: 0.08, at: 0.06, duck: false }); },
     // Reparto: tres cartas seguidas sobre la mesa
-    deal: () => [0, 0.09, 0.18].forEach((at, i) => cartaCae(i * 9, at)),
+    deal: () => [0, 0.1, 0.2].forEach((at, i) => impacto(0.8 + i * 0.2, at)),
     // ── Pelea: cada golpe tuyo, más agudo según machacas (n = los que llevas) ──
     tap: (n = 0) => {
         noise({ dur: 0.03, gain: 0.09, hp: 500, lp: 3000, eco: 0.05, duck: false });

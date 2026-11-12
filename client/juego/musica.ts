@@ -1,8 +1,9 @@
 // ─── Música de fondo ──────────────────────────────────────────────────────
 //
-// Dos arreglos de la misma pieza, «Marcha de la marioneta de cartón» (client/musica/): el
-// del MENÚ (llamada y respuesta, tranquilo) y el de la PARTIDA (tres voces entrelazadas). Tienen el mismo tempo, los mismos 28
-// compases en 7/4 y la misma armonía, y duran lo mismo al fotograma. Por eso suenan A LA
+// Dos arreglos de la misma pieza, «Carrera de calcetines» (client/musica/): el del MENÚ
+// (infantil: caja de música, glockenspiel, pizzicatos, bajo funk) y el de la PARTIDA (fuerte:
+// la guitarra eléctrica canta al galope, con batería de rock). Tienen el mismo tempo (184), los
+// mismos 48 compases de 4/4 y las mismas notas, y duran lo mismo al fotograma. Por eso suenan A LA
 // VEZ, en bucle y arrancados juntos, y lo único que cambia es cuál se oye: pasar de una
 // a otra es un fundido de potencia constante (seno/coseno) y, como van sincronizadas, no
 // hay salto de ritmo ni de acorde.

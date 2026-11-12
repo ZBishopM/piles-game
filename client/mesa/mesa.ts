@@ -134,13 +134,14 @@ const ico = (n: Icono) => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="tru
 const pon = (c: HTMLElement, x: number, y: number, r = 0, s = 1) => { c.style.setProperty('--x', x + 'px'); c.style.setProperty('--y', y + 'px'); c.style.setProperty('--r', r + 'deg'); c.style.setProperty('--s', String(s)); };
 // El centro es el de la mesa de fondo: las cartas vuelan a donde se ve en pantalla.
 const pilaX = () => escena.centro().x - 64, pilaY = () => escena.centro().y - 88;
+const EN_MENU = () => !document.body.classList.contains('en-partida');   // en la partida el menú sigue vivo debajo, pero calla
 /** La carta cae al centro esparcido y se queda en la mesa de fondo, con las otras. */
 function alCentro(c: HTMLElement, dorso = false, retraso = 0) {
     const h = escena.soltar(dorso);
     c.classList.remove('respira', 'elegida', 'cabecera', 'previa');
     c.style.transitionDelay = `${retraso}ms`;
     pon(c, h.x - 64, h.y - 88, Math.random() * 60 - 30, h.s);
-    setTimeout(() => { h.poner(); c.style.transitionDelay = ''; c.style.opacity = '0'; }, 480 + retraso);
+    setTimeout(() => { h.poner(); c.style.transitionDelay = ''; c.style.opacity = '0'; if (EN_MENU()) playSfx('posar'); }, 480 + retraso);   // se posa al llegar
     setTimeout(() => c.remove(), 820 + retraso);
 }
 
@@ -421,7 +422,8 @@ function sincronizarSala(llega = false) {
             const nueva = c;
             requestAnimationFrame(() => requestAnimationFrame(() => { nueva.style.transition = ''; pon(nueva, x, y, (i % 2 ? 1 : -1) * 3, .56); }));
             if (llega && !tuyo) {
-                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8); playSfx('join');
+                decir('', T('{n} entró', { n: p.nickname }), true); vibrar(8);
+                setTimeout(() => playSfx('join'), 480);   // con el golpe de la carta en su asiento, no al empezar a caer
                 // Al caer en su asiento, un golpe: se ve que ya está, no solo que llega algo
                 c.animate([{ scale: 1 }, { scale: 1.35 }, { scale: 1 }], { duration: 420, delay: 480, easing: 'cubic-bezier(.34,1.56,.64,1)' });
             }
@@ -701,7 +703,7 @@ function alMensaje(msg: ServerMessage) {
         case 'kick_poll': alVoto(msg); break;
         case 'kick_poll_ended': alFinVoto(msg); break;
         case 'kicked': ultimaSala = null; break;
-        case 'game_start': cancelarCuentaVisual(); playSfx('deal'); break;
+        case 'game_start': cancelarCuentaVisual(); break;   // el sonido del tablero que cae lo pone la partida, con su animación
     }
 }
 /** Votación para echar: quien vota tiene «Sí, fuera» / «No»; el votado y los demás, el estado. */
