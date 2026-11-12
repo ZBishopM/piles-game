@@ -29,8 +29,9 @@ const PISTAS: Pista[] = ['menu', 'partida'];
 const ARCHIVOS: Record<Pista, string> = { menu: '/musica/menu.ogg', partida: '/musica/partida.ogg' };
 /** Volumen general: la música va por debajo de los efectos. */
 const NIVEL = 0.28;
-/** La introducción de la partida: 4 compases de 4/4 a 184. El bucle empieza después. */
-const INTRO_PARTIDA = 4 * 240 / 184;
+/** La introducción de la partida, en segundos: el bucle empieza después. La dice /musica/musica.json, que se escribe
+ *  al publicar la música (tools/musica.py); si no se puede leer, vale la de la pieza original (4 compases a 184). */
+let INTRO_PARTIDA = 4 * 240 / 184;
 const SALE_MENU = 0.5, SALE_PARTIDA = 1.2, VUELVE_MENU = 1.5;   // segundos de cada fundido
 /** Cuánto se agacha la música bajo un efecto: −6 dB. */
 const AGACHE = 0.5;
@@ -76,7 +77,7 @@ function aplicar() {
             const src = ctx.createBufferSource();
             src.buffer = bufs.partida;
             src.loop = true;
-            src.loopStart = INTRO_PARTIDA;                             // el piano solo suena la primera vez
+            src.loopStart = Math.min(INTRO_PARTIDA, bufs.partida.duration - 1);   // la introducción solo suena la primera vez
             src.loopEnd = bufs.partida.duration;
             const gain = ctx.createGain();
             gain.gain.value = 1;                                       // entra de golpe: es el piano el que anuncia
@@ -128,6 +129,10 @@ export function tensarMusica(si: boolean) {
 }
 
 async function cargar(ctx: AudioContext) {
+    try {
+        const j = await (await fetch('/musica/musica.json')).json();
+        if (typeof j.introPartida === 'number' && j.introPartida >= 0) INTRO_PARTIDA = j.introPartida;
+    } catch { /* se queda la de la pieza original */ }
     await Promise.all(PISTAS.map(async p => {
         try {
             const r = await fetch(ARCHIVOS[p]);

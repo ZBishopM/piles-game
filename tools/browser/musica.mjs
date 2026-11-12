@@ -60,9 +60,11 @@ function revisa(nombre, m, desde, hasta) {
   await espera(2500);
   e = await estado(p);
   ok(e.arrancada && e.cargadas.length === 2, `arrancan las dos pistas (${e.cargadas.join(' + ')})`);
-  // El menú va a 92 (24 compases = 62,6 s); la partida a 184, con 4 compases de piano delante de su bucle de 48
-  ok(Math.abs(e.largoBucle - 62.607) < 0.05 && Math.abs(e.duraciones.partida - 67.825) < 0.05 && Math.abs(e.introPartida - 5.2174) < 0.001,
-     `menú ${e.duraciones.menu.toFixed(3)} s en bucle; partida ${e.duraciones.partida.toFixed(3)} s con ${e.introPartida.toFixed(3)} s de introducción`);
+  // Lo que dura cada pista y dónde empieza el bucle de la partida lo dice musica.json (lo escribe tools/musica.py al publicar)
+  const mj = await p.evaluate(async () => (await fetch('/musica/musica.json')).json());
+  ok(Math.abs(e.largoBucle - mj.duracion.menu) < 0.05 && Math.abs(e.duraciones.partida - mj.duracion.partida) < 0.05 && Math.abs(e.introPartida - mj.introPartida) < 0.001
+     && mj.introPartida < mj.duracion.partida - 1,
+     `menú ${e.duraciones.menu.toFixed(3)} s en bucle; partida ${e.duraciones.partida.toFixed(3)} s con ${e.introPartida.toFixed(3)} s de introducción (como dice musica.json)`);
   ok(e.fase > 1.5 && e.fase < 5, `el menú corre (fase del bucle ${e.fase.toFixed(2)} s tras ~3 s)`);
   ok(e.menu > 0.95 && !e.partidaSonando, `en el menú suena el menú (${e.menu.toFixed(2)}) y la partida no está sonando`);
   ok(e.maestra > 0.2 && e.maestra < 0.3, `volumen general ${e.maestra.toFixed(3)} (entra poco a poco hacia 0,28)`);

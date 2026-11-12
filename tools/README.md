@@ -11,6 +11,9 @@ Los scripts de Node y de Playwright aceptan `--base=local|beta|prod|<url>` (por 
 local); los de nu, `-b`. Primera vez: `cd tools; pnpm install` (los navegadores de
 Playwright se bajan aparte: `pnpm exec playwright install chromium`).
 
+**Cambiar la música** (editar en LMMS, publicar en beta, promover, volver a una versión anterior):
+`nu tools/musica.nu` — el ciclo entero está en [`musica/README.md`](../musica/README.md).
+
 ## Qué hacer cuando…
 
 | Te cuentan | Empieza por |
