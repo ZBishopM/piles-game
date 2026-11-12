@@ -33,11 +33,14 @@ def "main render" [--intro-compases: int = 4] {
 }
 
 # Renderiza, guarda una versión nueva (etiqueta musica-vN) y la sube a beta.
-def "main publicar" [nota: string, --intro-compases: int = 4] {
+def "main publicar" [nota: string, --intro-compases: int = 4, --forzar] {
     cd (raiz)
+    # Se mira si cambió algún proyecto, no las pistas: dos renders del mismo .mmp no salen idénticos byte a byte.
+    if (not $forzar) and (^git status --porcelain -- musica | str trim | is-empty) {
+        print "nada que publicar: no has guardado cambios en musica/*.mmp (con --forzar se publica igual, p. ej. tras cambiar --intro-compases)"; return
+    }
     ^python -I tools/musica.py --intro-compases $intro_compases
     ^git add ...$ARCHIVOS
-    if (^git diff --cached --name-only | str trim | is-empty) { print "nada que publicar: la música no ha cambiado"; return }
     let n = ((versiones | each { $in | str replace "musica-v" "" | into int } | append 0 | math max) + 1)
     ^git commit -q -m $"musica-v($n): ($nota)" -- ...$ARCHIVOS
     ^git tag $"musica-v($n)"
