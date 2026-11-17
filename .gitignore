@@ -46,3 +46,6 @@ docker-compose.override.yml
 
 # Capturas de comprobación que genera archify
 arquitectura-piles.visual-check.*
+
+# Escuchas de las opciones de música (se regeneran con tools/musica.py --fuente … --salida …)
+musica/opciones/*/escucha/

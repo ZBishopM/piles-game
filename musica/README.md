@@ -28,6 +28,22 @@ nu tools/musica.nu promover                  # y producción también
 `volver` trae de vuelta también los `.mmp` de esa versión: se puede seguir
 editando desde ella. No borra nada: la vuelta atrás es una versión más.
 
+## Elegir entre opciones
+
+En `opciones/` hay propuestas completas (menú + partida), cada una con su
+`NOTAS.md`: qué decisión se tomó en cada aspecto y por qué. El estilo común
+está en [`ESTILO.md`](ESTILO.md).
+
+```nu
+nu tools/musica.nu opciones                  # cuáles hay
+nu tools/musica.nu probar B                  # la pone en el juego LOCAL (no publica nada)
+nu tools/musica.nu probar actual             # vuelve a la música publicada
+nu tools/musica.nu publicar "estilo nuevo: B"   # si te quedas con ella: versión nueva y a beta
+```
+
+`probar` copia sus `.mmp` a `musica/`: desde ahí se editan en LMMS como
+siempre. Las escuchas en MP3 (`opciones/<letra>/escucha/`) no se versionan.
+
 ## Al editar en LMMS
 
 - **No hace falta exportar.** Se guarda el proyecto y `render` hace el resto:

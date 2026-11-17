@@ -2,6 +2,8 @@
 #
 #   nu tools/musica.nu abrir partida        abre musica/partida.mmp en LMMS (o `menu`)
 #   nu tools/musica.nu render               musica/*.mmp → client/musica/*.ogg (para oírla en local)
+#   nu tools/musica.nu opciones             las opciones para elegir (musica/opciones/)
+#   nu tools/musica.nu probar A             pone la opción A en el juego local (no publica); `probar actual` la quita
 #   nu tools/musica.nu publicar "qué cambió"   render + versión nueva (musica-vN) + beta
 #   nu tools/musica.nu versiones            las versiones publicadas, la más nueva arriba
 #   nu tools/musica.nu volver musica-v3     deja la música de esa versión (proyectos y pistas) y la publica en beta
@@ -11,7 +13,9 @@
 # devuelve también sus .mmp, así se puede seguir editando desde ella. Ver musica/README.md.
 
 const LMMS = "C:/Program Files/LMMS/lmms.exe"
-const ARCHIVOS = [musica client/musica/menu.ogg client/musica/partida.ogg client/musica/musica.json]
+# Solo los dos proyectos y lo que sale de ellos: `volver` y `probar actual` no tocan nada más de musica/ (notas, opciones…)
+const PROYECTOS = [musica/menu.mmp musica/partida.mmp]
+const ARCHIVOS = [musica/menu.mmp musica/partida.mmp client/musica/menu.ogg client/musica/partida.ogg client/musica/musica.json]
 
 def raiz [] { $env.FILE_PWD | path dirname }
 def versiones [] { ^git tag -l "musica-v*" | lines | where $it =~ '^musica-v\d+$' | sort-by { $in | str replace "musica-v" "" | into int } }
@@ -32,11 +36,37 @@ def "main render" [--intro-compases: int = 4] {
     ^python -I tools/musica.py --intro-compases $intro_compases
 }
 
+# Las opciones de música que hay para elegir (musica/opciones/<nombre>), con la primera línea de sus NOTAS.md.
+def "main opciones" [] {
+    cd (raiz)
+    ls musica/opciones | where type == dir | each {|d|
+        let notas = ($d.name | path join NOTAS.md)
+        { opcion: ($d.name | path basename), idea: (if ($notas | path exists) { open --raw $notas | lines | where $it =~ '^# ' | first 1 | str join | str replace '# ' '' } else { "" }) }
+    }
+}
+
+# Pone una opción en el juego LOCAL para oírla jugando (no publica nada). `probar actual` vuelve a la música publicada.
+def "main probar" [nombre: string] {
+    cd (raiz)
+    if $nombre == "actual" {
+        ^git checkout HEAD -- ...$ARCHIVOS
+        print "vuelve a sonar la música publicada"
+        return
+    }
+    let d = $"musica/opciones/($nombre)"
+    if not ($d | path exists) { error make { msg: $"no existe ($d). Mira `nu tools/musica.nu opciones`" } }
+    cp $"($d)/menu.mmp" musica/menu.mmp
+    cp $"($d)/partida.mmp" musica/partida.mmp
+    ^python -I tools/musica.py
+    print $"suena la opción ($nombre) en local: arranca el servidor \(PORT=3077\) y abre http://127.0.0.1:3077"
+    print $"si te quedas con ella: nu tools/musica.nu publicar \"estilo nuevo: ($nombre)\"   ·   si no: nu tools/musica.nu probar actual"
+}
+
 # Renderiza, guarda una versión nueva (etiqueta musica-vN) y la sube a beta.
 def "main publicar" [nota: string, --intro-compases: int = 4, --forzar] {
     cd (raiz)
     # Se mira si cambió algún proyecto, no las pistas: dos renders del mismo .mmp no salen idénticos byte a byte.
-    if (not $forzar) and (^git status --porcelain -- musica | str trim | is-empty) {
+    if (not $forzar) and (^git status --porcelain -- ...$PROYECTOS | str trim | is-empty) {
         print "nada que publicar: no has guardado cambios en musica/*.mmp (con --forzar se publica igual, p. ej. tras cambiar --intro-compases)"; return
     }
     ^python -I tools/musica.py --intro-compases $intro_compases

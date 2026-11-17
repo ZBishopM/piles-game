@@ -66,7 +66,13 @@ def db(v):
 
 
 def main():
+    global FUENTE, SALIDA
     intro_compases = int(sys.argv[sys.argv.index("--intro-compases") + 1]) if "--intro-compases" in sys.argv else 4
+    # Otra carpeta de proyectos y de salida: para escuchar una opción (musica/opciones/<nombre>) sin tocar la del juego
+    if "--fuente" in sys.argv:
+        FUENTE = os.path.abspath(sys.argv[sys.argv.index("--fuente") + 1])
+    if "--salida" in sys.argv:
+        SALIDA = os.path.abspath(sys.argv[sys.argv.index("--salida") + 1])
     tmp = tempfile.mkdtemp(prefix="piles-musica-")
     pistas = {}
     for v in ("menu", "partida"):
