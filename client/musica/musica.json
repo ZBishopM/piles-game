@@ -1,11 +1,11 @@
 {
- "introPartida": 5.21739,
+ "introPartida": 5.71429,
  "duracion": {
-  "menu": 62.6068,
-  "partida": 67.82549
+  "menu": 55.38249,
+  "partida": 51.42639
  },
  "bpm": {
-  "menu": 92.0,
-  "partida": 184.0
+  "menu": 104.0,
+  "partida": 168.0
  }
 }
