@@ -62,8 +62,12 @@ Hopes and Dreams 94,4 M.
    aparece en dos de cinco). No salta de fundamental en fundamental.
 2. **Mismo motivo, otro suelo.** La melodía se repite idéntica y el bajo la
    reinterpreta. Da variedad sin gastar ideas.
-3. **No descansar.** Las frases empiezan lejos de la tónica (IV, iv, ii) y
-   acaban antes de resolver: por eso aguantan en bucle.
+3. **Una llegada por vuelta; el bucle, abierto.** Las frases empiezan lejos de
+   la tónica (IV, iv, ii). Dentro de cada sección hay **al menos una llegada a
+   casa** (re sobre re menor, en el primer tiempo); **solo el último compás del
+   bucle** se queda sin resolver, y así vuelve al principio sin sonar a final.
+   *(Corregida el 2026-11-17: antes decía «no descansar» sin más y se aplicó a
+   todas las frases; la melodía prometía reposo y no llegaba. Ver «Reposo».)*
 4. **Acordes simples, melodía con tensión.** Tríadas; la melodía cae en tiempo
    fuerte sobre notas ajenas al acorde y resuelve por grado.
 5. **Mezcla de modos como emoción.** Un solo acorde prestado (iv en mayor, IV
@@ -83,6 +87,52 @@ Hopes and Dreams 94,4 M.
 Lo que dice el vídeo y aquí se confirma: el timbre retro (regla 10) y el
 leitmotiv como lo que une todo (regla 8). El vídeo no entra en armonía ni en
 ritmo; eso sale de [H].
+
+## Reposo: dónde descansa la melodía
+
+La teoría que decide si una frase «llega» o «se queda colgando».
+
+- **Notas estables.** En re menor, re · fa · la (1.º, 3.º y 5.º grado); **re**
+  la que más. Las demás piden moverse a una de ellas.
+- **Tiempo fuerte = nota del acorde.** En el primer tiempo (y en el tercero, en
+  4/4) el oído espera una nota del acorde que suena. Una que no lo es crea
+  tensión, y se resuelve **bajando (o subiendo) un grado** a una que sí lo es,
+  antes de la barra. Una que no se resuelve se queda **colgando**.
+- **Cadencias**, las fórmulas de final de frase:
+
+  | cadencia | en re menor | se siente como |
+  |---|---|---|
+  | auténtica (V → I) | la7 → re menor | punto final |
+  | semicadencia (acaba en V) | … → la7 | pregunta, coma |
+  | plagal (IV → I) | sol menor → re | «amén», suspiro |
+  | rota (V → VI) | la7 → si♭ | «parecía que acababa, y no» |
+
+- **Período**: ocho compases en dos frases. La primera acaba en semicadencia
+  (pregunta); la segunda, en cadencia auténtica con **re sobre re menor en el
+  primer tiempo** (respuesta).
+
+**Lo que se mide** (lo imprime `generador/estilo.py` en cada render):
+
+| medida | mínimo |
+|---|---|
+| tiempos fuertes en nota del acorde | 75 % |
+| tiempos fuertes fuera del acorde que no se resuelven («colgando») | 10 % como mucho |
+| llegadas a re sobre re por sección con melodía | 1 |
+
+Los riffs y arpegios graves (el de «pelear», la onda cuadrada arpegiando) no
+cuentan: son acompañamiento.
+
+**Progresiones conocidas que usamos**
+
+| dónde | progresión | nombre |
+|---|---|---|
+| A · partida, el bajo | re – do – si – si♭ | bajo de lamento: baja por grados |
+| A · estribillo | si♭ – do – re menor | VI – VII – i, la subida eólica |
+| A · menú | re – si menor – sol – sol menor – re | I – vi – IV – iv – I, con cadencia plagal menor |
+| B · estrofa | re menor 7 ↔ sol | i – IV dórico, vaivén sin cadencia |
+| B · estribillo | la – fa♯ menor – re – mi – la | I – vi – IV – V – I, la de los años 50 |
+| C | si♭ – do – re – mi – fa – sol – la | secuencia ascendente |
+| todas | la7 → re menor | cadencia auténtica (desde las versiones 2) |
 
 ## Cómo lo traduce Piles
 
